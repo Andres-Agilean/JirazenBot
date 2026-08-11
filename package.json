@@ -1,0 +1,21 @@
+{
+  "name": "teams-jira-zendesk-bot",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "card": "tsx scripts/card.ts",
+    "fixtures": "tsx scripts/capture-fixtures.ts"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
