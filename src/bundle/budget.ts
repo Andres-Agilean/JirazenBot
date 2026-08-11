@@ -10,7 +10,7 @@ export function estimateTokens(text: string): number {
 }
 
 export function applyBudget(bundle: CardBundle, budgetTokens: number): CardBundle {
-  let b: CardBundle = structuredClone(bundle);
+  const b: CardBundle = structuredClone(bundle);
   if (fits(b, budgetTokens)) return b;
 
   // Passo 1: encurta corpos longos de comentários Zendesk (exceto os 10 mais recentes)
@@ -35,15 +35,14 @@ export function applyBudget(bundle: CardBundle, budgetTokens: number): CardBundl
     while (!fits(b, budgetTokens) && s.comments.length > 1 + KEEP_RECENT) {
       s.comments.splice(1, 1); // remove o mais antigo depois do primeiro
     }
-    if (s.comments.length < (side === 'zendesk' ? bundle.zendesk?.comments.length ?? 0 : bundle.jira?.comments.length ?? 0)) {
+    const originalLength = side === 'zendesk' ? bundle.zendesk!.comments.length : bundle.jira!.comments.length;
+    if (s.comments.length < originalLength) {
       b.truncationNotes.push(`comentários intermediários do ${side === 'zendesk' ? 'Zendesk' : 'Jira'} foram omitidos`);
     }
   }
+  if (fits(b, budgetTokens)) return b;
 
   // Passo 3: limita o histórico às 20 transições mais recentes
-  // (Não há checagem de "fits" antes deste passo: o passo 2 pode já ter atingido o
-  // orçamento sem esgotar seu piso de comentários, mas um histórico de status longo
-  // ainda deve ser condensado sempre que a truncagem já foi disparada.)
   if (b.jira && b.jira.statusHistory.length > KEEP_HISTORY) {
     b.jira.statusHistory = b.jira.statusHistory.slice(-KEEP_HISTORY);
     b.truncationNotes.push('histórico de status antigo foi omitido');
