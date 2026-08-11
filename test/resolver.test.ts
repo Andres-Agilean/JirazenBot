@@ -34,6 +34,13 @@ describe('ZendeskLinksStrategy', () => {
     await new ZendeskLinksStrategy(testConfig, spy).zendeskToJira('16467');
     expect(seenMethod === undefined || seenMethod === 'GET').toBe(true);
   });
+
+  it('normalizes numeric ids from the links API to strings', async () => {
+    const f = makeFetch({ '/links': fixture('links-numeric') });
+    const s = new ZendeskLinksStrategy(testConfig, f);
+    expect(await s.jiraToZendesk(issueRef)).toEqual(['16467']);
+    expect(await s.zendeskToJira('16467')).toEqual([{ issueId: '42395', issueKey: 'QZ-252' }]);
+  });
 });
 
 describe('JiraFieldStrategy', () => {
@@ -49,6 +56,15 @@ describe('JiraFieldStrategy', () => {
 
   it('searches JQL for zendesk→jira', async () => {
     expect(await new JiraFieldStrategy(jira, testConfig).zendeskToJira('16467')).toEqual([issueRef]);
+  });
+
+  it('returns no ticket when the Zendesk ID field is empty or whitespace', async () => {
+    const blank = { ...(fixture('jira-issue') as any), fields: { ...(fixture('jira-issue') as any).fields, customfield_10356: '   ' } };
+    const jiraBlank = new JiraClient(testConfig, makeFetch({
+      '/rest/api/3/issue/42395/comment': fixture('jira-comments'),
+      '/rest/api/3/issue/42395': blank,
+    }));
+    expect(await new JiraFieldStrategy(jiraBlank, testConfig).jiraToZendesk(issueRef)).toEqual([]);
   });
 });
 
