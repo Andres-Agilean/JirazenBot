@@ -61,4 +61,15 @@ describe('adfToMarkdown', () => {
   it('ignores unknown node types but keeps their children', () => {
     expect(adfToMarkdown(doc({ type: 'layoutSection', content: [para(text('dentro'))] }))).toBe('dentro');
   });
+
+  it('preserves nested list structure with correct indentation', () => {
+    const md = adfToMarkdown(doc({ type: 'bulletList', content: [
+      { type: 'listItem', content: [para(text('um')), { type: 'bulletList', content: [
+        { type: 'listItem', content: [para(text('nested1'))] },
+        { type: 'listItem', content: [para(text('nested2'))] },
+      ] }] },
+      { type: 'listItem', content: [para(text('dois'))] },
+    ] }));
+    expect(md).toBe('- um\n  - nested1\n  - nested2\n- dois');
+  });
 });

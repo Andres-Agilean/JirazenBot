@@ -49,7 +49,13 @@ function renderBlock(n: AdfNode): string {
 }
 
 function renderListItem(li: AdfNode): string {
-  return renderBlocks(li.content ?? []).replace(/\n\n/g, '\n  ');
+  const blocks = (li.content ?? []).map(renderBlock).filter((s) => s !== '');
+  const [first = '', ...rest] = blocks;
+  if (rest.length === 0) return first;
+  const indented = rest
+    .map((b) => b.split('\n').map((l) => `  ${l}`).join('\n'))
+    .join('\n');
+  return `${first}\n${indented}`;
 }
 
 function renderTable(table: AdfNode): string {
