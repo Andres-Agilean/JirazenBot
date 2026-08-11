@@ -3,6 +3,7 @@ import type { Resolver } from '../resolve/resolver.js';
 import { JiraClient, NotFoundError, type JiraIssue } from '../fetch/jira.js';
 import type { ZendeskClient, ZendeskTicket } from '../fetch/zendesk.js';
 import { condenseChangelog } from '../fetch/condense.js';
+import { applyBudget } from './budget.js';
 import type { CardBundle, Surface } from './types.js';
 
 export interface AssembleDeps { jira: JiraClient; zendesk: ZendeskClient; resolver: Resolver }
@@ -17,6 +18,7 @@ export async function assembleBundle(
   deps: AssembleDeps,
   surface: Surface,
   now: () => Date = () => new Date(),
+  budgetTokens = 25000,
 ): Promise<AssembleResult> {
   let jiraIssue: JiraIssue | undefined;
   let ticket: ZendeskTicket | undefined;
@@ -79,7 +81,7 @@ export async function assembleBundle(
     };
   }
 
-  return { status: 'ok', bundle };
+  return { status: 'ok', bundle: applyBudget(bundle, budgetTokens) };
 }
 
 // Counterpart fetch failures degrade to a single-sided bundle instead of failing the request.
