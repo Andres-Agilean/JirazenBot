@@ -2,7 +2,7 @@ import type { CardRef } from './types.js';
 
 const ZENDESK_URL = /https?:\/\/[\w-]+\.zendesk\.com\/(?:agent\/)?tickets?\/(\d+)/i;
 const JIRA_URL = /https?:\/\/[\w.-]+\.atlassian\.net\/\S*?\b([A-Z][A-Z0-9]+-\d+)\b/;
-const ISSUE_KEY = /\b([A-Z][A-Z0-9]+)-(\d+)\b/;
+const ISSUE_KEY = /\b([A-Z][A-Z0-9]+)-(\d+)\b/g;
 const KEYWORD_TICKET = /(?:^|\s)(?:chamado|ticket|zd)\s*#?\s*(\d+)\b/i;
 const HASH_TICKET = /#(\d+)\b/;
 const WHOLE_MESSAGE_NUMBER = /^\s*(\d{2,})\s*[?.!]*\s*$/;
@@ -12,11 +12,17 @@ export function parseReference(text: string, allowedProjects: string[]): CardRef
   if (zUrl) return { system: 'zendesk', ticketId: zUrl[1], explicit: true };
 
   const jUrl = text.match(JIRA_URL);
-  if (jUrl) return { system: 'jira', issueKey: jUrl[1], explicit: true };
+  if (jUrl) {
+    const keyMatch = jUrl[1].match(/^([A-Z][A-Z0-9]+)-(\d+)$/);
+    if (keyMatch && allowedProjects.includes(keyMatch[1])) {
+      return { system: 'jira', issueKey: jUrl[1], explicit: true };
+    }
+  }
 
-  const key = text.match(ISSUE_KEY);
-  if (key && allowedProjects.includes(key[1])) {
-    return { system: 'jira', issueKey: `${key[1]}-${key[2]}`, explicit: true };
+  for (const match of text.matchAll(ISSUE_KEY)) {
+    if (allowedProjects.includes(match[1])) {
+      return { system: 'jira', issueKey: `${match[1]}-${match[2]}`, explicit: true };
+    }
   }
 
   const kw = text.match(KEYWORD_TICKET);

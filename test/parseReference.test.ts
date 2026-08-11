@@ -13,12 +13,21 @@ describe('parseReference', () => {
     expect(p('vi isso no XYZ-99')).toBeNull();
   });
 
+  it('finds an allowed key even after a disallowed dash token', () => {
+    expect(p('converti pra UTF-8 mas o bug real e o AGL-100')).toEqual({ system: 'jira', issueKey: 'AGL-100', explicit: true });
+    expect(p('vi isso no XYZ-99 mas o certo e o AGL-100')).toEqual({ system: 'jira', issueKey: 'AGL-100', explicit: true });
+  });
+
   it('parses Jira browse URLs', () => {
     expect(p('https://your-tenant.atlassian.net/browse/AGL-1658')).toEqual({ system: 'jira', issueKey: 'AGL-1658', explicit: true });
   });
 
   it('parses Jira board/issues URLs', () => {
     expect(p('https://your-tenant.atlassian.net/jira/software/c/projects/QZ/issues/QZ-252')).toEqual({ system: 'jira', issueKey: 'QZ-252', explicit: true });
+  });
+
+  it('rejects Jira URLs pointing at disallowed projects', () => {
+    expect(p('https://your-tenant.atlassian.net/browse/XYZ-99')).toBeNull();
   });
 
   it('parses Zendesk agent ticket URLs', () => {
