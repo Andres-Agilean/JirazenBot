@@ -1,0 +1,17 @@
+{
+  "comments": [
+    {
+      "id": "41457",
+      "author": { "displayName": "Otavio Fernandes" },
+      "created": "2026-08-04T11:59:50.084-0300",
+      "body": { "type": "doc", "version": 1, "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Não foi possivel replicar o erro internamente" } ] } ] }
+    },
+    {
+      "id": "41587",
+      "author": { "displayName": "Automation for Jira" },
+      "created": "2026-08-06T14:44:58.870-0300",
+      "body": { "type": "doc", "version": 1, "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Incidente está pronto para ser testado pelo responsável" } ] } ] }
+    }
+  ],
+  "total": 2
+}

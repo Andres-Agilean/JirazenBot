@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
+import { fixture, makeFetch } from './helpers.js';
 
 const validEnv = {
   ATLASSIAN_SITE_URL: 'https://your-tenant.atlassian.net/',
@@ -29,5 +30,15 @@ describe('loadConfig', () => {
 
   it('rejects an unknown resolver strategy name', () => {
     expect(() => loadConfig({ ...validEnv, RESOLVER_ORDER: 'zendesk_links,bogus' })).toThrow(/bogus/);
+  });
+});
+
+describe('test helpers', () => {
+  it('loads fixtures and serves routed fetch responses', async () => {
+    const issue = fixture('jira-issue') as { key: string };
+    expect(issue.key).toBe('QZ-252');
+    const f = makeFetch({ '/rest/api/3/issue/': issue, '/nope': { status: 404 } });
+    const res = await f('https://x.test/rest/api/3/issue/QZ-252');
+    expect(((await res.json()) as { key: string }).key).toBe('QZ-252');
   });
 });

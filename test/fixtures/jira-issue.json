@@ -1,0 +1,52 @@
+{
+  "id": "42395",
+  "key": "QZ-252",
+  "names": { "customfield_10356": "Zendesk ID" },
+  "fields": {
+    "summary": "[GERAL - APP2.0] Aplicativo travando ao tirar uma foto",
+    "description": { "type": "doc", "version": 1, "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Ao tirar uma foto no item de inspeção, o aplicativo volta para a tela inicial" } ] } ] },
+    "status": { "name": "Em Teste" },
+    "issuetype": { "name": "Incident" },
+    "priority": { "name": "Major" },
+    "assignee": { "displayName": "Otavio Fernandes" },
+    "reporter": { "displayName": "Caio Moreira" },
+    "created": "2026-08-03T15:34:13.534-0300",
+    "updated": "2026-08-10T14:59:04.537-0300",
+    "duedate": "2026-08-05",
+    "resolution": null,
+    "labels": ["jira_escalated"],
+    "components": [ { "name": "App" } ],
+    "fixVersions": [],
+    "timetracking": { "timeSpent": "1d 4h", "remainingEstimate": "0m" },
+    "aggregatetimespent": 43200,
+    "customfield_10356": "16467",
+    "customfield_10322": { "value": "Yes" },
+    "customfield_10389": { "value": "Bug" },
+    "customfield_10622": { "value": "Regressivo recorrente" },
+    "customfield_10070": { "type": "doc", "version": 1, "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "abertura da camera nativa causa pseudo-crash por limpeza de memória" } ] } ] },
+    "customfield_10071": { "type": "doc", "version": 1, "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "camera num componente próprio do aplicativo" } ] } ] },
+    "customfield_10000": "{pullrequest={dataType=pullrequest, state=MERGED, stateCount=1}, json={\"cachedValue\":{\"errors\":[],\"summary\":{\"pullrequest\":{\"overall\":{\"count\":1,\"lastUpdated\":\"2026-08-10T17:44:07.852-0300\",\"state\":\"MERGED\",\"dataType\":\"pullrequest\"}}}},\"isStale\":true}}"
+  },
+  "changelog": {
+    "histories": [
+      {
+        "created": "2026-08-04T09:07:00.000-0300",
+        "author": { "displayName": "Automation for Jira" },
+        "items": [ { "field": "status", "fromString": "Backlog", "toString": "Em Andamento" } ]
+      },
+      {
+        "created": "2026-08-04T09:06:00.000-0300",
+        "author": { "displayName": "Heitor Alves" },
+        "items": [
+          { "field": "assignee", "fromString": null, "toString": "Otavio Fernandes" },
+          { "field": "Rank", "fromString": "", "toString": "Ranked higher" }
+        ]
+      },
+      {
+        "created": "2026-08-10T14:59:00.000-0300",
+        "author": { "displayName": "Automation for Jira" },
+        "items": [ { "field": "status", "fromString": "Em Andamento", "toString": "Em Teste" } ]
+      }
+    ]
+  }
+}

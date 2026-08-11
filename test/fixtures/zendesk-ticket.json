@@ -1,0 +1,11 @@
+{
+  "ticket": {
+    "id": 16467,
+    "subject": "[GERAL - APP2.0] Aplicativo travando ao tirar uma foto",
+    "status": "open",
+    "priority": "high",
+    "tags": ["n3_script", "agl__2.0"],
+    "created_at": "2026-08-03T18:00:00Z",
+    "updated_at": "2026-08-10T20:33:49Z"
+  }
+}

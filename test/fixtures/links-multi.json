@@ -1,0 +1,4 @@
+{ "count": 2, "links": [
+  { "issue_id": "42395", "issue_key": "QZ-252", "ticket_id": "16467" },
+  { "issue_id": "40001", "issue_key": "AGL-1500", "ticket_id": "16467" }
+], "meta": { "has_more": false } }
