@@ -58,6 +58,12 @@ describe('renderBundle', () => {
     expect(md).toContain('- 2026-08-04: responsável — → Otavio Fernandes (por Heitor Alves)');
   });
 
+  it('computes the open-status duration from fetchedAt, not the wall clock', async () => {
+    const md = renderBundle(await makeBundle('dm'));
+    expect(md).toContain('- 2026-08-10: status Em Andamento → Em Teste (por Automation for Jira, há 0d neste estado)');
+    expect(md).toBe(renderBundle(await makeBundle('dm')));
+  });
+
   it('notes omitted internal notes on multiparty', async () => {
     const md = renderBundle(await makeBundle('multiparty'));
     expect(md).toContain('Notas internas do Zendesk foram omitidas neste contexto.');

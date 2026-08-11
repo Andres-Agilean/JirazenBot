@@ -27,7 +27,7 @@ export function renderBundle(b: CardBundle): string {
     parts.push(...richSections);
 
     if (b.jira.statusHistory.length > 0) {
-      parts.push(`### Histórico\n${renderHistory(b.jira.statusHistory)}`);
+      parts.push(`### Histórico\n${renderHistory(b.jira.statusHistory, b.fetchedAt)}`);
     }
     if (b.jira.comments.length > 0) {
       parts.push('### Comentários (Jira)');
@@ -96,14 +96,14 @@ function renderGeneric(value: unknown): string | null {
   return null; // opaque object — omit rather than dump JSON
 }
 
-function renderHistory(transitions: Transition[]): string {
+function renderHistory(transitions: Transition[], fetchedAt: string): string {
   return transitions.map((t, i) => {
     const date = t.at.slice(0, 10);
     if (t.field === 'assignee') {
       return `- ${date}: responsável ${t.from ?? '—'} → ${t.to ?? '—'} (por ${t.by})`;
     }
     const next = transitions.slice(i + 1).find((n) => n.field === 'status');
-    const end = next ? new Date(next.at).getTime() : Date.now();
+    const end = next ? new Date(next.at).getTime() : new Date(fetchedAt).getTime();
     const days = Math.round((end - new Date(t.at).getTime()) / 86_400_000);
     const dur = next ? `, ${days}d no estado seguinte` : `, há ${days}d neste estado`;
     return `- ${date}: status ${t.from ?? '—'} → ${t.to ?? '—'} (por ${t.by}${dur})`;
