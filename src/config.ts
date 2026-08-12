@@ -17,6 +17,10 @@ export const DEFAULT_BUNDLE_TOKEN_BUDGET = 25000;
 export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-5';
 export const DEFAULT_CLAUDE_MAX_TOKENS = 2048;
 
+// Error message when Claude features are used without an API key.
+export const MISSING_ANTHROPIC_KEY_MESSAGE =
+  'ANTHROPIC_API_KEY não está definido no .env — necessário para as respostas do Claude.';
+
 // Base host for the Atlassian API gateway that fronts every Jira Cloud site. Requests go to
 // `${ATLASSIAN_API_GATEWAY}/ex/jira/{ATLASSIAN_CLOUD_ID}`, never to ATLASSIAN_SITE_URL directly --
 // see the Config.jiraApiBaseUrl / Config.siteUrl comment below for why.
@@ -35,7 +39,7 @@ const EnvSchema = z.object({
   RESOLVER_ORDER: z.string().default('zendesk_links,jira_zendesk_id_field'),
   JIRA_ZENDESK_ID_FIELD: z.string().default('customfield_10356'),
   BUNDLE_TOKEN_BUDGET: z.coerce.number().int().positive().default(DEFAULT_BUNDLE_TOKEN_BUDGET),
-  ANTHROPIC_API_KEY: z.string().min(1),
+  ANTHROPIC_API_KEY: z.string().default(''),
   CLAUDE_MODEL: z.string().default(DEFAULT_CLAUDE_MODEL),
   CLAUDE_MAX_TOKENS: z.coerce.number().int().positive().default(DEFAULT_CLAUDE_MAX_TOKENS),
 });
@@ -102,4 +106,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     claudeModel: e.CLAUDE_MODEL,
     claudeMaxTokens: e.CLAUDE_MAX_TOKENS,
   };
+}
+
+/** Throws when a Claude entry point is reached without an API key configured. */
+export function requireAnthropicKey(cfg: Config): string {
+  if (cfg.anthropicApiKey === '') throw new Error(MISSING_ANTHROPIC_KEY_MESSAGE);
+  return cfg.anthropicApiKey;
 }

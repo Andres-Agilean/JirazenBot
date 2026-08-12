@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadConfig } from '../src/config.js';
+import { loadConfig, requireAnthropicKey, MISSING_ANTHROPIC_KEY_MESSAGE } from '../src/config.js';
 import { fixture, makeFetch } from './helpers.js';
 
 const validEnv = {
@@ -31,14 +31,14 @@ describe('loadConfig', () => {
   });
 
   it('rejects an unknown resolver strategy name', () => {
-    expect(() => loadConfig({ ...validEnv, ANTHROPIC_API_KEY: 'sk-ant-test', RESOLVER_ORDER: 'zendesk_links,bogus' })).toThrow(/bogus/);
+    expect(() => loadConfig({ ...validEnv, RESOLVER_ORDER: 'zendesk_links,bogus' })).toThrow(/bogus/);
   });
 
   it('rejects a JIRA_ZENDESK_ID_FIELD that is not a customfield_<n> id', () => {
     // searchByZendeskId (src/fetch/jira.ts) strips "customfield_" off this value to build the
     // JQL cf[<n>] filter; a value outside that shape must fail loudly here, in pt-BR, rather than
     // silently producing a bogus filter or an undefined field lookup downstream.
-    expect(() => loadConfig({ ...validEnv, ANTHROPIC_API_KEY: 'sk-ant-test', JIRA_ZENDESK_ID_FIELD: 'zendesk_ticket_id' })).toThrow(
+    expect(() => loadConfig({ ...validEnv, JIRA_ZENDESK_ID_FIELD: 'zendesk_ticket_id' })).toThrow(
       /JIRA_ZENDESK_ID_FIELD/,
     );
   });
@@ -46,8 +46,14 @@ describe('loadConfig', () => {
   it('accepts a JIRA_ZENDESK_ID_FIELD that points at a different custom field id', () => {
     // Custom field ids are site-specific (addendum), so a valid, differently-numbered field must
     // still be accepted -- only the shape is being validated here, not the specific number.
-    const cfg = loadConfig({ ...validEnv, ANTHROPIC_API_KEY: 'sk-ant-test', JIRA_ZENDESK_ID_FIELD: 'customfield_99999' });
+    const cfg = loadConfig({ ...validEnv, JIRA_ZENDESK_ID_FIELD: 'customfield_99999' });
     expect(cfg.zendeskIdField).toBe('customfield_99999');
+  });
+
+  it('loads config without a Claude API key (regression: bundle path does not need Claude)', () => {
+    // The bundle path (card.ts) is read-only Jira + Zendesk fetches, no Claude calls.
+    // Confirm that config can load cleanly without ANTHROPIC_API_KEY present.
+    expect(() => loadConfig(validEnv)).not.toThrow();
   });
 });
 
@@ -70,8 +76,20 @@ describe('loadConfig — Claude settings', () => {
     expect(cfg.claudeMaxTokens).toBe(4096);
   });
 
-  it('throws when the Anthropic key is missing', () => {
-    expect(() => loadConfig(validEnv)).toThrow(/ANTHROPIC_API_KEY/);
+  it('defaults the Anthropic key to an empty string when not provided', () => {
+    // The bundle path (card.ts) does not need Claude, so the API key is optional.
+    const cfg = loadConfig(validEnv);
+    expect(cfg.anthropicApiKey).toBe('');
+  });
+
+  it('requireAnthropicKey returns the key when set', () => {
+    const cfg = loadConfig({ ...validEnv, ANTHROPIC_API_KEY: 'sk-ant-valid-key' });
+    expect(requireAnthropicKey(cfg)).toBe('sk-ant-valid-key');
+  });
+
+  it('requireAnthropicKey throws when the key is empty', () => {
+    const cfg = loadConfig(validEnv);
+    expect(() => requireAnthropicKey(cfg)).toThrow(MISSING_ANTHROPIC_KEY_MESSAGE);
   });
 });
 
