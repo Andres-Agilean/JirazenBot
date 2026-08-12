@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_BUNDLE_TOKEN_BUDGET, type Config } from '../src/config.js';
+import { DEFAULT_BUNDLE_TOKEN_BUDGET, DEFAULT_CLAUDE_MODEL, DEFAULT_CLAUDE_MAX_TOKENS, type Config } from '../src/config.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -18,6 +18,9 @@ export const testConfig: Config = {
   resolverOrder: ['zendesk_links', 'jira_zendesk_id_field'],
   zendeskIdField: 'customfield_10356',
   bundleTokenBudget: DEFAULT_BUNDLE_TOKEN_BUDGET,
+  anthropicApiKey: 'sk-ant-test-key',
+  claudeModel: DEFAULT_CLAUDE_MODEL,
+  claudeMaxTokens: DEFAULT_CLAUDE_MAX_TOKENS,
 };
 
 export function fixture(name: string): unknown {
