@@ -39,18 +39,58 @@ export function mustCite(label: string): Rule {
   };
 }
 
-/** Any date, in the formats the renderer and pt-BR prose use. */
-export const ANY_DATE = /\d{1,2}\/\d{1,2}(\/\d{2,4})?|\d{4}-\d{2}-\d{2}/;
+/**
+ * Date shapes that are unambiguous on their own: a three-component DD/MM/YYYY (or YY) slash
+ * date, or an ISO YYYY-MM-DD date. Neither shape collides with a ratio or fraction -- "8/10" and
+ * "23/24" are two components, never three -- so no plausibility check is needed here.
+ */
+export const ANY_DATE = /\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}/;
+
+/**
+ * A bare DD/MM pair (no year) is genuinely ambiguous with a routine "N of M" phrasing: "8/10"
+ * and "3/5" are both valid day/month pairs AND common ratio shapes ("8/10 subtarefas",
+ * "Sprint 23/24", "3/5 aprovações", "10/10"). Shape alone cannot separate them -- "15/08" (a
+ * real date) and "8/10" (a ratio) have the identical DD/MM shape. So a bare pair only counts as
+ * an invented date when both:
+ *   1. it is a plausible day/month (day 1-31, month 1-12) -- kills "23/24" (month 24) but not
+ *      "8/10", "3/5", or "10/10", which are plausible dates too; and
+ *   2. a pt-BR date-context word sits near it (prazo, data, entrega, previsto/prevista,
+ *      vencimento, em, desde, até) -- this is what actually separates "O prazo é 15/08" from
+ *      "Foram concluídas 8/10 subtarefas".
+ */
+const BARE_DAY_MONTH = /\b(\d{1,2})\/(\d{1,2})\b/;
+const DATE_CONTEXT_WORDS = ['prazo', 'data', 'entrega', 'previsto', 'prevista', 'vencimento', 'em', 'desde', 'ate'];
+const DATE_CONTEXT_RE = new RegExp(`\\b(${DATE_CONTEXT_WORDS.join('|')})\\b`);
+
+function hasContextualBareDate(answer: string): boolean {
+  const match = BARE_DAY_MONTH.exec(answer);
+  if (!match) return false;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  if (day < 1 || day > 31 || month < 1 || month > 12) return false;
+  return DATE_CONTEXT_RE.test(normalize(answer));
+}
 
 /**
  * Asserts the answer states no specific date. Pair with mustAdmitGap() on cases where the correct
  * answer is "the card does not record that" — together they catch the common invention shape, and
  * the judge covers the rest.
+ *
+ * Known residue (documented rather than chased further -- the judge covers what slips through):
+ *  - False negative: a bare DD/MM date framed without any of the listed context words (e.g. a
+ *    terse "Atualizado: 15/08") slips past. Rare in this domain -- pt-BR support prose almost
+ *    always frames a date with "prazo", "entrega", "em", etc.
+ *  - False negative: spelled-out months ("15 de agosto de 2026") and hyphenated DD-MM-YYYY are
+ *    not matched at all. Already-known gaps from the prior fix round; unchanged here.
+ *  - False positive: a genuine ratio/fraction that happens to share a sentence with one of the
+ *    context words (e.g. "Há 3/5 aprovações previstas para o card") is still flagged. Accepted:
+ *    rare in this domain, and no shape-only regex can tell "15/08" apart from "3/5" — a
+ *    context-word requirement is the only thing that does, and it comes with this trade-off.
  */
 export function mustNotInventDate(): Rule {
   return {
     label: 'não deve afirmar uma data específica',
-    check: (answer) => !ANY_DATE.test(answer),
+    check: (answer) => !ANY_DATE.test(answer) && !hasContextualBareDate(answer),
   };
 }
 

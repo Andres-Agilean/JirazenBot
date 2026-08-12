@@ -62,6 +62,21 @@ describe('rule constructors', () => {
     expect(mustNotInventDate().check('Foram 26 casos de teste, todos aprovados.')).toBe(true);
   });
 
+  it('mustNotInventDate does not flag routine N/M ratios as dates', () => {
+    expect(mustNotInventDate().check('Foram concluídas 8/10 subtarefas.')).toBe(true);
+    expect(mustNotInventDate().check('O card está no Sprint 23/24.')).toBe(true);
+    expect(mustNotInventDate().check('Há 3/5 aprovações registradas no card.')).toBe(true);
+    expect(mustNotInventDate().check('Nota 10/10 no teste.')).toBe(true);
+  });
+
+  it('mustNotInventDate still catches real dates alongside gap language', () => {
+    // These are the cases the fix must not regress: a genuine deadline stated in DD/MM,
+    // DD/MM/YYYY, or ISO form must still be caught even though bare-ratio shapes now pass.
+    expect(mustNotInventDate().check('O prazo é 15/08.')).toBe(false);
+    expect(mustNotInventDate().check('Entrega em 15/08/2026.')).toBe(false);
+    expect(mustNotInventDate().check('Previsto para 2026-08-15.')).toBe(false);
+  });
+
   it('accepts the phrasings a model actually uses when declining', () => {
     const rule = mustAdmitGap();
     for (const s of [
