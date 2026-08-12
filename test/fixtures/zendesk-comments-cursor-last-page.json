@@ -1,0 +1,16 @@
+{
+  "comments": [
+    { "id": 903, "author_id": 22, "public": true, "created_at": "2026-08-05T12:00:00Z", "body": "Estamos investigando, obrigado pela paciência" },
+    { "id": 902, "author_id": 22, "public": false, "created_at": "2026-08-04T12:00:00Z", "body": "Nota interna: aguardando acesso da conta afetada" },
+    { "id": 901, "author_id": 11, "public": true, "created_at": "2026-08-03T18:00:00Z", "body": "Ao tirar uma foto o aplicativo fecha" }
+  ],
+  "users": [
+    { "id": 11, "name": "Bruna Rocha" },
+    { "id": 22, "name": "Suporte Agilean" }
+  ],
+  "meta": { "has_more": false, "after_cursor": "abc", "before_cursor": "def" },
+  "links": {
+    "prev": "https://your-subdomain.zendesk.com/api/v2/tickets/20002/comments.json?page%5Bbefore%5D=def",
+    "next": "https://your-subdomain.zendesk.com/api/v2/tickets/20002/comments.json?page%5Bafter%5D=abc"
+  }
+}

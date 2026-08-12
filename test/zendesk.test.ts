@@ -76,6 +76,24 @@ describe('ZendeskClient', () => {
     expect(t.olderCommentsOmitted).toBe(true);
   });
 
+  it('does not flag omission on the last cursor page even though links.next is always present', async () => {
+    // Zendesk's cursor pagination returns a links.next URL on every page, including the last
+    // one -- meta.has_more is the only reliable signal once meta is present. Mirrors the live
+    // response observed for ticket 16467 (17 comments, meta.has_more: false, links.next set).
+    const cursorRoutes = {
+      '/api/v2/tickets/20002/comments': fixture('zendesk-comments-cursor-last-page'),
+      '/api/v2/tickets/20002.json': fixture('zendesk-ticket'),
+    };
+    const t = await new ZendeskClient(testConfig, makeFetch(cursorRoutes)).getTicket('20002');
+    expect(t.olderCommentsOmitted).toBe(false);
+  });
+
+  it('flags omission when meta.has_more is true, regardless of links', async () => {
+    const overflowRoutes = { '/api/v2/tickets/20000/comments': fixture('zendesk-comments-overflow'), '/api/v2/tickets/20000.json': fixture('zendesk-ticket') };
+    const t = await new ZendeskClient(testConfig, makeFetch(overflowRoutes)).getTicket('20000');
+    expect(t.olderCommentsOmitted).toBe(true);
+  });
+
   it('throws NotFoundError for deleted/unknown tickets', async () => {
     const zd = new ZendeskClient(testConfig, makeFetch(routes));
     await expect(zd.getTicket('99999')).rejects.toBeInstanceOf(NotFoundError);
