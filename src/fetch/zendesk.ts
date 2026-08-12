@@ -1,5 +1,5 @@
 import type { Config } from '../config.js';
-import { NotFoundError } from './jira.js';
+import { NotFoundError, httpStatusError } from './errors.js';
 
 // Zendesk comments API page size. Kept as a named constant rather than a repeated literal.
 export const COMMENT_PAGE_SIZE = 100;
@@ -28,7 +28,7 @@ export class ZendeskClient {
   private async get(path: string): Promise<unknown> {
     const res = await this.fetchFn(`https://${this.cfg.zendeskSubdomain}.zendesk.com${path}`, { headers: this.headers() });
     if (res.status === 404) throw new NotFoundError(path);
-    if (!res.ok) throw new Error(`Zendesk ${res.status} em ${path}`);
+    if (!res.ok) throw httpStatusError('Zendesk', res.status, path);
     return res.json();
   }
 

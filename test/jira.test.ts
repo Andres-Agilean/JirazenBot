@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { JiraClient, JIRA_FIELD_LABELS, NotFoundError } from '../src/fetch/jira.js';
+import { JiraClient, JIRA_FIELD_LABELS } from '../src/fetch/jira.js';
+import { NotFoundError } from '../src/fetch/errors.js';
 import { fixture, makeFetch, testConfig } from './helpers.js';
 
 const routes = {

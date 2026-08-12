@@ -3,6 +3,10 @@ import { z } from 'zod';
 export type ResolverVia = 'zendesk_links' | 'jira_zendesk_id_field';
 const VIA_VALUES: ResolverVia[] = ['zendesk_links', 'jira_zendesk_id_field'];
 
+// Also assembleBundle's default `budgetTokens` (src/bundle/assemble.ts) -- named once here so
+// the two spots that need "the default token budget" can't drift apart.
+export const DEFAULT_BUNDLE_TOKEN_BUDGET = 25000;
+
 const EnvSchema = z.object({
   ATLASSIAN_SITE_URL: z.string().url(),
   ATLASSIAN_EMAIL: z.string().min(1),
@@ -14,7 +18,7 @@ const EnvSchema = z.object({
   ZENDESK_JIRA_EXTERNAL_ID: z.string().min(1),
   RESOLVER_ORDER: z.string().default('zendesk_links,jira_zendesk_id_field'),
   JIRA_ZENDESK_ID_FIELD: z.string().default('customfield_10356'),
-  BUNDLE_TOKEN_BUDGET: z.coerce.number().int().positive().default(25000),
+  BUNDLE_TOKEN_BUDGET: z.coerce.number().int().positive().default(DEFAULT_BUNDLE_TOKEN_BUDGET),
 });
 
 export interface Config {

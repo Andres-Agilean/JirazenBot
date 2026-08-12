@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Config } from '../src/config.js';
+import { DEFAULT_BUNDLE_TOKEN_BUDGET, type Config } from '../src/config.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -16,7 +16,7 @@ export const testConfig: Config = {
   zendeskJiraExternalId: '00000000-0000-0000-0000-000000000000',
   resolverOrder: ['zendesk_links', 'jira_zendesk_id_field'],
   zendeskIdField: 'customfield_10356',
-  bundleTokenBudget: 25000,
+  bundleTokenBudget: DEFAULT_BUNDLE_TOKEN_BUDGET,
 };
 
 export function fixture(name: string): unknown {

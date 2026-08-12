@@ -1,17 +1,11 @@
 import type { Config } from '../config.js';
 import type { JiraIssueRef } from '../resolve/types.js';
+import { NotFoundError, httpStatusError } from './errors.js';
 
 // Jira comments API page size. Also the threshold above which older comments are omitted
 // (see olderCommentsOmitted below) -- keep the query string and that comparison derived from
 // this single constant rather than repeating the literal.
 export const COMMENT_PAGE_SIZE = 100;
-
-export class NotFoundError extends Error {
-  constructor(what: string) {
-    super(`Não encontrado: ${what}`);
-    this.name = 'NotFoundError';
-  }
-}
 
 export interface JiraFieldMeta {
   label: string;
@@ -99,7 +93,7 @@ export class JiraClient {
   private async get(path: string): Promise<unknown> {
     const res = await this.fetchFn(`${this.cfg.siteUrl}${path}`, { headers: this.headers() });
     if (res.status === 404) throw new NotFoundError(path);
-    if (!res.ok) throw new Error(`Jira ${res.status} em ${path}`);
+    if (!res.ok) throw httpStatusError('Jira', res.status, path);
     return res.json();
   }
 

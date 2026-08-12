@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ZendeskClient } from '../src/fetch/zendesk.js';
-import { NotFoundError } from '../src/fetch/jira.js';
+import { NotFoundError } from '../src/fetch/errors.js';
 import { fixture, makeFetch, testConfig } from './helpers.js';
 
 const routes = {
