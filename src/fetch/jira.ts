@@ -108,7 +108,9 @@ export class JiraClient {
 
     // orderBy=-created (newest first): this is a Q&A bot whose most common question is "what's
     // the latest?", so when a card has more than 100 comments we must keep the newest 100, not
-    // the oldest. We reverse below so JiraIssue.comments stays ascending for existing consumers.
+    // the oldest. We do NOT trust that Jira actually honored the ordering -- sort client-side by
+    // the comment's own `created` timestamp instead of blindly reversing, so a server that ignores
+    // orderBy can never silently invert the result into descending order.
     const commentsRaw = (await this.get(
       `/rest/api/3/issue/${idOrKey}/comment?maxResults=${COMMENT_PAGE_SIZE}&orderBy=-created`,
     )) as { comments: { id: string; author?: { displayName?: string }; created: string; body: unknown }[]; total?: number };
@@ -127,12 +129,14 @@ export class JiraClient {
       issueId: raw.id,
       issueKey: raw.key,
       fields,
-      comments: [...commentsRaw.comments].reverse().map((c) => ({
-        id: c.id,
-        author: c.author?.displayName ?? 'desconhecido',
-        createdAt: c.created,
-        body: c.body,
-      })),
+      comments: [...commentsRaw.comments]
+        .sort((a, b) => a.created.localeCompare(b.created))
+        .map((c) => ({
+          id: c.id,
+          author: c.author?.displayName ?? 'desconhecido',
+          createdAt: c.created,
+          body: c.body,
+        })),
       changelog,
       olderCommentsOmitted,
     };

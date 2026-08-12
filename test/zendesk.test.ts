@@ -62,6 +62,20 @@ describe('ZendeskClient', () => {
     expect(t.olderCommentsOmitted).toBe(false);
   });
 
+  it('handles a degraded offset-pagination response (ascending comments, next_page, no meta) without misordering or hiding overflow', async () => {
+    // If Zendesk ever ignores sort=-created_at, or the request falls back to legacy
+    // offset pagination, the response carries next_page/count and no meta at all -- and the
+    // comments may already be ascending. A blind .reverse() would flip that into descending
+    // order, and meta?.has_more would be undefined so the overflow would go undisclosed.
+    const offsetRoutes = {
+      '/api/v2/tickets/20001/comments': fixture('zendesk-comments-offset-overflow'),
+      '/api/v2/tickets/20001.json': fixture('zendesk-ticket'),
+    };
+    const t = await new ZendeskClient(testConfig, makeFetch(offsetRoutes)).getTicket('20001');
+    expect(t.comments.map((c) => c.id)).toEqual([1, 2, 3]); // still ascending
+    expect(t.olderCommentsOmitted).toBe(true);
+  });
+
   it('throws NotFoundError for deleted/unknown tickets', async () => {
     const zd = new ZendeskClient(testConfig, makeFetch(routes));
     await expect(zd.getTicket('99999')).rejects.toBeInstanceOf(NotFoundError);
