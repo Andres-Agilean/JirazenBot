@@ -115,4 +115,32 @@ describe('applyBudget', () => {
     expect(out.jira!.statusHistory).toEqual(bundle.jira!.statusHistory.slice(-20));
     expect(out.truncationNotes.some((n) => n.includes('histórico'))).toBe(true);
   });
+
+  it('discloses when a single huge Jira comment leaves the bundle over budget after all truncation steps', () => {
+    // Jira comment bodies are never shortened (step 1 is Zendesk-only) and a lone comment is
+    // never dropped by step 2 (it is simultaneously "the first" and one of the 10 most recent),
+    // so this bundle stays over budget through all three steps -- the note must still appear.
+    const budget = 100;
+    const bundle: CardBundle = {
+      fetchedAt: '2026-08-10T18:00:00.000Z',
+      surface: 'dm',
+      jira: {
+        issueId: '42395', issueKey: 'QZ-252',
+        fields: { summary: 'comentário gigante' },
+        comments: [{
+          id: '1',
+          author: 'Automation for Jira',
+          createdAt: '2026-08-01T10:00:00Z',
+          body: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x'.repeat(5000) }] }] },
+        }],
+        statusHistory: [],
+      },
+      resolution: { via: 'direct_only', ambiguous: false },
+      truncationNotes: [],
+    };
+    const out = applyBudget(bundle, budget);
+    expect(estimateTokens(renderBundle(out))).toBeGreaterThan(budget);
+    expect(out.truncationNotes).toContain('orçamento de tokens excedido após truncamento');
+    expect(renderBundle(out)).toContain('truncamento:');
+  });
 });

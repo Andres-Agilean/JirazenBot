@@ -4,6 +4,11 @@ import type { CardBundle } from './types.js';
 const MAX_BODY = 1500;
 const KEEP_RECENT = 10;
 const KEEP_HISTORY = 20;
+// Jira comment bodies are never shortened (step 1 is Zendesk-only) and current field values /
+// the 10 most recent comments per side are never truncated (spec), so a single huge Jira
+// comment or ADF description can still leave the bundle over budget after all three steps.
+// This must stay visible in the rendered bundle rather than fail silently.
+const BUDGET_EXCEEDED_NOTE = 'orçamento de tokens excedido após truncamento';
 
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -46,6 +51,9 @@ export function applyBudget(bundle: CardBundle, budgetTokens: number): CardBundl
   if (b.jira && b.jira.statusHistory.length > KEEP_HISTORY) {
     b.jira.statusHistory = b.jira.statusHistory.slice(-KEEP_HISTORY);
     b.truncationNotes.push('histórico de status antigo foi omitido');
+  }
+  if (!fits(b, budgetTokens)) {
+    b.truncationNotes.push(BUDGET_EXCEEDED_NOTE);
   }
   return b;
 }

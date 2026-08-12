@@ -1,7 +1,7 @@
 import type { CardRef } from '../resolve/types.js';
 import type { Resolver } from '../resolve/resolver.js';
-import { JiraClient, NotFoundError, type JiraIssue } from '../fetch/jira.js';
-import type { ZendeskClient, ZendeskTicket } from '../fetch/zendesk.js';
+import { JiraClient, NotFoundError, COMMENT_PAGE_SIZE as JIRA_COMMENT_PAGE_SIZE, type JiraIssue } from '../fetch/jira.js';
+import { COMMENT_PAGE_SIZE as ZENDESK_COMMENT_PAGE_SIZE, type ZendeskClient, type ZendeskTicket } from '../fetch/zendesk.js';
 import { condenseChangelog } from '../fetch/condense.js';
 import { applyBudget } from './budget.js';
 import type { CardBundle, Surface } from './types.js';
@@ -23,6 +23,10 @@ export async function assembleBundle(
   let jiraIssue: JiraIssue | undefined;
   let ticket: ZendeskTicket | undefined;
   let via: CardBundle['resolution']['via'] = 'direct_only';
+  // Set when the resolver found a counterpart reference but fetching it failed (404 or
+  // otherwise) -- without this, a missing counterpart is indistinguishable from "no
+  // counterpart exists" once `via` still names the winning resolver strategy.
+  let counterpartUnreadableNote: string | undefined;
 
   try {
     if (ref.system === 'jira') {
@@ -31,7 +35,11 @@ export async function assembleBundle(
       if (lookup) {
         if (lookup.hits.length > 1) return { status: 'ambiguous', side: 'zendesk', candidates: lookup.hits };
         via = lookup.via;
-        ticket = await fetchTicketSafe(deps.zendesk, lookup.hits[0]);
+        const counterpartTicketId = lookup.hits[0];
+        ticket = await fetchTicketSafe(deps.zendesk, counterpartTicketId);
+        if (!ticket) {
+          counterpartUnreadableNote = `contraparte Zendesk ${counterpartTicketId} foi encontrada mas não pôde ser carregada`;
+        }
       }
     } else {
       ticket = await deps.zendesk.getTicket(ref.ticketId);
@@ -39,7 +47,11 @@ export async function assembleBundle(
       if (lookup) {
         if (lookup.hits.length > 1) return { status: 'ambiguous', side: 'jira', candidates: lookup.hits.map((h) => h.issueKey) };
         via = lookup.via;
-        jiraIssue = await fetchIssueSafe(deps.jira, lookup.hits[0].issueId);
+        const counterpartIssue = lookup.hits[0];
+        jiraIssue = await fetchIssueSafe(deps.jira, counterpartIssue.issueId);
+        if (!jiraIssue) {
+          counterpartUnreadableNote = `contraparte Jira ${counterpartIssue.issueKey} foi encontrada mas não pôde ser carregada`;
+        }
       }
     }
   } catch (err) {
@@ -82,10 +94,13 @@ export async function assembleBundle(
   }
 
   if (jiraIssue?.olderCommentsOmitted) {
-    bundle.truncationNotes.push('comentários mais antigos do Jira não foram carregados (limite de 100)');
+    bundle.truncationNotes.push(`comentários mais antigos do Jira não foram carregados (limite de ${JIRA_COMMENT_PAGE_SIZE})`);
   }
   if (ticket?.olderCommentsOmitted) {
-    bundle.truncationNotes.push('comentários mais antigos do Zendesk não foram carregados (limite de 100)');
+    bundle.truncationNotes.push(`comentários mais antigos do Zendesk não foram carregados (limite de ${ZENDESK_COMMENT_PAGE_SIZE})`);
+  }
+  if (counterpartUnreadableNote) {
+    bundle.truncationNotes.push(counterpartUnreadableNote);
   }
 
   return { status: 'ok', bundle: applyBudget(bundle, budgetTokens) };

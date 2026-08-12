@@ -94,4 +94,32 @@ describe('assembleBundle', () => {
     const r = await assembleBundle({ system: 'zendesk', ticketId: '99999', explicit: true }, deps({ '/api/v2/tickets/99999': { status: 404 } }), 'dm', now);
     expect(r.status).toBe('not_found');
   });
+
+  it('degrades to a single-sided bundle with a note when the resolved counterpart 404s', async () => {
+    const r = await assembleBundle(
+      { system: 'zendesk', ticketId: '16467', explicit: true },
+      deps({ ...happyRoutes, '/rest/api/3/issue/QZ-252': { status: 404 }, '/rest/api/3/issue/42395': { status: 404 } }),
+      'dm',
+      now,
+    );
+    if (r.status !== 'ok') throw new Error('expected ok');
+    expect(r.bundle.jira).toBeUndefined();
+    expect(r.bundle.zendesk?.ticketId).toBe('16467');
+    expect(r.bundle.resolution.via).toBe('zendesk_links');
+    expect(r.bundle.truncationNotes).toContain('contraparte Jira QZ-252 foi encontrada mas não pôde ser carregada');
+  });
+
+  it('rethrows a non-NotFoundError on the referenced side instead of reporting not_found', async () => {
+    const boom: typeof fetch = async () => {
+      throw new Error('ECONNRESET');
+    };
+    const failingDeps: AssembleDeps = {
+      jira: new JiraClient(testConfig, boom),
+      zendesk: new ZendeskClient(testConfig, boom),
+      resolver: new Resolver([new ZendeskLinksStrategy(testConfig, boom)]),
+    };
+    await expect(
+      assembleBundle({ system: 'zendesk', ticketId: '16467', explicit: true }, failingDeps, 'dm', now),
+    ).rejects.toThrow('ECONNRESET');
+  });
 });

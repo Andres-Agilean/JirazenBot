@@ -3,7 +3,11 @@ import type { Transition } from '../fetch/condense.js';
 import type { ZendeskComment } from '../fetch/zendesk.js';
 import type { ResolverVia } from '../resolve/types.js';
 
-export type Surface = 'dm' | 'multiparty';
+// Single source of truth for the allowed --surface values: the Surface type is derived from
+// this array instead of a separately hand-maintained union, so validating a runtime string
+// against SURFACES can never drift out of sync with the type.
+export const SURFACES = ['dm', 'multiparty'] as const;
+export type Surface = (typeof SURFACES)[number];
 
 export interface CardBundle {
   fetchedAt: string;

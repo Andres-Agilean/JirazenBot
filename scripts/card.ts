@@ -9,7 +9,12 @@ import { assembleBundle } from '../src/bundle/assemble.js';
 import { renderBundle } from '../src/bundle/render.js';
 import { parseCardArgs } from './parseCardArgs.js';
 
-const { refText, surface } = parseCardArgs(process.argv.slice(2));
+const parsedArgs = parseCardArgs(process.argv.slice(2));
+if (!parsedArgs.ok) {
+  console.error(`Uso: npm run card -- <PROJ-123 | chamado 4471 | URL> [--surface dm|multiparty]\n${parsedArgs.error}`);
+  process.exit(2);
+}
+const { refText, surface } = parsedArgs.args;
 
 const cfg = loadConfig();
 const ref = parseReference(refText, cfg.allowedProjects);

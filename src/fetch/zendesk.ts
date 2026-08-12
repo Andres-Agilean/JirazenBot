@@ -1,6 +1,9 @@
 import type { Config } from '../config.js';
 import { NotFoundError } from './jira.js';
 
+// Zendesk comments API page size. Kept as a named constant rather than a repeated literal.
+export const COMMENT_PAGE_SIZE = 100;
+
 export interface ZendeskComment { id: number; author: string; isPublic: boolean; createdAt: string; body: string }
 export interface ZendeskTicket {
   ticketId: string;
@@ -36,7 +39,7 @@ export class ZendeskClient {
     // sort=-created_at (newest first): this is a Q&A bot whose most common question is "what's
     // the latest?", so when a ticket has more than 100 comments we must keep the newest 100, not
     // the oldest. We reverse below so ZendeskTicket.comments stays ascending for existing consumers.
-    const c = (await this.get(`/api/v2/tickets/${ticketId}/comments.json?include=users&page[size]=100&sort=-created_at`)) as {
+    const c = (await this.get(`/api/v2/tickets/${ticketId}/comments.json?include=users&page[size]=${COMMENT_PAGE_SIZE}&sort=-created_at`)) as {
       comments: { id: number; author_id: number; public: boolean; created_at: string; body: string }[];
       users?: { id: number; name: string }[];
       meta?: { has_more?: boolean };

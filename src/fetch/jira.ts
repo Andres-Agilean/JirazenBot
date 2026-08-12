@@ -1,6 +1,11 @@
 import type { Config } from '../config.js';
 import type { JiraIssueRef } from '../resolve/types.js';
 
+// Jira comments API page size. Also the threshold above which older comments are omitted
+// (see olderCommentsOmitted below) -- keep the query string and that comparison derived from
+// this single constant rather than repeating the literal.
+export const COMMENT_PAGE_SIZE = 100;
+
 export class NotFoundError extends Error {
   constructor(what: string) {
     super(`Não encontrado: ${what}`);
@@ -105,7 +110,7 @@ export class JiraClient {
     // the latest?", so when a card has more than 100 comments we must keep the newest 100, not
     // the oldest. We reverse below so JiraIssue.comments stays ascending for existing consumers.
     const commentsRaw = (await this.get(
-      `/rest/api/3/issue/${idOrKey}/comment?maxResults=100&orderBy=-created`,
+      `/rest/api/3/issue/${idOrKey}/comment?maxResults=${COMMENT_PAGE_SIZE}&orderBy=-created`,
     )) as { comments: { id: string; author?: { displayName?: string }; created: string; body: unknown }[]; total?: number };
 
     const changelog = (raw.changelog?.histories ?? [])
