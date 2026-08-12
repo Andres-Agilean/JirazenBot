@@ -3,8 +3,6 @@ import { JIRA_FIELD_LABELS } from '../fetch/jira.js';
 import { condenseDevelopment, type Transition } from '../fetch/condense.js';
 import type { CardBundle } from './types.js';
 
-const RICH_TEXT_FIELDS = new Set(['description', 'customfield_10070', 'customfield_10071', 'customfield_10320', 'customfield_10284']);
-
 export function renderBundle(b: CardBundle): string {
   const parts: string[] = ['<CARD_BUNDLE>', `fetched_at: ${b.fetchedAt}`];
 
@@ -12,16 +10,22 @@ export function renderBundle(b: CardBundle): string {
     parts.push(`\n## Jira: ${b.jira.issueKey}`);
     const scalarLines: string[] = [];
     const richSections: string[] = [];
-    for (const [id, label] of Object.entries(JIRA_FIELD_LABELS)) {
+    for (const [id, meta] of Object.entries(JIRA_FIELD_LABELS)) {
+      const { label } = meta;
       const value = b.jira.fields[id];
-      if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) continue;
-      if (RICH_TEXT_FIELDS.has(id)) {
+      if (isEmptyFieldValue(value)) continue;
+      if (id === 'parent') {
+        const rendered = renderParent(value);
+        if (rendered !== null) scalarLines.push(`- ${label}: ${rendered}`);
+        continue;
+      }
+      if (meta.kind === 'rich' || isAdfDoc(value)) {
         const md = adfToMarkdown(value as AdfNode | string);
         if (md) richSections.push(`### ${label}\n${md}`);
-      } else {
-        const rendered = renderFieldValue(id, value);
-        if (rendered !== null) scalarLines.push(`- ${label}: ${rendered}`);
+        continue;
       }
+      const rendered = renderFieldValue(id, value);
+      if (rendered !== null && rendered !== '') scalarLines.push(`- ${label}: ${rendered}`);
     }
     parts.push(scalarLines.join('\n'));
     parts.push(...richSections);
@@ -63,6 +67,21 @@ export function renderBundle(b: CardBundle): string {
   }
   parts.push('</CARD_BUNDLE>');
   return parts.filter((p) => p !== '').join('\n\n').replace(/\n{3,}/g, '\n\n');
+}
+
+function isEmptyFieldValue(value: unknown): boolean {
+  return value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0);
+}
+
+function isAdfDoc(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && (value as Record<string, unknown>).type === 'doc';
+}
+
+function renderParent(value: unknown): string | null {
+  const p = value as { key?: string; fields?: { summary?: string } };
+  if (typeof p?.key !== 'string' || p.key === '') return null;
+  const summary = typeof p.fields?.summary === 'string' && p.fields.summary !== '' ? ` — ${p.fields.summary}` : '';
+  return `${p.key}${summary}`;
 }
 
 function renderFieldValue(id: string, value: unknown): string | null {

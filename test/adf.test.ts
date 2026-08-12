@@ -62,6 +62,18 @@ describe('adfToMarkdown', () => {
     expect(adfToMarkdown(doc({ type: 'layoutSection', content: [para(text('dentro'))] }))).toBe('dentro');
   });
 
+  it('renders taskList/taskItem inline content (checklists) instead of dropping it', () => {
+    const md = adfToMarkdown(doc({ type: 'taskList', content: [
+      { type: 'taskItem', attrs: { state: 'TODO' }, content: [text('fazer X')] },
+      { type: 'taskItem', attrs: { state: 'DONE' }, content: [text('fazer Y')] },
+    ] }));
+    expect(md).toBe('fazer X\n\nfazer Y');
+  });
+
+  it('renders a bare unknown node whose children are inline text', () => {
+    expect(adfToMarkdown(doc({ type: 'unknownWrapper', content: [text('bar')] }))).toBe('bar');
+  });
+
   it('preserves nested list structure with correct indentation', () => {
     const md = adfToMarkdown(doc({ type: 'bulletList', content: [
       { type: 'listItem', content: [para(text('um')), { type: 'bulletList', content: [

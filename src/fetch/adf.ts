@@ -42,10 +42,21 @@ function renderBlock(n: AdfNode): string {
     case 'media':
       return `[anexo: ${String(n.attrs?.alt ?? n.attrs?.id ?? 'mídia')}]`;
     case 'panel':
-    default:
-      // panels, layout containers and unknown blocks: keep children, drop wrapper
-      return n.content ? renderBlocks(n.content) : '';
+    default: {
+      // panels, layout containers and unknown/unhandled blocks (incl. taskList/taskItem):
+      // keep children, drop the wrapper. Some of these (e.g. taskItem) hold inline content
+      // directly rather than wrapping it in a paragraph, so route inline children through
+      // renderInline -- otherwise renderBlock has no 'text' case and silently drops them.
+      if (!n.content) return '';
+      return n.content.some(isInlineNode) ? renderInline(n.content) : renderBlocks(n.content);
+    }
   }
+}
+
+const INLINE_TYPES = new Set(['text', 'hardBreak', 'mention', 'emoji', 'inlineCard', 'status', 'date']);
+
+function isInlineNode(n: AdfNode): boolean {
+  return INLINE_TYPES.has(n.type);
 }
 
 function renderListItem(li: AdfNode): string {

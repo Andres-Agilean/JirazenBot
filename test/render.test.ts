@@ -5,6 +5,7 @@ import { JiraClient } from '../src/fetch/jira.js';
 import { ZendeskClient } from '../src/fetch/zendesk.js';
 import { Resolver } from '../src/resolve/resolver.js';
 import { ZendeskLinksStrategy } from '../src/resolve/strategies.js';
+import type { CardBundle } from '../src/bundle/types.js';
 import { fixture, makeFetch, testConfig } from './helpers.js';
 
 async function makeBundle(surface: 'dm' | 'multiparty') {
@@ -68,5 +69,32 @@ describe('renderBundle', () => {
     const md = renderBundle(await makeBundle('multiparty'));
     expect(md).toContain('Notas internas do Zendesk foram omitidas neste contexto.');
     expect(md).not.toContain('[NOTA INTERNA]');
+  });
+
+  it('renders parent as KEY — summary, renders ADF fields not tagged rich, and skips empty strings', () => {
+    const bundle: CardBundle = {
+      fetchedAt: '2026-08-10T18:00:00.000Z',
+      surface: 'dm',
+      jira: {
+        issueId: '1',
+        issueKey: 'QZ-1',
+        fields: {
+          summary: 'teste',
+          // parent shape verified on real cards: {id, key, fields: {summary}}
+          parent: { id: '99', key: 'QZ-0', fields: { summary: 'Épico pai' } },
+          // a custom field holding ADF that isn't in the hand-maintained rich-field list
+          customfield_10656: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'link do problema' }] }] },
+          resolution: '',
+        },
+        comments: [],
+        statusHistory: [],
+      },
+      resolution: { via: 'direct_only', ambiguous: false },
+      truncationNotes: [],
+    };
+    const md = renderBundle(bundle);
+    expect(md).toContain('- Item pai: QZ-0 — Épico pai');
+    expect(md).toContain('### Problema\nlink do problema');
+    expect(md).not.toContain('Resolução');
   });
 });

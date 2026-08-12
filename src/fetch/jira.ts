@@ -8,47 +8,56 @@ export class NotFoundError extends Error {
   }
 }
 
+export interface JiraFieldMeta {
+  label: string;
+  /** 'rich' fields are known ADF documents and always render as their own markdown section.
+   * Fields without this tag still render as ADF if the value looks like an ADF doc at
+   * runtime (see bundle/render.ts renderGeneric) -- this tag only controls *known* rich fields
+   * so they don't need runtime sniffing, not an allowlist for ADF rendering. */
+  kind?: 'rich';
+}
+
 // Insertion order doubles as render order in bundle/render.ts.
-export const JIRA_FIELD_LABELS: Record<string, string> = {
-  summary: 'Resumo',
-  status: 'Status',
-  issuetype: 'Tipo',
-  priority: 'Prioridade',
-  assignee: 'Responsável',
-  customfield_10114: 'Tester',
-  reporter: 'Relator',
-  created: 'Criado em',
-  updated: 'Atualizado em',
-  duedate: 'Data limite',
-  resolution: 'Resolução',
-  resolutiondate: 'Resolvido em',
-  labels: 'Etiquetas',
-  components: 'Componentes',
-  fixVersions: 'Versões de correção',
-  parent: 'Item pai',
-  customfield_10010: 'Sprint',
-  customfield_10356: 'Zendesk ID',
-  customfield_10389: 'Tipo de incidente',
-  customfield_10322: 'Bloqueado',
-  customfield_10321: 'Correção Definitiva',
-  customfield_10622: 'Classificação QA',
-  customfield_10756: 'Origem do Defeito',
-  customfield_10210: 'Quantidade de vezes "Reprovado"',
-  customfield_10319: 'Feature afetada',
-  customfield_10318: 'Motivo de contato',
-  customfield_10656: 'Problema',
-  customfield_10284: 'Critérios de Aceite',
-  customfield_10206: 'Zendesk Status',
-  customfield_10207: 'Prioridade Zendesk',
-  customfield_10106: 'Clientes',
-  timetracking: 'Controle de tempo',
-  timeoriginalestimate: 'Estimativa original',
-  aggregatetimespent: 'Σ Tempo gasto',
-  customfield_10000: 'Development',
-  description: 'Descrição',
-  customfield_10070: 'Root cause',
-  customfield_10071: 'Workaround',
-  customfield_10320: 'Diagnóstico',
+export const JIRA_FIELD_LABELS: Record<string, JiraFieldMeta> = {
+  summary: { label: 'Resumo' },
+  status: { label: 'Status' },
+  issuetype: { label: 'Tipo' },
+  priority: { label: 'Prioridade' },
+  assignee: { label: 'Responsável' },
+  customfield_10114: { label: 'Tester' },
+  reporter: { label: 'Relator' },
+  created: { label: 'Criado em' },
+  updated: { label: 'Atualizado em' },
+  duedate: { label: 'Data limite' },
+  resolution: { label: 'Resolução' },
+  resolutiondate: { label: 'Resolvido em' },
+  labels: { label: 'Etiquetas' },
+  components: { label: 'Componentes' },
+  fixVersions: { label: 'Versões de correção' },
+  parent: { label: 'Item pai' },
+  customfield_10010: { label: 'Sprint' },
+  customfield_10356: { label: 'Zendesk ID' },
+  customfield_10389: { label: 'Tipo de incidente' },
+  customfield_10322: { label: 'Bloqueado' },
+  customfield_10321: { label: 'Correção Definitiva' },
+  customfield_10622: { label: 'Classificação QA' },
+  customfield_10756: { label: 'Origem do Defeito' },
+  customfield_10210: { label: 'Quantidade de vezes "Reprovado"' },
+  customfield_10319: { label: 'Feature afetada' },
+  customfield_10318: { label: 'Motivo de contato' },
+  customfield_10656: { label: 'Problema' },
+  customfield_10284: { label: 'Critérios de Aceite', kind: 'rich' },
+  customfield_10206: { label: 'Zendesk Status' },
+  customfield_10207: { label: 'Prioridade Zendesk' },
+  customfield_10106: { label: 'Clientes' },
+  timetracking: { label: 'Controle de tempo' },
+  timeoriginalestimate: { label: 'Estimativa original' },
+  aggregatetimespent: { label: 'Σ Tempo gasto' },
+  customfield_10000: { label: 'Development' },
+  description: { label: 'Descrição', kind: 'rich' },
+  customfield_10070: { label: 'Root cause', kind: 'rich' },
+  customfield_10071: { label: 'Workaround', kind: 'rich' },
+  customfield_10320: { label: 'Diagnóstico', kind: 'rich' },
 };
 
 export interface JiraComment { id: string; author: string; createdAt: string; body: unknown }
