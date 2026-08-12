@@ -13,6 +13,10 @@ const CUSTOM_FIELD_ID_PATTERN = /^customfield_\d+$/;
 // the two spots that need "the default token budget" can't drift apart.
 export const DEFAULT_BUNDLE_TOKEN_BUDGET = 25000;
 
+// Claude model and token defaults used by the answer layer.
+export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-5';
+export const DEFAULT_CLAUDE_MAX_TOKENS = 2048;
+
 // Base host for the Atlassian API gateway that fronts every Jira Cloud site. Requests go to
 // `${ATLASSIAN_API_GATEWAY}/ex/jira/{ATLASSIAN_CLOUD_ID}`, never to ATLASSIAN_SITE_URL directly --
 // see the Config.jiraApiBaseUrl / Config.siteUrl comment below for why.
@@ -31,6 +35,9 @@ const EnvSchema = z.object({
   RESOLVER_ORDER: z.string().default('zendesk_links,jira_zendesk_id_field'),
   JIRA_ZENDESK_ID_FIELD: z.string().default('customfield_10356'),
   BUNDLE_TOKEN_BUDGET: z.coerce.number().int().positive().default(DEFAULT_BUNDLE_TOKEN_BUDGET),
+  ANTHROPIC_API_KEY: z.string().min(1),
+  CLAUDE_MODEL: z.string().default(DEFAULT_CLAUDE_MODEL),
+  CLAUDE_MAX_TOKENS: z.coerce.number().int().positive().default(DEFAULT_CLAUDE_MAX_TOKENS),
 });
 
 export interface Config {
@@ -58,6 +65,9 @@ export interface Config {
   resolverOrder: ResolverVia[];
   zendeskIdField: string;
   bundleTokenBudget: number;
+  anthropicApiKey: string;
+  claudeModel: string;
+  claudeMaxTokens: number;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -88,5 +98,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     resolverOrder: resolverOrder as ResolverVia[],
     zendeskIdField: e.JIRA_ZENDESK_ID_FIELD,
     bundleTokenBudget: e.BUNDLE_TOKEN_BUDGET,
+    anthropicApiKey: e.ANTHROPIC_API_KEY,
+    claudeModel: e.CLAUDE_MODEL,
+    claudeMaxTokens: e.CLAUDE_MAX_TOKENS,
   };
 }
