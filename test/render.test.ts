@@ -124,4 +124,102 @@ describe('renderBundle', () => {
     expect(md).toContain('### Problema\nlink do problema');
     expect(md).not.toContain('Resolução');
   });
+
+  it('renders the Jira attachment field as filenames with human-readable sizes, never content or URLs', () => {
+    const bundle: CardBundle = {
+      fetchedAt: '2026-08-11T18:00:00.000Z',
+      surface: 'dm',
+      jira: {
+        issueId: '1',
+        issueKey: 'QZ-252',
+        fields: {
+          summary: 'teste',
+          attachment: [
+            { filename: 'image-20260811-173359.png', size: 196259, content: 'https://api.atlassian.com/secret-download-url' },
+            { filename: 'QZ-252.zip', size: 42450497, content: 'https://api.atlassian.com/other-secret-url' },
+          ],
+        },
+        comments: [],
+        statusHistory: [],
+      },
+      resolution: { via: 'direct_only', ambiguous: false },
+      truncationNotes: [],
+    };
+    const md = renderBundle(bundle);
+    expect(md).toContain('- Anexos: image-20260811-173359.png (192 KB), QZ-252.zip (40,5 MB)');
+    expect(md).not.toContain('secret-download-url');
+    expect(md).not.toContain('secret-url');
+  });
+
+  it('omits the Anexos line entirely when the attachment array is empty', () => {
+    const bundle: CardBundle = {
+      fetchedAt: '2026-08-11T18:00:00.000Z',
+      surface: 'dm',
+      jira: { issueId: '1', issueKey: 'QZ-252', fields: { summary: 'teste', attachment: [] }, comments: [], statusHistory: [] },
+      resolution: { via: 'direct_only', ambiguous: false },
+      truncationNotes: [],
+    };
+    expect(renderBundle(bundle)).not.toContain('Anexos');
+  });
+
+  it('collapses a Zendesk comment mirrored from Jira into one line when the Jira side is present and the key matches', () => {
+    const bundle: CardBundle = {
+      fetchedAt: '2026-08-11T18:00:00.000Z',
+      surface: 'dm',
+      jira: { issueId: '1', issueKey: 'QZ-252', fields: { summary: 'teste' }, comments: [], statusHistory: [] },
+      zendesk: {
+        ticketId: '16467', subject: 'assunto', status: 'open', priority: null,
+        createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-11T00:00:00Z',
+        comments: [{
+          id: 54276177045147,
+          author: 'Administrador | Agilean',
+          isPublic: false,
+          createdAt: '2026-08-11T17:34:00Z',
+          body: '[Jira] QZ-252 — André Marques:\n\n{panel}✅ Aprovado!{panel}',
+          mirrorOf: { issueKey: 'QZ-252', author: 'André Marques' },
+        }],
+        internalNotesOmitted: false,
+      },
+      resolution: { via: 'zendesk_links', ambiguous: false },
+      truncationNotes: [],
+    };
+    const md = renderBundle(bundle);
+    expect(md).toContain(
+      '[comentário zendesk 54276177045147] [espelhado do Jira QZ-252] André Marques — 2026-08-11T17:34:00Z (conteúdo idêntico ao comentário Jira correspondente)',
+    );
+    expect(md).not.toContain('{panel');
+    expect(md).not.toContain('Aprovado!');
+  });
+
+  it('keeps a mirrored Zendesk comment, with wiki markup cleaned, when there is no matching Jira side', () => {
+    const singleSided: CardBundle = {
+      fetchedAt: '2026-08-11T18:00:00.000Z',
+      surface: 'dm',
+      zendesk: {
+        ticketId: '16467', subject: 'assunto', status: 'open', priority: null,
+        createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-11T00:00:00Z',
+        comments: [{
+          id: 1, author: 'Administrador | Agilean', isPublic: false, createdAt: '2026-08-11T17:34:00Z',
+          body: '[Jira] QZ-252 — André Marques:\n\n{panel}✅ Aprovado!{panel}',
+          mirrorOf: { issueKey: 'QZ-252', author: 'André Marques' },
+        }],
+        internalNotesOmitted: false,
+      },
+      resolution: { via: 'direct_only', ambiguous: false },
+      truncationNotes: [],
+    };
+    const md = renderBundle(singleSided);
+    expect(md).not.toContain('espelhado');
+    expect(md).not.toContain('{panel');
+    expect(md).toContain('✅ Aprovado!');
+
+    // Same mirror body, but the Jira side present is a *different* issue key -- must not collapse.
+    const mismatched: CardBundle = {
+      ...singleSided,
+      jira: { issueId: '9', issueKey: 'AGL-1', fields: { summary: 'outro card' }, comments: [], statusHistory: [] },
+    };
+    const md2 = renderBundle(mismatched);
+    expect(md2).not.toContain('espelhado');
+    expect(md2).toContain('✅ Aprovado!');
+  });
 });

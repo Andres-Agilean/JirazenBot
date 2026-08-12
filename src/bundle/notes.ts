@@ -20,3 +20,11 @@ export function olderCommentsOmittedNote(side: Side, pageSize: number): string {
 // after every truncation step in budget.ts runs. This must stay visible in the rendered bundle
 // rather than fail silently.
 export const BUDGET_EXCEEDED_NOTE = 'orçamento de tokens excedido após truncamento';
+
+/**
+ * Appended to a Zendesk comment collapsed by bundle/render.ts because it is this tenant's
+ * automated Jira->Zendesk mirror of a Jira comment the bundle already renders on the Jira side
+ * (see fetch/jiraMirror.ts). Named here, not inlined at the render call site, so the wording used
+ * in the rendered line and in tests that assert on it can never drift apart.
+ */
+export const MIRRORED_COMMENT_NOTE = 'conteúdo idêntico ao comentário Jira correspondente';

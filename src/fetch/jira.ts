@@ -22,10 +22,13 @@ export interface JiraFieldMeta {
    *   "KEY — summary" (see renderParent in bundle/render.ts). Used by `parent`.
    * - 'development': the customfield_10000 PR-status blob, condensed via condenseDevelopment.
    * - 'timeTracking': the `timetracking` object, rendered as "estimado X, gasto Y, restante Z".
+   * - 'attachments': the `attachment` field (array of {filename, size, ...}), rendered as a
+   *   single "- Anexos: filename (size), ..." line -- filenames and human-readable sizes only,
+   *   never content and never the download URLs the API also returns.
    * Fields with no `kind` render via renderGeneric: scalars, arrays, or the first populated
    * displayName/name/value/text on an object.
    */
-  kind?: 'rich' | 'issueRef' | 'development' | 'timeTracking';
+  kind?: 'rich' | 'issueRef' | 'development' | 'timeTracking' | 'attachments';
 }
 
 // Insertion order doubles as render order in bundle/render.ts.
@@ -65,6 +68,7 @@ export const JIRA_FIELD_LABELS: Record<string, JiraFieldMeta> = {
   timeoriginalestimate: { label: 'Estimativa original' },
   aggregatetimespent: { label: 'Σ Tempo gasto' },
   customfield_10000: { label: 'Development', kind: 'development' },
+  attachment: { label: 'Anexos', kind: 'attachments' },
   description: { label: 'Descrição', kind: 'rich' },
   customfield_10070: { label: 'Root cause', kind: 'rich' },
   customfield_10071: { label: 'Workaround', kind: 'rich' },

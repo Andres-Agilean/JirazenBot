@@ -1,7 +1,15 @@
 import { adfToMarkdown, type AdfNode } from '../fetch/adf.js';
 import { JIRA_FIELD_LABELS, type JiraFieldMeta } from '../fetch/jira.js';
 import { condenseDevelopment, type Transition } from '../fetch/condense.js';
+import { wikiToMarkdown } from '../fetch/wikiToMarkdown.js';
+import type { ZendeskComment } from '../fetch/zendesk.js';
+import { MIRRORED_COMMENT_NOTE } from './notes.js';
 import type { CardBundle } from './types.js';
+
+// Bytes-per-unit thresholds for formatFileSize below. Named so "1024" never appears as a bare
+// magic number at either the KB or MB boundary.
+const BYTES_PER_KB = 1024;
+const BYTES_PER_MB = BYTES_PER_KB * 1024;
 
 // Envelope markers wrapping the whole rendered bundle -- named so the open/close pair can
 // never drift out of sync with each other.
@@ -60,8 +68,7 @@ export function renderBundle(b: CardBundle): string {
     if (z.comments.length > 0) {
       parts.push('### Comentários (Zendesk)');
       for (const c of z.comments) {
-        const flag = c.isPublic ? '' : '[NOTA INTERNA] ';
-        parts.push(`[comentário zendesk ${c.id}] ${flag}${c.author} — ${c.createdAt}\n${c.body}`);
+        parts.push(renderZendeskComment(c, b.jira?.issueKey));
       }
     }
   }
@@ -91,6 +98,7 @@ function renderParent(value: unknown): string | null {
 
 function renderFieldValue(kind: JiraFieldMeta['kind'], id: string, value: unknown): string | null {
   if (kind === 'development') return condenseDevelopment(value);
+  if (kind === 'attachments') return renderAttachments(value);
   if (kind === 'timeTracking') {
     const t = value as { timeSpent?: string; remainingEstimate?: string; originalEstimate?: string };
     const bits = [
@@ -118,6 +126,45 @@ function renderGeneric(value: unknown): string | null {
     if (typeof o[k] === 'string') return o[k] as string;
   }
   return null; // opaque object — omit rather than dump JSON
+}
+
+// If the bundle's Jira side is present and its issueKey matches the comment's mirrorOf.issueKey,
+// this Zendesk comment is a verbatim duplicate of a Jira comment the bundle already rendered
+// above -- collapse it to a one-line pointer instead of repeating the whole body. Otherwise
+// (single-sided bundle, or the mirror references a *different* issue) keep the comment, with its
+// wiki markup cleaned to markdown.
+function renderZendeskComment(c: ZendeskComment, jiraIssueKey: string | undefined): string {
+  if (c.mirrorOf && c.mirrorOf.issueKey === jiraIssueKey) {
+    return `[comentário zendesk ${c.id}] [espelhado do Jira ${c.mirrorOf.issueKey}] ${c.mirrorOf.author} — ${c.createdAt} (${MIRRORED_COMMENT_NOTE})`;
+  }
+  const flag = c.isPublic ? '' : '[NOTA INTERNA] ';
+  return `[comentário zendesk ${c.id}] ${flag}${c.author} — ${c.createdAt}\n${wikiToMarkdown(c.body)}`;
+}
+
+// Jira's `attachment` field: filenames + human-readable sizes only -- never content, never the
+// download URLs the API also returns. This anticipates the plan's Phase 5 get_jira_attachments
+// tool (§7.4, "filenames + metadata only, not contents"): showing it inline here answers common
+// support questions ("was the APK attached?") without a separate tool round-trip.
+function renderAttachments(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const items = value
+    .map((a) => {
+      const att = a as { filename?: unknown; size?: unknown };
+      if (typeof att.filename !== 'string' || att.filename === '') return null;
+      const size = typeof att.size === 'number' ? ` (${formatFileSize(att.size)})` : '';
+      return `${att.filename}${size}`;
+    })
+    .filter((s): s is string => s !== null);
+  return items.length > 0 ? items.join(', ') : null;
+}
+
+// pt-BR uses a comma decimal separator (e.g. "40,5 MB"), so this can't just delegate to a
+// locale-less toFixed().
+function formatFileSize(bytes: number): string {
+  if (bytes < BYTES_PER_KB) return `${bytes} B`;
+  if (bytes < BYTES_PER_MB) return `${Math.round(bytes / BYTES_PER_KB)} KB`;
+  const mb = Math.round((bytes / BYTES_PER_MB) * 10) / 10;
+  return `${mb.toFixed(1).replace('.', ',')} MB`;
 }
 
 function renderHistory(transitions: Transition[], fetchedAt: string): string {
