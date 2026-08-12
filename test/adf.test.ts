@@ -58,6 +58,17 @@ describe('adfToMarkdown', () => {
     expect(md).toBe('atenção\n\n[anexo: video.mp4]');
   });
 
+  it('never emits a media node\'s opaque media-services id, even as a fallback when alt is absent', () => {
+    // Verified live on QZ-252: a media node without `alt` carries only a media-services UUID
+    // (e.g. "33333333-3333-3333-3333-333333333333") that does not match any Jira attachment id --
+    // printing it would be pure noise an LLM could mistake for a meaningful identifier.
+    const md = adfToMarkdown(doc(
+      { type: 'mediaSingle', content: [ { type: 'media', attrs: { type: 'file', id: '33333333-3333-3333-3333-333333333333', collection: '' } } ] },
+    ));
+    expect(md).toBe('[anexo]');
+    expect(md).not.toContain('33333333');
+  });
+
   it('ignores unknown node types but keeps their children', () => {
     expect(adfToMarkdown(doc({ type: 'layoutSection', content: [para(text('dentro'))] }))).toBe('dentro');
   });

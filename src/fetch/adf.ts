@@ -6,6 +6,17 @@ export interface AdfNode {
   marks?: { type: string; attrs?: Record<string, unknown> }[];
 }
 
+// Shared wording for an unrenderable attachment placeholder, so Jira ADF media nodes here and
+// Zendesk-mirrored Jira wiki-markup image macros (fetch/wikiToMarkdown.ts) render identical text
+// instead of two hand-typed literals that could drift apart. A media node's `id` is a
+// media-services UUID that does not match any Jira attachment id (verified live: ADF media ids
+// like "33333333-..." never match the `attachment` field's numeric ids) -- it is not a
+// meaningful token for an LLM grounding context and is pure noise at best, easily misread as
+// real data at worst, so it must never be emitted, not even as a fallback.
+export function attachmentPlaceholder(filename?: string | null): string {
+  return filename ? `[anexo: ${filename}]` : '[anexo]';
+}
+
 export function adfToMarkdown(node: AdfNode | string | null | undefined): string {
   if (node == null) return '';
   if (typeof node === 'string') return node;
@@ -39,8 +50,10 @@ function renderBlock(n: AdfNode): string {
     case 'mediaGroup':
     case 'mediaSingle':
       return (n.content ?? []).map(renderBlock).join('\n');
-    case 'media':
-      return `[anexo: ${String(n.attrs?.alt ?? n.attrs?.id ?? 'mídia')}]`;
+    case 'media': {
+      const alt = typeof n.attrs?.alt === 'string' ? n.attrs.alt : null;
+      return attachmentPlaceholder(alt);
+    }
     case 'panel':
     default: {
       // panels, layout containers and unknown/unhandled blocks (incl. taskList/taskItem):
