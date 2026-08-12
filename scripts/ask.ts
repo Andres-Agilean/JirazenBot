@@ -1,10 +1,10 @@
 import 'dotenv/config';
 import { loadConfig } from '../src/config.js';
-import { parseReference } from '../src/resolve/parseReference.js';
 import { loadCardBundle } from '../src/bundle/load.js';
 import { answer } from '../src/claude/answer.js';
 import { createAnthropicClient } from '../src/claude/client.js';
 import { parseCardArgs } from './parseCardArgs.js';
+import { splitReferenceAndQuestion } from './splitReference.js';
 
 const EXIT_NOT_FOUND_OR_AMBIGUOUS = 1;
 const EXIT_BAD_USAGE = 2;
@@ -16,32 +16,14 @@ if (!parsed.ok) {
   console.error(USAGE);
   process.exitCode = EXIT_BAD_USAGE;
 } else {
-  // parseCardArgs joins every non-flag argument into a single args.refText, so the boundary
-  // between the reference and the trailing quoted question is lost. Recover it by growing the
-  // leading word-run one word at a time and stopping at the first prefix parseReference accepts
-  // ("QZ-252" is one word, "chamado 16467" is two). Growing from the SHORTEST prefix up matters:
-  // parseReference's patterns are unanchored (e.g. KEYWORD_TICKET, ISSUE_KEY) and match a
-  // reference anywhere inside the text they're given, so a longer prefix that merely *contains*
-  // a valid reference would also "match" -- checked shortest-first, that would swallow the whole
-  // question as part of the reference and leave nothing for the question.
-  const words = parsed.args.refText.trim().split(/\s+/);
-  let ref = null;
-  let refWordCount = 0;
   const cfg = loadConfig();
-  for (let n = 1; n <= words.length; n++) {
-    const candidate = parseReference(words.slice(0, n).join(' '), cfg.allowedProjects);
-    if (candidate) {
-      ref = candidate;
-      refWordCount = n;
-      break;
-    }
-  }
-  const question = words.slice(refWordCount).join(' ').trim();
+  const split = splitReferenceAndQuestion(parsed.args.refText, cfg.allowedProjects);
 
-  if (!ref || question === '') {
+  if (!split) {
     console.error(USAGE);
     process.exitCode = EXIT_BAD_USAGE;
   } else {
+    const { ref, question } = split;
     const result = await loadCardBundle(ref, cfg, parsed.args.surface);
     if (result.status === 'ambiguous') {
       console.error(`Referência ambígua (${result.side}): ${result.candidates.join(', ')}`);
