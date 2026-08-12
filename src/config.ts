@@ -13,8 +13,14 @@ const CUSTOM_FIELD_ID_PATTERN = /^customfield_\d+$/;
 // the two spots that need "the default token budget" can't drift apart.
 export const DEFAULT_BUNDLE_TOKEN_BUDGET = 25000;
 
+// Base host for the Atlassian API gateway that fronts every Jira Cloud site. Requests go to
+// `${ATLASSIAN_API_GATEWAY}/ex/jira/{ATLASSIAN_CLOUD_ID}`, never to ATLASSIAN_SITE_URL directly --
+// see the Config.jiraApiBaseUrl / Config.siteUrl comment below for why.
+const ATLASSIAN_API_GATEWAY = 'https://api.atlassian.com';
+
 const EnvSchema = z.object({
   ATLASSIAN_SITE_URL: z.string().url(),
+  ATLASSIAN_CLOUD_ID: z.string().min(1),
   ATLASSIAN_EMAIL: z.string().min(1),
   ATLASSIAN_API_TOKEN: z.string().min(1),
   ATLASSIAN_ALLOWED_PROJECTS: z.string().min(1),
@@ -28,6 +34,19 @@ const EnvSchema = z.object({
 });
 
 export interface Config {
+  /**
+   * The URL we CALL: the Atlassian API gateway scoped to this tenant's cloud id
+   * (`https://api.atlassian.com/ex/jira/{ATLASSIAN_CLOUD_ID}`). A modern *scoped* Atlassian API
+   * token is only authorized against this gateway host -- calling ATLASSIAN_SITE_URL directly
+   * with Basic auth returns 401/404 (see the design addendum §2.1 correction). JiraClient.get
+   * must use this, never siteUrl.
+   */
+  jiraApiBaseUrl: string;
+  /**
+   * The URL we LINK a human to: the Jira site itself (`https://your-tenant.atlassian.net`),
+   * used to build browse deep links (`{siteUrl}/browse/{KEY}`) in Phase 4 Teams cards. Display
+   * only -- never pass this to fetch() for the REST API.
+   */
   siteUrl: string;
   atlassianEmail: string;
   atlassianToken: string;
@@ -57,6 +76,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     );
   }
   return {
+    jiraApiBaseUrl: `${ATLASSIAN_API_GATEWAY}/ex/jira/${e.ATLASSIAN_CLOUD_ID}`,
     siteUrl: e.ATLASSIAN_SITE_URL.replace(/\/+$/, ''),
     atlassianEmail: e.ATLASSIAN_EMAIL,
     atlassianToken: e.ATLASSIAN_API_TOKEN,

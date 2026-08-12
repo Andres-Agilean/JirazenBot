@@ -91,7 +91,9 @@ export class JiraClient {
   }
 
   private async get(path: string): Promise<unknown> {
-    const res = await this.fetchFn(`${this.cfg.siteUrl}${path}`, { headers: this.headers() });
+    // jiraApiBaseUrl (the api.atlassian.com gateway), never cfg.siteUrl (display-only deep-link
+    // host) -- see the Config.jiraApiBaseUrl/siteUrl comment in config.ts.
+    const res = await this.fetchFn(`${this.cfg.jiraApiBaseUrl}${path}`, { headers: this.headers() });
     if (res.status === 404) throw new NotFoundError(path);
     if (!res.ok) throw httpStatusError('Jira', res.status, path);
     return res.json();

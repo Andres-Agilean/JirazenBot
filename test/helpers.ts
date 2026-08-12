@@ -6,6 +6,7 @@ import { DEFAULT_BUNDLE_TOKEN_BUDGET, type Config } from '../src/config.js';
 const here = dirname(fileURLToPath(import.meta.url));
 
 export const testConfig: Config = {
+  jiraApiBaseUrl: 'https://api.atlassian.com/ex/jira/00000000-0000-0000-0000-000000000000',
   siteUrl: 'https://your-tenant.atlassian.net',
   atlassianEmail: 'svc@example.com',
   atlassianToken: 'fake-jira-token',

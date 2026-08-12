@@ -24,6 +24,36 @@
 | 10 | Bare number default | **Zendesk ticket.** State the assumption in the footer, offer one-tap correction. The no-rebind rule for bare numbers mid-conversation (plan §6.1) stands unchanged. |
 | 11 | Real reference habits | Users paste the ticket URL or type `chamado <n>` (e.g. "chamado 11234"). Keyword list is led by **`chamado`**, plus `ticket`, `zd`, `#<n>`; Jira keys (`AGL-123`) are secondary. |
 
+## 2.1 Correction — scoped Atlassian API tokens require the gateway host (amends plan §11/§9)
+
+Live acceptance testing (Phase 1) found that the plan's assumption of Basic auth directly against
+`ATLASSIAN_SITE_URL` (`https://your-tenant.atlassian.net`) **does not work with a modern scoped
+Atlassian API token**: `GET {ATLASSIAN_SITE_URL}/rest/api/3/myself` returns 401, and issue fetches
+return 404 with an unauthenticated-looking "no such issue or no permission" body — easy to
+misdiagnose as a missing issue rather than a wrong host.
+
+The working path, verified against this tenant with the same credentials:
+
+```
+GET https://api.atlassian.com/ex/jira/{ATLASSIAN_CLOUD_ID}/rest/api/3/myself                 -> 200
+GET https://api.atlassian.com/ex/jira/{ATLASSIAN_CLOUD_ID}/rest/api/3/issue/{KEY}             -> 200
+GET https://api.atlassian.com/ex/jira/{ATLASSIAN_CLOUD_ID}/rest/api/3/issue/{KEY}/comment     -> 200
+GET https://api.atlassian.com/ex/jira/{ATLASSIAN_CLOUD_ID}/rest/api/3/search/jql?jql=...      -> 200
+```
+
+Basic auth (`email:token`) works against this gateway host, same as it did (incorrectly) against
+the site host — the fix is the host, not the auth scheme. `ATLASSIAN_CLOUD_ID` for this tenant is
+`00000000-0000-0000-0000-000000000000` — the same value as `ZENDESK_JIRA_EXTERNAL_ID` (§1 item 2),
+but the two remain distinct config values: one is the Jira site's cloud id, the other is how
+Zendesk's Jira integration identifies the connection. They are not aliased in config or code.
+
+`ATLASSIAN_SITE_URL` is **not removed** — it remains the display-only host for human-facing Jira
+deep links (`{site}/browse/{KEY}`), needed starting Phase 4's Teams cards. It must never be passed
+to `fetch()` for the REST API. In code this is `Config.jiraApiBaseUrl` (the URL we call, derived
+from `ATLASSIAN_CLOUD_ID`) versus `Config.siteUrl` (the URL we link a human to, from
+`ATLASSIAN_SITE_URL`) — future phases must keep that distinction and must not regress `JiraClient`
+back to calling `siteUrl`.
+
 ## 2. Resolution layer — design change (amends plan §6.2)
 
 ### Verified tenant facts
@@ -62,7 +92,10 @@ The resolver tries strategies in configured order; each returns the same typed r
 (`resolved | ambiguous(candidates) | not_found`), and the winning strategy is recorded in
 `resolution.via` (values become `'zendesk_links' | 'jira_zendesk_id_field'`). The default order is
 decided by the Phase 0 finding once "Manage links" is enabled: links-API-first if it has data,
-field-first if it is empty. The `jira_escalated` label remains a weak existence hint only.
+field-first if it is empty. **Re-verified during Phase 1 live acceptance testing: the links probe
+still returns 403** ("Manage links" remains disabled), so the current default is
+**field-first** (`RESOLVER_ORDER=jira_zendesk_id_field,zendesk_links`, §6) until that admin task
+lands (§7 item 1). The `jira_escalated` label remains a weak existence hint only.
 
 ## 3. Internal notes and the `surface` flag (amends plan §8/§7.2)
 
@@ -128,11 +161,12 @@ Worklog detail, linked issues, attachment metadata, and sibling Zendesk tickets 
 ## 6. Tenant constants (updates plan §11 env table)
 
 ```
-ATLASSIAN_SITE_URL=https://your-tenant.atlassian.net
+ATLASSIAN_SITE_URL=https://your-tenant.atlassian.net   # display-only: browse-link host, never called
+ATLASSIAN_CLOUD_ID=00000000-0000-0000-0000-000000000000    # API gateway host is derived from this (§2.1)
 ATLASSIAN_ALLOWED_PROJECTS=AGL,AI,MDO,QZ,SC
 ZENDESK_SUBDOMAIN=your-subdomain
 ZENDESK_JIRA_EXTERNAL_ID=00000000-0000-0000-0000-000000000000
-RESOLVER_ORDER=zendesk_links,jira_zendesk_id_field   # revisit after Phase 0 item 2
+RESOLVER_ORDER=jira_zendesk_id_field,zendesk_links   # field-first; links API confirmed still 403 (§7 item 2)
 JIRA_ZENDESK_ID_FIELD=customfield_10356
 ```
 
@@ -151,8 +185,11 @@ Still open:
 
 1. **Admin task:** enable "Manage links" in Zendesk Admin Center → Apps and integrations →
    Integrations → Jira.
-2. Re-test the links API in both directions; record whether it is populated → sets
-   `RESOLVER_ORDER`.
+2. ~~Re-test the links API in both directions; record whether it is populated → sets
+   `RESOLVER_ORDER`.~~ **Answered during Phase 1 live acceptance testing:** the links probe
+   returned **403** again — "Manage links" is still disabled, so the field strategy
+   (`jira_zendesk_id_field`) stays primary. `RESOLVER_ORDER=jira_zendesk_id_field,zendesk_links`
+   is now the shipped default (§6); re-open this item once item 1 lands and re-probe.
 3. Record scrubbed fixture responses (Jira issue + changelog + comments, Zendesk ticket + comments,
    links API if available) into `test/fixtures/`.
 4. Rotate the Zendesk API token; provision the Jira service account + token scoped read-only to the

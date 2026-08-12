@@ -4,6 +4,7 @@ import { fixture, makeFetch } from './helpers.js';
 
 const validEnv = {
   ATLASSIAN_SITE_URL: 'https://your-tenant.atlassian.net/',
+  ATLASSIAN_CLOUD_ID: '00000000-0000-0000-0000-000000000000',
   ATLASSIAN_EMAIL: 'svc@example.com',
   ATLASSIAN_API_TOKEN: 'jt',
   ATLASSIAN_ALLOWED_PROJECTS: 'AGL, AI,MDO,QZ,SC',
@@ -16,7 +17,8 @@ const validEnv = {
 describe('loadConfig', () => {
   it('parses a valid environment and applies defaults', () => {
     const cfg = loadConfig(validEnv);
-    expect(cfg.siteUrl).toBe('https://your-tenant.atlassian.net'); // trailing slash stripped
+    expect(cfg.jiraApiBaseUrl).toBe('https://api.atlassian.com/ex/jira/00000000-0000-0000-0000-000000000000');
+    expect(cfg.siteUrl).toBe('https://your-tenant.atlassian.net'); // trailing slash stripped, display-only
     expect(cfg.allowedProjects).toEqual(['AGL', 'AI', 'MDO', 'QZ', 'SC']); // trimmed
     expect(cfg.resolverOrder).toEqual(['zendesk_links', 'jira_zendesk_id_field']);
     expect(cfg.zendeskIdField).toBe('customfield_10356');
