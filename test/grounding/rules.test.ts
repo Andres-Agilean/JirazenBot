@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   checkRules, mustAdmitGap, mustCite, mustContain, mustMatch, mustNotContain, mustNotInventDate, mustNotMatch,
 } from './rules.js';
+import { CASES } from './cases.js';
+
+// Substrings of the rule labels the constructors in rules.ts actually produce (see their
+// `label` fields) -- kept as named constants so the structural test below and this comment
+// can't silently drift out of sync with each other.
+const GAP_SCREEN_LABEL_SUBSTRING = 'triagem';
+const DATE_CHECK_LABEL_SUBSTRING = 'data específica';
+const MIN_REFUSAL_CASES = 10;
 
 /** Answers that state a date and must therefore fail mustNotInventDate(). */
 const INVENTED_DATE_ANSWERS = [
@@ -116,5 +124,48 @@ describe('checkRules', () => {
       { label: 'deve conter "16467"' },
       { label: 'não deve conter "prazo"' },
     ]);
+  });
+});
+
+describe('eval corpus', () => {
+  it('has 30 cases with unique ids', () => {
+    expect(CASES).toHaveLength(30);
+    expect(new Set(CASES.map((c) => c.id)).size).toBe(30);
+  });
+
+  it('is weighted toward not-in-bundle cases', () => {
+    const notInBundle = CASES.filter((c) => c.category === 'not_in_bundle');
+    expect(notInBundle.length).toBeGreaterThanOrEqual(MIN_REFUSAL_CASES);
+  });
+
+  it('every case renders a non-empty bundle', async () => {
+    const { renderBundle } = await import('../../src/bundle/render.js');
+    for (const c of CASES) {
+      expect(renderBundle(c.bundle).length).toBeGreaterThan(200);
+    }
+  });
+
+  it('every refusal case pairs the gap screen with a date check and a judge criterion', () => {
+    const refusalCases = CASES.filter(
+      (c) => c.category === 'not_in_bundle' || c.rules.some((r) => r.label.includes(GAP_SCREEN_LABEL_SUBSTRING)),
+    );
+    expect(refusalCases.length).toBeGreaterThanOrEqual(MIN_REFUSAL_CASES);
+    for (const c of refusalCases) {
+      expect(
+        c.rules.some((r) => r.label.includes(DATE_CHECK_LABEL_SUBSTRING)),
+        `${c.id} needs mustNotInventDate`,
+      ).toBe(true);
+      expect(c.judge, `${c.id} needs a judge criterion`).toBeTruthy();
+    }
+  });
+
+  it('the mirrored comment collapses when the rich bundle is rendered', async () => {
+    const { richBundle } = await import('./bundles.js');
+    const { renderBundle } = await import('../../src/bundle/render.js');
+    const rendered = renderBundle(richBundle);
+    expect(rendered).toContain('[comentário zendesk 90003] [espelhado do Jira AGL-900]');
+    // The collapsed pointer must replace the body, not sit alongside a second full copy of it.
+    const occurrences = rendered.split('14 casos de teste executados').length - 1;
+    expect(occurrences).toBe(1);
   });
 });
