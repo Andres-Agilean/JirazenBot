@@ -58,6 +58,15 @@ describe('JiraFieldStrategy', () => {
     expect(await new JiraFieldStrategy(jira, testConfig).zendeskToJira('16467')).toEqual([issueRef]);
   });
 
+  it('resolves via a zendeskIdField not present in JIRA_FIELD_LABELS (e.g. a differently-numbered field on another tenant)', async () => {
+    const customCfg = { ...testConfig, zendeskIdField: 'customfield_99999' };
+    const jiraCustom = new JiraClient(customCfg, makeFetch({
+      '/rest/api/3/issue/42395/comment': fixture('jira-comments'),
+      '/rest/api/3/issue/42395': fixture('jira-issue'),
+    }));
+    expect(await new JiraFieldStrategy(jiraCustom, customCfg).jiraToZendesk(issueRef)).toEqual(['ruído']);
+  });
+
   it('returns no ticket when the Zendesk ID field is empty or whitespace', async () => {
     const blank = { ...(fixture('jira-issue') as any), fields: { ...(fixture('jira-issue') as any).fields, customfield_10356: '   ' } };
     const jiraBlank = new JiraClient(testConfig, makeFetch({

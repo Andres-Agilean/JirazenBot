@@ -98,7 +98,16 @@ export class JiraClient {
   }
 
   async getIssue(idOrKey: string): Promise<JiraIssue> {
-    const fieldList = Object.keys(JIRA_FIELD_LABELS).join(',');
+    // Always request/retain the configured Zendesk-id field, even if it isn't one of the ids
+    // JIRA_FIELD_LABELS happens to hardcode. JIRA_ZENDESK_ID_FIELD (config.ts) is a per-tenant
+    // custom field id, and JiraFieldStrategy.jiraToZendesk (resolve/strategies.ts) reads
+    // fields[cfg.zendeskIdField] directly -- if that key were only ever populated because it
+    // happened to match a table entry, an operator pointing this bot at a different Jira Cloud
+    // instance (different custom field ids) would get an `undefined` lookup and the resolver
+    // strategy would silently stop matching, with no error. Requesting it unconditionally here
+    // removes that desync at the source instead of merely detecting it elsewhere.
+    const requestedFields = new Set<string>([...Object.keys(JIRA_FIELD_LABELS), this.cfg.zendeskIdField]);
+    const fieldList = [...requestedFields].join(',');
     const raw = (await this.get(
       `/rest/api/3/issue/${idOrKey}?expand=changelog&fields=${fieldList}`,
     )) as {
@@ -108,7 +117,7 @@ export class JiraClient {
     };
 
     const fields: Record<string, unknown> = {};
-    for (const k of Object.keys(JIRA_FIELD_LABELS)) {
+    for (const k of requestedFields) {
       if (raw.fields[k] !== undefined) fields[k] = raw.fields[k];
     }
 

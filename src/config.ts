@@ -3,6 +3,12 @@ import { z } from 'zod';
 export type ResolverVia = 'zendesk_links' | 'jira_zendesk_id_field';
 const VIA_VALUES: ResolverVia[] = ['zendesk_links', 'jira_zendesk_id_field'];
 
+// Jira custom field ids always look like this. JIRA_ZENDESK_ID_FIELD must match it because
+// JiraClient.searchByZendeskId (src/fetch/jira.ts) builds its JQL filter by stripping the
+// "customfield_" prefix off this value to get a bare field number for `cf[<n>]`; a value outside
+// this shape would silently produce a bogus JQL filter instead of a clear error at config load.
+const CUSTOM_FIELD_ID_PATTERN = /^customfield_\d+$/;
+
 // Also assembleBundle's default `budgetTokens` (src/bundle/assemble.ts) -- named once here so
 // the two spots that need "the default token budget" can't drift apart.
 export const DEFAULT_BUNDLE_TOKEN_BUDGET = 25000;
@@ -42,6 +48,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     if (!VIA_VALUES.includes(via as ResolverVia)) {
       throw new Error(`RESOLVER_ORDER contém estratégia desconhecida: ${via}`);
     }
+  }
+  if (!CUSTOM_FIELD_ID_PATTERN.test(e.JIRA_ZENDESK_ID_FIELD)) {
+    throw new Error(
+      `JIRA_ZENDESK_ID_FIELD inválido: "${e.JIRA_ZENDESK_ID_FIELD}". Deve seguir o padrão ` +
+        `"customfield_<número>" (ex.: customfield_10356) -- o id do campo do Jira que guarda o ` +
+        `id do chamado Zendesk. Confira o id correto em Jira Admin > Campos personalizados.`,
+    );
   }
   return {
     siteUrl: e.ATLASSIAN_SITE_URL.replace(/\/+$/, ''),

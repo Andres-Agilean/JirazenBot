@@ -83,6 +83,24 @@ describe('JiraClient', () => {
     expect(issue.olderCommentsOmitted).toBe(false);
   });
 
+  it('always requests and retains the configured Zendesk-id field, even one absent from JIRA_FIELD_LABELS', async () => {
+    // customfield_99999 is deliberately NOT a key in JIRA_FIELD_LABELS (jira-issue.json calls it
+    // "ruído" precisely because it's normally dropped as noise -- see render.test.ts). If an
+    // operator ever points JIRA_ZENDESK_ID_FIELD at a field this static table doesn't know about
+    // (e.g. a different Jira Cloud tenant), getIssue must still fetch and keep it, or
+    // JiraFieldStrategy.jiraToZendesk would look up `undefined` and silently stop resolving.
+    const customCfg = { ...testConfig, zendeskIdField: 'customfield_99999' };
+    let seenIssueUrl = '';
+    const spy: typeof fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/rest/api/3/issue/QZ-252?')) seenIssueUrl = url;
+      return makeFetch(routes)(input, init);
+    }) as typeof fetch;
+    const issue = await new JiraClient(customCfg, spy).getIssue('QZ-252');
+    expect(decodeURIComponent(seenIssueUrl)).toContain('customfield_99999');
+    expect(issue.fields.customfield_99999).toBe('ruído');
+  });
+
   it('searches issues by Zendesk id via JQL restricted to allowed projects', async () => {
     let seenUrl = '';
     const spy: typeof fetch = (async (input: any, init?: RequestInit) => {
