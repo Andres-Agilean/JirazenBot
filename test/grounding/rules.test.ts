@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  checkRules, mustAdmitGap, mustCite, mustContain, mustMatch, mustNotContain, mustNotMatch,
+  ANY_DATE, checkRules, mustAdmitGap, mustCite, mustContain, mustMatch, mustNotContain, mustNotInventDate, mustNotMatch,
 } from './rules.js';
 
 describe('rule constructors', () => {
@@ -38,13 +38,28 @@ describe('rule constructors', () => {
     expect(rule.check('A data alvo é 15/08.')).toBe(false);
   });
 
-  it('rejects generic negation that is not an admission of a gap', () => {
+  it('is only a screen: it cannot tell which gap was admitted (see mustNotInventDate + judge)', () => {
     const rule = mustAdmitGap();
-    expect(rule.check('Não há problema, o André confirmou que o prazo é 15/08.')).toBe(false);
-    expect(rule.check('O card não está atualizado desde ontem, mas o prazo é sexta.')).toBe(false);
-    expect(rule.check('Não existe erro no sistema; a entrega será em 15/08.')).toBe(false);
-    expect(rule.check('Não há nenhuma dúvida de que o prazo é 15/08.')).toBe(false);
-    expect(rule.check('O cliente não foi informado da mudança, e o prazo confirmado é 15/08.')).toBe(false);
+    // An answer can admit one gap while fabricating something else. This rule cannot catch that;
+    // pairing it with mustNotInventDate() and a judge criterion is what closes the case.
+    expect(rule.check('Não consta atraso no chamado; o prazo de entrega é 15/08.')).toBe(true);
+    expect(mustNotInventDate().check('Não consta atraso no chamado; o prazo de entrega é 15/08.')).toBe(false);
+  });
+
+  it('rejects answers with no gap language at all', () => {
+    expect(mustAdmitGap().check('A data alvo é 15/08.')).toBe(false);
+    expect(mustAdmitGap().check('O responsável é o Bruno Tavares.')).toBe(false);
+  });
+
+  it('mustNotInventDate rejects dates in pt-BR and ISO formats', () => {
+    expect(mustNotInventDate().check('O prazo é 15/08.')).toBe(false);
+    expect(mustNotInventDate().check('Entrega em 15/08/2026.')).toBe(false);
+    expect(mustNotInventDate().check('Previsto para 2026-08-15.')).toBe(false);
+  });
+
+  it('mustNotInventDate accepts answers without specific dates', () => {
+    expect(mustNotInventDate().check('O card não registra um prazo.')).toBe(true);
+    expect(mustNotInventDate().check('Foram 26 casos de teste, todos aprovados.')).toBe(true);
   });
 
   it('accepts the phrasings a model actually uses when declining', () => {

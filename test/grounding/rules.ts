@@ -39,10 +39,29 @@ export function mustCite(label: string): Rule {
   };
 }
 
+/** Any date, in the formats the renderer and pt-BR prose use. */
+export const ANY_DATE = /\d{1,2}\/\d{1,2}(\/\d{2,4})?|\d{4}-\d{2}-\d{2}/;
+
 /**
- * pt-BR phrasings that count as admitting the bundle does not answer the question. Kept
- * deliberately broad: the eval asserts the model DISCLOSED a gap, not that it used one wording.
- * Every phrase ties negation to information availability, never bare negation.
+ * Asserts the answer states no specific date. Pair with mustAdmitGap() on cases where the correct
+ * answer is "the card does not record that" — together they catch the common invention shape, and
+ * the judge covers the rest.
+ */
+export function mustNotInventDate(): Rule {
+  return {
+    label: 'não deve afirmar uma data específica',
+    check: (answer) => !ANY_DATE.test(answer),
+  };
+}
+
+/**
+ * A CHEAP SCREEN, NOT A VERDICT. Substring matching cannot tell whether the gap the answer
+ * admits is about the fact the question asked for: "Não consta atraso" satisfies any phrase list
+ * while the same answer invents a deadline elsewhere. Two fix rounds tried to close that with a
+ * better phrase list and failed on every entry. Per design spec §6, whether a refusal was
+ * graceful and named what was missing is the judge's job — every `not_in_bundle` case must carry
+ * a `judge` criterion, enforced by a test in the corpus task. Use this rule to catch answers with
+ * no gap language at all; never as the sole signal.
  */
 const GAP_PHRASES = [
   'nao contem', 'nao consta', 'nao encontrei', 'nao localizei', 'nao menciona',
@@ -55,7 +74,7 @@ const GAP_PHRASES = [
 
 export function mustAdmitGap(): Rule {
   return {
-    label: 'deve admitir que a informação não está no bundle',
+    label: 'deve conter linguagem de lacuna (triagem — o juiz decide se a recusa é adequada)',
     check: (answer) => {
       const n = normalize(answer);
       return GAP_PHRASES.some((p) => n.includes(p));
