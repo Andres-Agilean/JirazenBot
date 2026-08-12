@@ -54,11 +54,21 @@ describe('answer', () => {
     expect(system[0].cache_control).toEqual({ type: 'ephemeral' });
   });
 
-  it('sends exactly two cache breakpoints', async () => {
+  it('puts a cache breakpoint on the system block and the bundle block, and nowhere else', async () => {
     const { client, calls } = fakeClient();
-    await answer(bundle, 'Qual o status?', [], deps(client));
-    const json = JSON.stringify(calls[0]);
-    expect(json.match(/"cache_control"/g)).toHaveLength(2);
+    await answer(bundle, 'Qual o status?', [{ role: 'user', text: 'anterior' }], deps(client));
+
+    const system = calls[0].system as Array<Record<string, unknown>>;
+    const messages = calls[0].messages as Array<Record<string, unknown>>;
+
+    // exactly the two intended breakpoints
+    expect(system[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect((messages[0].content as Array<Record<string, unknown>>)[0].cache_control).toEqual({
+      type: 'ephemeral',
+    });
+
+    // and no others anywhere in the request
+    expect(JSON.stringify(calls[0]).match(/"cache_control"/g)).toHaveLength(2);
   });
 
   it('sends the configured model, max tokens, adaptive thinking and low effort', async () => {
