@@ -15,11 +15,23 @@ export class NotFoundError extends Error {
 
 export interface JiraFieldMeta {
   label: string;
-  /** 'rich' fields are known ADF documents and always render as their own markdown section.
-   * Fields without this tag still render as ADF if the value looks like an ADF doc at
-   * runtime (see bundle/render.ts renderGeneric) -- this tag only controls *known* rich fields
-   * so they don't need runtime sniffing, not an allowlist for ADF rendering. */
-  kind?: 'rich';
+  /**
+   * How this field's value renders, beyond a plain "- label: value" line. This is the single
+   * place a reader should need to check to learn how a given field id renders -- render.ts
+   * dispatches on `kind` rather than switching on field ids directly.
+   * - 'rich': a known ADF document, always rendered as its own markdown section via
+   *   adfToMarkdown. Fields without this tag still render as ADF if the value looks like an
+   *   ADF doc at runtime (see bundle/render.ts's renderBundle loop, which sniffs via isAdfDoc)
+   *   -- this tag only marks *known* rich fields so they skip that sniff; it is not an
+   *   allowlist for ADF rendering.
+   * - 'issueRef': a Jira issue reference shape ({ key, fields: { summary } }), rendered as
+   *   "KEY — summary" (see renderParent in bundle/render.ts). Used by `parent`.
+   * - 'development': the customfield_10000 PR-status blob, condensed via condenseDevelopment.
+   * - 'timeTracking': the `timetracking` object, rendered as "estimado X, gasto Y, restante Z".
+   * Fields with no `kind` render via renderGeneric: scalars, arrays, or the first populated
+   * displayName/name/value/text on an object.
+   */
+  kind?: 'rich' | 'issueRef' | 'development' | 'timeTracking';
 }
 
 // Insertion order doubles as render order in bundle/render.ts.
@@ -39,7 +51,7 @@ export const JIRA_FIELD_LABELS: Record<string, JiraFieldMeta> = {
   labels: { label: 'Etiquetas' },
   components: { label: 'Componentes' },
   fixVersions: { label: 'Versões de correção' },
-  parent: { label: 'Item pai' },
+  parent: { label: 'Item pai', kind: 'issueRef' },
   customfield_10010: { label: 'Sprint' },
   customfield_10356: { label: 'Zendesk ID' },
   customfield_10389: { label: 'Tipo de incidente' },
@@ -55,10 +67,10 @@ export const JIRA_FIELD_LABELS: Record<string, JiraFieldMeta> = {
   customfield_10206: { label: 'Zendesk Status' },
   customfield_10207: { label: 'Prioridade Zendesk' },
   customfield_10106: { label: 'Clientes' },
-  timetracking: { label: 'Controle de tempo' },
+  timetracking: { label: 'Controle de tempo', kind: 'timeTracking' },
   timeoriginalestimate: { label: 'Estimativa original' },
   aggregatetimespent: { label: 'Σ Tempo gasto' },
-  customfield_10000: { label: 'Development' },
+  customfield_10000: { label: 'Development', kind: 'development' },
   description: { label: 'Descrição', kind: 'rich' },
   customfield_10070: { label: 'Root cause', kind: 'rich' },
   customfield_10071: { label: 'Workaround', kind: 'rich' },

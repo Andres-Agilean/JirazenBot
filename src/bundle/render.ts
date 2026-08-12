@@ -1,5 +1,5 @@
 import { adfToMarkdown, type AdfNode } from '../fetch/adf.js';
-import { JIRA_FIELD_LABELS } from '../fetch/jira.js';
+import { JIRA_FIELD_LABELS, type JiraFieldMeta } from '../fetch/jira.js';
 import { condenseDevelopment, type Transition } from '../fetch/condense.js';
 import type { CardBundle } from './types.js';
 
@@ -14,7 +14,7 @@ export function renderBundle(b: CardBundle): string {
       const { label } = meta;
       const value = b.jira.fields[id];
       if (isEmptyFieldValue(value)) continue;
-      if (id === 'parent') {
+      if (meta.kind === 'issueRef') {
         const rendered = renderParent(value);
         if (rendered !== null) scalarLines.push(`- ${label}: ${rendered}`);
         continue;
@@ -24,7 +24,7 @@ export function renderBundle(b: CardBundle): string {
         if (md) richSections.push(`### ${label}\n${md}`);
         continue;
       }
-      const rendered = renderFieldValue(id, value);
+      const rendered = renderFieldValue(meta.kind, id, value);
       if (rendered !== null && rendered !== '') scalarLines.push(`- ${label}: ${rendered}`);
     }
     parts.push(scalarLines.join('\n'));
@@ -84,9 +84,9 @@ function renderParent(value: unknown): string | null {
   return `${p.key}${summary}`;
 }
 
-function renderFieldValue(id: string, value: unknown): string | null {
-  if (id === 'customfield_10000') return condenseDevelopment(value);
-  if (id === 'timetracking') {
+function renderFieldValue(kind: JiraFieldMeta['kind'], id: string, value: unknown): string | null {
+  if (kind === 'development') return condenseDevelopment(value);
+  if (kind === 'timeTracking') {
     const t = value as { timeSpent?: string; remainingEstimate?: string; originalEstimate?: string };
     const bits = [
       t.originalEstimate ? `estimado ${t.originalEstimate}` : null,
