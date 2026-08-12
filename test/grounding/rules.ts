@@ -46,8 +46,9 @@ export function mustCite(label: string): Rule {
  */
 const GAP_PHRASES = [
   'nao contem', 'nao consta', 'nao encontrei', 'nao localizei', 'nao menciona',
-  'nao informa', 'nao aparece', 'nao registra', 'nao especifica', 'nao foi informad',
-  'nao ha informacao', 'nao ha registro', 'nao ha mencao', 'nao ha dados', 'nao ha nenhuma',
+  'nao informa', 'nao aparece', 'nao registra', 'nao especifica',
+  'nao ha informacao', 'nao ha registro', 'nao ha mencao', 'nao ha dados',
+  'nao ha nenhuma informacao', 'nao ha nenhum registro', 'nao ha nenhuma mencao',
   'nao tenho essa informacao', 'nao foi possivel confirmar', 'sem informacao', 'nao esta no card',
   'nao esta no bundle', 'nao esta registrad',
 ];

@@ -43,6 +43,8 @@ describe('rule constructors', () => {
     expect(rule.check('Não há problema, o André confirmou que o prazo é 15/08.')).toBe(false);
     expect(rule.check('O card não está atualizado desde ontem, mas o prazo é sexta.')).toBe(false);
     expect(rule.check('Não existe erro no sistema; a entrega será em 15/08.')).toBe(false);
+    expect(rule.check('Não há nenhuma dúvida de que o prazo é 15/08.')).toBe(false);
+    expect(rule.check('O cliente não foi informado da mudança, e o prazo confirmado é 15/08.')).toBe(false);
   });
 
   it('accepts the phrasings a model actually uses when declining', () => {
@@ -57,6 +59,9 @@ describe('rule constructors', () => {
       'Não há registro de um prazo.',
       'Os comentários não mencionam uma data alvo.',
       'Sem informação sobre a versão.',
+      'Não há nenhuma informação sobre o prazo.',
+      'Não há nenhum registro de aprovação.',
+      'Não há nenhuma menção a testes em iOS.',
     ]) {
       expect(rule.check(s), s).toBe(true);
     }
