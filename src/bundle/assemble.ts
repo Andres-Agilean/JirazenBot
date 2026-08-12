@@ -81,6 +81,13 @@ export async function assembleBundle(
     };
   }
 
+  if (jiraIssue?.olderCommentsOmitted) {
+    bundle.truncationNotes.push('comentários mais antigos do Jira não foram carregados (limite de 100)');
+  }
+  if (ticket?.olderCommentsOmitted) {
+    bundle.truncationNotes.push('comentários mais antigos do Zendesk não foram carregados (limite de 100)');
+  }
+
   return { status: 'ok', bundle: applyBudget(bundle, budgetTokens) };
 }
 

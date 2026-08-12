@@ -11,6 +11,7 @@ export interface ZendeskTicket {
   createdAt: string;
   updatedAt: string;
   comments: ZendeskComment[];
+  olderCommentsOmitted?: boolean;
 }
 
 export class ZendeskClient {
@@ -32,9 +33,13 @@ export class ZendeskClient {
     const t = (await this.get(`/api/v2/tickets/${ticketId}.json`)) as {
       ticket: { id: number; subject: string; status: string; priority: string | null; tags: string[]; created_at: string; updated_at: string };
     };
-    const c = (await this.get(`/api/v2/tickets/${ticketId}/comments.json?include=users&page[size]=100`)) as {
+    // sort=-created_at (newest first): this is a Q&A bot whose most common question is "what's
+    // the latest?", so when a ticket has more than 100 comments we must keep the newest 100, not
+    // the oldest. We reverse below so ZendeskTicket.comments stays ascending for existing consumers.
+    const c = (await this.get(`/api/v2/tickets/${ticketId}/comments.json?include=users&page[size]=100&sort=-created_at`)) as {
       comments: { id: number; author_id: number; public: boolean; created_at: string; body: string }[];
       users?: { id: number; name: string }[];
+      meta?: { has_more?: boolean };
     };
     const names = new Map((c.users ?? []).map((u) => [u.id, u.name]));
     return {
@@ -45,13 +50,14 @@ export class ZendeskClient {
       tags: t.ticket.tags,
       createdAt: t.ticket.created_at,
       updatedAt: t.ticket.updated_at,
-      comments: c.comments.map((x) => ({
+      comments: [...c.comments].reverse().map((x) => ({
         id: x.id,
         author: names.get(x.author_id) ?? `usuário ${x.author_id}`,
         isPublic: x.public,
         createdAt: x.created_at,
         body: x.body,
       })),
+      olderCommentsOmitted: c.meta?.has_more === true,
     };
   }
 }

@@ -68,6 +68,28 @@ describe('assembleBundle', () => {
     expect(r.bundle.resolution.via).toBe('direct_only');
   });
 
+  it('discloses omitted older Jira comments as a truncation note', async () => {
+    const r = await assembleBundle(
+      { system: 'jira', issueKey: 'QZ-252', explicit: true },
+      deps({ ...happyRoutes, '/rest/api/3/issue/QZ-252/comment': fixture('jira-comments-overflow') }),
+      'dm',
+      now,
+    );
+    if (r.status !== 'ok') throw new Error('expected ok');
+    expect(r.bundle.truncationNotes).toContain('comentários mais antigos do Jira não foram carregados (limite de 100)');
+  });
+
+  it('discloses omitted older Zendesk comments as a truncation note', async () => {
+    const r = await assembleBundle(
+      { system: 'zendesk', ticketId: '16467', explicit: true },
+      deps({ ...happyRoutes, '/api/v2/tickets/16467/comments': fixture('zendesk-comments-overflow') }),
+      'dm',
+      now,
+    );
+    if (r.status !== 'ok') throw new Error('expected ok');
+    expect(r.bundle.truncationNotes).toContain('comentários mais antigos do Zendesk não foram carregados (limite de 100)');
+  });
+
   it('returns not_found for a missing ticket', async () => {
     const r = await assembleBundle({ system: 'zendesk', ticketId: '99999', explicit: true }, deps({ '/api/v2/tickets/99999': { status: 404 } }), 'dm', now);
     expect(r.status).toBe('not_found');

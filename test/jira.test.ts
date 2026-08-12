@@ -44,6 +44,29 @@ describe('JiraClient', () => {
     await expect(jira.getIssue('QZ-999')).rejects.toBeInstanceOf(NotFoundError);
   });
 
+  it('requests comments newest-first, returns them ascending, and flags omission when total exceeds the page', async () => {
+    const overflowRoutes = {
+      '/rest/api/3/issue/QZ-300/comment': fixture('jira-comments-overflow'),
+      '/rest/api/3/issue/QZ-300': fixture('jira-issue'),
+    };
+    let seenUrl = '';
+    const spy: typeof fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/comment')) seenUrl = url;
+      return makeFetch(overflowRoutes)(input, init);
+    }) as typeof fetch;
+    const issue = await new JiraClient(testConfig, spy).getIssue('QZ-300');
+    expect(seenUrl).toContain('orderBy=-created');
+    expect(issue.comments.map((c) => c.id)).toEqual(['1', '2', '3']); // ascending, newest last
+    expect(issue.olderCommentsOmitted).toBe(true);
+  });
+
+  it('does not flag omission when the returned page covers all comments', async () => {
+    const jira = new JiraClient(testConfig, makeFetch(routes));
+    const issue = await jira.getIssue('QZ-252');
+    expect(issue.olderCommentsOmitted).toBe(false);
+  });
+
   it('searches issues by Zendesk id via JQL restricted to allowed projects', async () => {
     let seenUrl = '';
     const spy: typeof fetch = (async (input: any, init?: RequestInit) => {

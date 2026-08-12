@@ -59,6 +59,7 @@ export interface JiraIssue {
   fields: Record<string, unknown>;
   comments: JiraComment[];
   changelog: RawChangelogEntry[];
+  olderCommentsOmitted?: boolean;
 }
 
 export class JiraClient {
@@ -91,9 +92,12 @@ export class JiraClient {
       if (raw.fields[k] !== undefined) fields[k] = raw.fields[k];
     }
 
+    // orderBy=-created (newest first): this is a Q&A bot whose most common question is "what's
+    // the latest?", so when a card has more than 100 comments we must keep the newest 100, not
+    // the oldest. We reverse below so JiraIssue.comments stays ascending for existing consumers.
     const commentsRaw = (await this.get(
-      `/rest/api/3/issue/${idOrKey}/comment?maxResults=100&orderBy=created`,
-    )) as { comments: { id: string; author?: { displayName?: string }; created: string; body: unknown }[] };
+      `/rest/api/3/issue/${idOrKey}/comment?maxResults=100&orderBy=-created`,
+    )) as { comments: { id: string; author?: { displayName?: string }; created: string; body: unknown }[]; total?: number };
 
     const changelog = (raw.changelog?.histories ?? [])
       .map((h) => ({
@@ -103,17 +107,20 @@ export class JiraClient {
       }))
       .sort((a, b) => a.at.localeCompare(b.at));
 
+    const olderCommentsOmitted = typeof commentsRaw.total === 'number' && commentsRaw.total > commentsRaw.comments.length;
+
     return {
       issueId: raw.id,
       issueKey: raw.key,
       fields,
-      comments: commentsRaw.comments.map((c) => ({
+      comments: [...commentsRaw.comments].reverse().map((c) => ({
         id: c.id,
         author: c.author?.displayName ?? 'desconhecido',
         createdAt: c.created,
         body: c.body,
       })),
       changelog,
+      olderCommentsOmitted,
     };
   }
 

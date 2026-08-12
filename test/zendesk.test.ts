@@ -42,6 +42,26 @@ describe('ZendeskClient', () => {
     expect(seenMethod).toBe('GET');
   });
 
+  it('requests comments newest-first, returns them ascending, and flags omission when has_more is true', async () => {
+    const overflowRoutes = { '/api/v2/tickets/20000/comments': fixture('zendesk-comments-overflow'), '/api/v2/tickets/20000.json': fixture('zendesk-ticket') };
+    let seenUrl = '';
+    const spy: typeof fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/comments')) seenUrl = url;
+      return makeFetch(overflowRoutes)(input, init);
+    }) as typeof fetch;
+    const t = await new ZendeskClient(testConfig, spy).getTicket('20000');
+    expect(seenUrl).toContain('sort=-created_at');
+    expect(t.comments.map((c) => c.id)).toEqual([1, 2, 3]); // ascending, newest last
+    expect(t.olderCommentsOmitted).toBe(true);
+  });
+
+  it('does not flag omission when has_more is false', async () => {
+    const zd = new ZendeskClient(testConfig, makeFetch(routes));
+    const t = await zd.getTicket('16467');
+    expect(t.olderCommentsOmitted).toBe(false);
+  });
+
   it('throws NotFoundError for deleted/unknown tickets', async () => {
     const zd = new ZendeskClient(testConfig, makeFetch(routes));
     await expect(zd.getTicket('99999')).rejects.toBeInstanceOf(NotFoundError);
