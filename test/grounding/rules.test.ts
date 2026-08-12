@@ -25,6 +25,10 @@ describe('rule constructors', () => {
     expect(rule.check('Aprovado no comentário 41713.')).toBe(false);
   });
 
+  it('rejects a citation mentioned in prose without the bracket', () => {
+    expect(mustCite('comentário jira 41713').check('Aprovado, ver comentário jira 41713.')).toBe(false);
+  });
+
   it('mustAdmitGap accepts common pt-BR gap phrasings', () => {
     const rule = mustAdmitGap();
     expect(rule.check('O bundle não contém essa informação.')).toBe(true);
@@ -32,6 +36,30 @@ describe('rule constructors', () => {
     expect(rule.check('Não encontrei esse dado no card.')).toBe(true);
     expect(rule.check('Não consta nos comentários.')).toBe(true);
     expect(rule.check('A data alvo é 15/08.')).toBe(false);
+  });
+
+  it('rejects generic negation that is not an admission of a gap', () => {
+    const rule = mustAdmitGap();
+    expect(rule.check('Não há problema, o André confirmou que o prazo é 15/08.')).toBe(false);
+    expect(rule.check('O card não está atualizado desde ontem, mas o prazo é sexta.')).toBe(false);
+    expect(rule.check('Não existe erro no sistema; a entrega será em 15/08.')).toBe(false);
+  });
+
+  it('accepts the phrasings a model actually uses when declining', () => {
+    const rule = mustAdmitGap();
+    for (const s of [
+      'O card não contém essa informação.',
+      'Não consta nos comentários.',
+      'Não encontrei esse dado.',
+      'Não localizei nenhuma data alvo.',
+      'Não tenho essa informação no bundle.',
+      'Não foi possível confirmar a partir do card.',
+      'Não há registro de um prazo.',
+      'Os comentários não mencionam uma data alvo.',
+      'Sem informação sobre a versão.',
+    ]) {
+      expect(rule.check(s), s).toBe(true);
+    }
   });
 });
 

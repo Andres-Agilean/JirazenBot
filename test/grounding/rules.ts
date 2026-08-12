@@ -42,10 +42,14 @@ export function mustCite(label: string): Rule {
 /**
  * pt-BR phrasings that count as admitting the bundle does not answer the question. Kept
  * deliberately broad: the eval asserts the model DISCLOSED a gap, not that it used one wording.
+ * Every phrase ties negation to information availability, never bare negation.
  */
 const GAP_PHRASES = [
-  'nao contem', 'nao ha', 'nao encontrei', 'nao consta', 'nao menciona',
-  'nao esta', 'nao informa', 'nao existe', 'sem informacao', 'nao aparece',
+  'nao contem', 'nao consta', 'nao encontrei', 'nao localizei', 'nao menciona',
+  'nao informa', 'nao aparece', 'nao registra', 'nao especifica', 'nao foi informad',
+  'nao ha informacao', 'nao ha registro', 'nao ha mencao', 'nao ha dados', 'nao ha nenhuma',
+  'nao tenho essa informacao', 'nao foi possivel confirmar', 'sem informacao', 'nao esta no card',
+  'nao esta no bundle', 'nao esta registrad',
 ];
 
 export function mustAdmitGap(): Rule {
