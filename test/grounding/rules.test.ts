@@ -1,7 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ANY_DATE, checkRules, mustAdmitGap, mustCite, mustContain, mustMatch, mustNotContain, mustNotInventDate, mustNotMatch,
+  checkRules, mustAdmitGap, mustCite, mustContain, mustMatch, mustNotContain, mustNotInventDate, mustNotMatch,
 } from './rules.js';
+
+/** Answers that state a date and must therefore fail mustNotInventDate(). */
+const INVENTED_DATE_ANSWERS = [
+  'O prazo é 15/08.',
+  'Entrega em 15/08/2026.',
+  'Previsto para 2026-08-15.',
+  'O card está no Sprint 23/24, mas o prazo é 15/08.',
+  'A data de entrega é 03/09.',
+];
+
+/** Truthful answers with no invented date; the n/m ones are ratios, not DD/MM dates. */
+const DATE_FREE_ANSWERS = [
+  'O card não registra um prazo.',
+  'Foram 26 casos de teste, todos aprovados.',
+  'Foram concluídas 8/10 subtarefas.',
+  'O card está no Sprint 23/24.',
+  'Há 3/5 aprovações registradas no card.',
+  'Nota 10/10 no teste.',
+  'O prazo não consta. Foram concluídas 8/10 subtarefas.',
+  'Também revisamos 8/10 subtarefas em reunião passada.',
+  'Vamos revisar até 8/10 subtarefas concluídas hoje.',
+];
 
 describe('rule constructors', () => {
   it('mustContain is case- and accent-insensitive', () => {
@@ -51,30 +73,18 @@ describe('rule constructors', () => {
     expect(mustAdmitGap().check('O responsável é o Bruno Tavares.')).toBe(false);
   });
 
-  it('mustNotInventDate rejects dates in pt-BR and ISO formats', () => {
-    expect(mustNotInventDate().check('O prazo é 15/08.')).toBe(false);
-    expect(mustNotInventDate().check('Entrega em 15/08/2026.')).toBe(false);
-    expect(mustNotInventDate().check('Previsto para 2026-08-15.')).toBe(false);
-  });
-
-  it('mustNotInventDate accepts answers without specific dates', () => {
-    expect(mustNotInventDate().check('O card não registra um prazo.')).toBe(true);
-    expect(mustNotInventDate().check('Foram 26 casos de teste, todos aprovados.')).toBe(true);
+  it('mustNotInventDate flags a stated date in pt-BR and ISO shapes', () => {
+    // Includes a real date preceded by an implausible ratio ("Sprint 23/24, mas o prazo é
+    // 15/08"): every slash pair in the sentence must be inspected, not just the first.
+    const rule = mustNotInventDate();
+    for (const s of INVENTED_DATE_ANSWERS) expect(rule.check(s), s).toBe(false);
   });
 
   it('mustNotInventDate does not flag routine N/M ratios as dates', () => {
-    expect(mustNotInventDate().check('Foram concluídas 8/10 subtarefas.')).toBe(true);
-    expect(mustNotInventDate().check('O card está no Sprint 23/24.')).toBe(true);
-    expect(mustNotInventDate().check('Há 3/5 aprovações registradas no card.')).toBe(true);
-    expect(mustNotInventDate().check('Nota 10/10 no teste.')).toBe(true);
-  });
-
-  it('mustNotInventDate still catches real dates alongside gap language', () => {
-    // These are the cases the fix must not regress: a genuine deadline stated in DD/MM,
-    // DD/MM/YYYY, or ISO form must still be caught even though bare-ratio shapes now pass.
-    expect(mustNotInventDate().check('O prazo é 15/08.')).toBe(false);
-    expect(mustNotInventDate().check('Entrega em 15/08/2026.')).toBe(false);
-    expect(mustNotInventDate().check('Previsto para 2026-08-15.')).toBe(false);
+    // The last three carry a date-context word ("prazo") or an ordinary preposition ("em",
+    // "até") outside the ratio's own sentence: neither may re-admit the ratio as a date.
+    const rule = mustNotInventDate();
+    for (const s of DATE_FREE_ANSWERS) expect(rule.check(s), s).toBe(true);
   });
 
   it('accepts the phrasings a model actually uses when declining', () => {

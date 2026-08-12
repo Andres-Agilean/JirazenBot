@@ -54,21 +54,42 @@ export const ANY_DATE = /\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}/;
  * an invented date when both:
  *   1. it is a plausible day/month (day 1-31, month 1-12) -- kills "23/24" (month 24) but not
  *      "8/10", "3/5", or "10/10", which are plausible dates too; and
- *   2. a pt-BR date-context word sits near it (prazo, data, entrega, previsto/prevista,
- *      vencimento, em, desde, até) -- this is what actually separates "O prazo é 15/08" from
- *      "Foram concluídas 8/10 subtarefas".
+ *   2. a pt-BR date-context word sits in the SAME SENTENCE -- this is what actually separates
+ *      "O prazo é 15/08" from "Foram concluídas 8/10 subtarefas". Scoping to the sentence
+ *      matters: over a whole answer, one stray "prazo" re-admits every ratio in the text
+ *      ("O prazo não consta. Foram concluídas 8/10 subtarefas.").
  */
-const BARE_DAY_MONTH = /\b(\d{1,2})\/(\d{1,2})\b/;
-const DATE_CONTEXT_WORDS = ['prazo', 'data', 'entrega', 'previsto', 'prevista', 'vencimento', 'em', 'desde', 'ate'];
-const DATE_CONTEXT_RE = new RegExp(`\\b(${DATE_CONTEXT_WORDS.join('|')})\\b`);
+
+/** Bare day/month pair, e.g. "15/08". Global: an answer can contain several. */
+const BARE_DAY_MONTH = /\b(\d{1,2})\/(\d{1,2})\b/g;
+
+/** Sentence terminators used to bound how far a date-context word may sit from a candidate. */
+const SENTENCE_SPLIT = /[.!?;\n]+/;
+
+/**
+ * Words that mark a nearby number as a date rather than a ratio. Deliberately excludes the
+ * prepositions `em` / `desde` / `até`: they are common enough in ordinary prose that including
+ * them flags any sentence that happens to contain a ratio.
+ */
+const DATE_CONTEXT_RE = /\b(prazo|data|entrega|previst[oa]|vencimento|agendad[oa]|marcad[oa]|venc[ea])\b/;
+
+/** Plausible calendar bounds for a bare DD/MM pair. */
+const MIN_DAY = 1;
+const MAX_DAY = 31;
+const MIN_MONTH = 1;
+const MAX_MONTH = 12;
 
 function hasContextualBareDate(answer: string): boolean {
-  const match = BARE_DAY_MONTH.exec(answer);
-  if (!match) return false;
-  const day = Number(match[1]);
-  const month = Number(match[2]);
-  if (day < 1 || day > 31 || month < 1 || month > 12) return false;
-  return DATE_CONTEXT_RE.test(normalize(answer));
+  const normalized = normalize(answer);
+  for (const sentence of normalized.split(SENTENCE_SPLIT)) {
+    if (!DATE_CONTEXT_RE.test(sentence)) continue;
+    for (const match of sentence.matchAll(BARE_DAY_MONTH)) {
+      const day = Number(match[1]);
+      const month = Number(match[2]);
+      if (day >= MIN_DAY && day <= MAX_DAY && month >= MIN_MONTH && month <= MAX_MONTH) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -77,15 +98,15 @@ function hasContextualBareDate(answer: string): boolean {
  * the judge covers the rest.
  *
  * Known residue (documented rather than chased further -- the judge covers what slips through):
- *  - False negative: a bare DD/MM date framed without any of the listed context words (e.g. a
- *    terse "Atualizado: 15/08") slips past. Rare in this domain -- pt-BR support prose almost
- *    always frames a date with "prazo", "entrega", "em", etc.
+ *  - False positive: a genuine ratio that shares a sentence with a date-context word (e.g.
+ *    "Há 3/5 aprovações previstas para o card") is flagged as an invented date. Accepted: no
+ *    shape-only regex can tell "15/08" apart from "3/5", so a context word is the only available
+ *    discriminator, and the sentence is the tightest scope this check can enforce.
+ *  - False negative: a bare DD/MM with no date-context word in its own sentence (e.g. a terse
+ *    "Atualizado: 15/08") is not flagged -- the same sentence scoping that fixes the ratio case
+ *    is what lets this one through.
  *  - False negative: spelled-out months ("15 de agosto de 2026") and hyphenated DD-MM-YYYY are
- *    not matched at all. Already-known gaps from the prior fix round; unchanged here.
- *  - False positive: a genuine ratio/fraction that happens to share a sentence with one of the
- *    context words (e.g. "Há 3/5 aprovações previstas para o card") is still flagged. Accepted:
- *    rare in this domain, and no shape-only regex can tell "15/08" apart from "3/5" — a
- *    context-word requirement is the only thing that does, and it comes with this trade-off.
+ *    not matched at all.
  */
 export function mustNotInventDate(): Rule {
   return {
