@@ -94,6 +94,23 @@ describe('ZendeskClient', () => {
     expect(t.olderCommentsOmitted).toBe(true);
   });
 
+  it('flags a comment mirrored from Jira with the referenced issue key and author', async () => {
+    const mirrorRoutes = {
+      '/api/v2/tickets/20003/comments': {
+        comments: [
+          { id: 1, author_id: 1, public: false, created_at: '2026-08-10T20:00:00Z', body: '[Jira] QZ-252 — André Marques:\n\naprovado' },
+          { id: 2, author_id: 1, public: true, created_at: '2026-08-10T21:00:00Z', body: 'comentário normal, sem prefixo' },
+        ],
+        users: [{ id: 1, name: 'Integração Jira' }],
+        meta: { has_more: false },
+      },
+      '/api/v2/tickets/20003.json': fixture('zendesk-ticket'),
+    };
+    const t = await new ZendeskClient(testConfig, makeFetch(mirrorRoutes)).getTicket('20003');
+    expect(t.comments[0].mirrorOf).toEqual({ issueKey: 'QZ-252', author: 'André Marques' });
+    expect(t.comments[1].mirrorOf).toBeUndefined();
+  });
+
   it('throws NotFoundError for deleted/unknown tickets', async () => {
     const zd = new ZendeskClient(testConfig, makeFetch(routes));
     await expect(zd.getTicket('99999')).rejects.toBeInstanceOf(NotFoundError);

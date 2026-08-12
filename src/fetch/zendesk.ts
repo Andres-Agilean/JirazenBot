@@ -1,10 +1,19 @@
 import type { Config } from '../config.js';
 import { NotFoundError, httpStatusError } from './errors.js';
+import { detectJiraMirror, type JiraMirrorMatch } from './jiraMirror.js';
 
 // Zendesk comments API page size. Kept as a named constant rather than a repeated literal.
 export const COMMENT_PAGE_SIZE = 100;
 
-export interface ZendeskComment { id: number; author: string; isPublic: boolean; createdAt: string; body: string }
+export interface ZendeskComment {
+  id: number;
+  author: string;
+  isPublic: boolean;
+  createdAt: string;
+  body: string;
+  /** Set when `body` opens with this tenant's "[Jira] KEY — Author:" mirror prefix (see jiraMirror.ts). */
+  mirrorOf?: JiraMirrorMatch;
+}
 export interface ZendeskTicket {
   ticketId: string;
   subject: string;
@@ -70,6 +79,7 @@ export class ZendeskClient {
           isPublic: x.public,
           createdAt: x.created_at,
           body: x.body,
+          mirrorOf: detectJiraMirror(x.body) ?? undefined,
         })),
       olderCommentsOmitted: c.meta != null ? c.meta.has_more === true : (c.next_page != null || c.links?.next != null),
     };
