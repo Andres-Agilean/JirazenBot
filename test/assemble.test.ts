@@ -4,6 +4,7 @@ import { JiraClient } from '../src/fetch/jira.js';
 import { ZendeskClient } from '../src/fetch/zendesk.js';
 import { Resolver } from '../src/resolve/resolver.js';
 import { ZendeskLinksStrategy } from '../src/resolve/strategies.js';
+import { counterpartUnreadableNote, olderCommentsOmittedNote } from '../src/bundle/notes.js';
 import { fixture, makeFetch, testConfig } from './helpers.js';
 
 const happyRoutes = {
@@ -76,7 +77,7 @@ describe('assembleBundle', () => {
       now,
     );
     if (r.status !== 'ok') throw new Error('expected ok');
-    expect(r.bundle.truncationNotes).toContain('comentários mais antigos do Jira não foram carregados (limite de 100)');
+    expect(r.bundle.truncationNotes).toContain(olderCommentsOmittedNote('Jira', 100));
   });
 
   it('discloses omitted older Zendesk comments as a truncation note', async () => {
@@ -87,7 +88,7 @@ describe('assembleBundle', () => {
       now,
     );
     if (r.status !== 'ok') throw new Error('expected ok');
-    expect(r.bundle.truncationNotes).toContain('comentários mais antigos do Zendesk não foram carregados (limite de 100)');
+    expect(r.bundle.truncationNotes).toContain(olderCommentsOmittedNote('Zendesk', 100));
   });
 
   it('returns not_found for a missing ticket', async () => {
@@ -106,7 +107,7 @@ describe('assembleBundle', () => {
     expect(r.bundle.jira).toBeUndefined();
     expect(r.bundle.zendesk?.ticketId).toBe('16467');
     expect(r.bundle.resolution.via).toBe('zendesk_links');
-    expect(r.bundle.truncationNotes).toContain('contraparte Jira QZ-252 foi encontrada mas não pôde ser carregada');
+    expect(r.bundle.truncationNotes).toContain(counterpartUnreadableNote('Jira', 'QZ-252'));
   });
 
   it('rethrows a non-NotFoundError on the referenced side instead of reporting not_found', async () => {

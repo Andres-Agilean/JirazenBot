@@ -4,6 +4,7 @@ import { JiraClient, NotFoundError, COMMENT_PAGE_SIZE as JIRA_COMMENT_PAGE_SIZE,
 import { COMMENT_PAGE_SIZE as ZENDESK_COMMENT_PAGE_SIZE, type ZendeskClient, type ZendeskTicket } from '../fetch/zendesk.js';
 import { condenseChangelog } from '../fetch/condense.js';
 import { applyBudget } from './budget.js';
+import { counterpartUnreadableNote, olderCommentsOmittedNote } from './notes.js';
 import type { CardBundle, Surface } from './types.js';
 
 export interface AssembleDeps { jira: JiraClient; zendesk: ZendeskClient; resolver: Resolver }
@@ -26,7 +27,7 @@ export async function assembleBundle(
   // Set when the resolver found a counterpart reference but fetching it failed (404 or
   // otherwise) -- without this, a missing counterpart is indistinguishable from "no
   // counterpart exists" once `via` still names the winning resolver strategy.
-  let counterpartUnreadableNote: string | undefined;
+  let counterpartNote: string | undefined;
 
   try {
     if (ref.system === 'jira') {
@@ -38,7 +39,7 @@ export async function assembleBundle(
         const counterpartTicketId = lookup.hits[0];
         ticket = await fetchTicketSafe(deps.zendesk, counterpartTicketId);
         if (!ticket) {
-          counterpartUnreadableNote = `contraparte Zendesk ${counterpartTicketId} foi encontrada mas não pôde ser carregada`;
+          counterpartNote = counterpartUnreadableNote('Zendesk', counterpartTicketId);
         }
       }
     } else {
@@ -50,7 +51,7 @@ export async function assembleBundle(
         const counterpartIssue = lookup.hits[0];
         jiraIssue = await fetchIssueSafe(deps.jira, counterpartIssue.issueId);
         if (!jiraIssue) {
-          counterpartUnreadableNote = `contraparte Jira ${counterpartIssue.issueKey} foi encontrada mas não pôde ser carregada`;
+          counterpartNote = counterpartUnreadableNote('Jira', counterpartIssue.issueKey);
         }
       }
     }
@@ -94,13 +95,13 @@ export async function assembleBundle(
   }
 
   if (jiraIssue?.olderCommentsOmitted) {
-    bundle.truncationNotes.push(`comentários mais antigos do Jira não foram carregados (limite de ${JIRA_COMMENT_PAGE_SIZE})`);
+    bundle.truncationNotes.push(olderCommentsOmittedNote('Jira', JIRA_COMMENT_PAGE_SIZE));
   }
   if (ticket?.olderCommentsOmitted) {
-    bundle.truncationNotes.push(`comentários mais antigos do Zendesk não foram carregados (limite de ${ZENDESK_COMMENT_PAGE_SIZE})`);
+    bundle.truncationNotes.push(olderCommentsOmittedNote('Zendesk', ZENDESK_COMMENT_PAGE_SIZE));
   }
-  if (counterpartUnreadableNote) {
-    bundle.truncationNotes.push(counterpartUnreadableNote);
+  if (counterpartNote) {
+    bundle.truncationNotes.push(counterpartNote);
   }
 
   return { status: 'ok', bundle: applyBudget(bundle, budgetTokens) };

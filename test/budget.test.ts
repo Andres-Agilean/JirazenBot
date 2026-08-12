@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyBudget, estimateTokens } from '../src/bundle/budget.js';
 import { renderBundle } from '../src/bundle/render.js';
+import { BUDGET_EXCEEDED_NOTE } from '../src/bundle/notes.js';
 import type { CardBundle } from '../src/bundle/types.js';
 
 function pathological(): CardBundle {
@@ -140,7 +141,7 @@ describe('applyBudget', () => {
     };
     const out = applyBudget(bundle, budget);
     expect(estimateTokens(renderBundle(out))).toBeGreaterThan(budget);
-    expect(out.truncationNotes).toContain('orçamento de tokens excedido após truncamento');
+    expect(out.truncationNotes).toContain(BUDGET_EXCEEDED_NOTE);
     expect(renderBundle(out)).toContain('truncamento:');
   });
 });

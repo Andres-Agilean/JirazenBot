@@ -3,8 +3,13 @@ import { JIRA_FIELD_LABELS, type JiraFieldMeta } from '../fetch/jira.js';
 import { condenseDevelopment, type Transition } from '../fetch/condense.js';
 import type { CardBundle } from './types.js';
 
+// Envelope markers wrapping the whole rendered bundle -- named so the open/close pair can
+// never drift out of sync with each other.
+const ENVELOPE_OPEN = '<CARD_BUNDLE>';
+const ENVELOPE_CLOSE = '</CARD_BUNDLE>';
+
 export function renderBundle(b: CardBundle): string {
-  const parts: string[] = ['<CARD_BUNDLE>', `fetched_at: ${b.fetchedAt}`];
+  const parts: string[] = [ENVELOPE_OPEN, `fetched_at: ${b.fetchedAt}`];
 
   if (b.jira) {
     parts.push(`\n## Jira: ${b.jira.issueKey}`);
@@ -65,7 +70,7 @@ export function renderBundle(b: CardBundle): string {
   if (b.truncationNotes.length > 0) {
     parts.push(`truncamento: ${b.truncationNotes.join('; ')}`);
   }
-  parts.push('</CARD_BUNDLE>');
+  parts.push(ENVELOPE_CLOSE);
   return parts.filter((p) => p !== '').join('\n\n').replace(/\n{3,}/g, '\n\n');
 }
 
