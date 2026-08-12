@@ -44,6 +44,10 @@ describe('renderBundle', () => {
     expect(md).toContain('- Development: 1 pull request — MERGED (atualizado 2026-08-10)');
     expect(md).toContain('### Root cause');
     expect(md).toContain('pseudo-crash');
+    // jira-issue.json's fields carry customfield_99999 ("ruído"), a raw API field that is
+    // deliberately absent from JIRA_FIELD_LABELS; the renderer only iterates that whitelist,
+    // so it must never leak into the rendered bundle.
+    expect(md).not.toContain('ruído');
   });
 
   it('renders comments with ids, authors and timestamps', async () => {
@@ -69,6 +73,29 @@ describe('renderBundle', () => {
     const md = renderBundle(await makeBundle('multiparty'));
     expect(md).toContain('Notas internas do Zendesk foram omitidas neste contexto.');
     expect(md).not.toContain('[NOTA INTERNA]');
+  });
+
+  it('prints the status-history date from the same UTC instant the duration math uses', () => {
+    // -0300 at 23:30 local is already 2026-08-05 UTC. The old `t.at.slice(0, 10)` printed the
+    // wall-clock date encoded in the raw string (2026-08-04), while the duration math below
+    // always parsed via `new Date(t.at)` (the UTC instant, 2026-08-05) -- so a late-evening
+    // transition showed a date one day earlier than the duration it was paired with implied.
+    const bundle: CardBundle = {
+      fetchedAt: '2026-08-05T02:30:00.000Z',
+      surface: 'dm',
+      jira: {
+        issueId: '1',
+        issueKey: 'QZ-1',
+        fields: { summary: 'teste' },
+        comments: [],
+        statusHistory: [{ field: 'status', from: 'A', to: 'B', at: '2026-08-04T23:30:00.000-0300', by: 'Automation' }],
+      },
+      resolution: { via: 'direct_only', ambiguous: false },
+      truncationNotes: [],
+    };
+    const md = renderBundle(bundle);
+    expect(md).toContain('- 2026-08-05: status A → B (por Automation, há 0d neste estado)');
+    expect(md).not.toContain('2026-08-04');
   });
 
   it('renders parent as KEY — summary, renders ADF fields not tagged rich, and skips empty strings', () => {

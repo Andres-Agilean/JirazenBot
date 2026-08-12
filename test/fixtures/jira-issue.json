@@ -25,7 +25,8 @@
     "customfield_10622": { "value": "Regressivo recorrente" },
     "customfield_10070": { "type": "doc", "version": 1, "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "abertura da camera nativa causa pseudo-crash por limpeza de memória" } ] } ] },
     "customfield_10071": { "type": "doc", "version": 1, "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "camera num componente próprio do aplicativo" } ] } ] },
-    "customfield_10000": "{pullrequest={dataType=pullrequest, state=MERGED, stateCount=1}, json={\"cachedValue\":{\"errors\":[],\"summary\":{\"pullrequest\":{\"overall\":{\"count\":1,\"lastUpdated\":\"2026-08-10T17:44:07.852-0300\",\"state\":\"MERGED\",\"dataType\":\"pullrequest\"}}}},\"isStale\":true}}"
+    "customfield_10000": "{pullrequest={dataType=pullrequest, state=MERGED, stateCount=1}, json={\"cachedValue\":{\"errors\":[],\"summary\":{\"pullrequest\":{\"overall\":{\"count\":1,\"lastUpdated\":\"2026-08-10T17:44:07.852-0300\",\"state\":\"MERGED\",\"dataType\":\"pullrequest\"}}}},\"isStale\":true}}",
+    "customfield_99999": "ruído"
   },
   "changelog": {
     "histories": [

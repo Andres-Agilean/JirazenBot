@@ -117,7 +117,11 @@ function renderGeneric(value: unknown): string | null {
 
 function renderHistory(transitions: Transition[], fetchedAt: string): string {
   return transitions.map((t, i) => {
-    const date = t.at.slice(0, 10);
+    // Derive the printed date from the same UTC instant the duration math below uses
+    // (new Date(t.at).getTime()), not from slicing the raw timestamp string -- the raw
+    // string encodes the API's local offset, so slicing it prints a wall-clock date that
+    // can disagree with the UTC-based duration on a late-evening transition.
+    const date = new Date(t.at).toISOString().slice(0, 10);
     if (t.field === 'assignee') {
       return `- ${date}: responsável ${t.from ?? '—'} → ${t.to ?? '—'} (por ${t.by})`;
     }

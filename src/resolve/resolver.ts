@@ -11,8 +11,11 @@ export class Resolver {
       try {
         const hits = await run(s);
         if (hits.length > 0) return { hits, via: s.name };
-      } catch {
-        // estratégia indisponível (ex.: 403) — tenta a próxima
+      } catch (err) {
+        // Estratégia indisponível (ex.: 403 na API de links neste tenant) — tenta a próxima.
+        // Logado para que um bug genuíno (ex.: URL errada, JSON inesperado) não fique
+        // indistinguível da falha esperada.
+        console.warn(`estratégia de resolução "${s.name}" falhou: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     return null;

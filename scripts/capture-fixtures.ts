@@ -36,3 +36,11 @@ save('links-api-probe', probe);
 console.log(probe.status === 200
   ? 'links API OK — mantenha RESOLVER_ORDER=zendesk_links,jira_zendesk_id_field'
   : `links API respondeu ${probe.status} — use RESOLVER_ORDER=jira_zendesk_id_field,zendesk_links até liberar "Manage links"`);
+
+console.warn(
+  '\nAVISO: os arquivos em test/fixtures/live/ contêm dados reais de clientes não totalmente ' +
+  'anonimizados (scrubEmails só remove e-mails; nomes, telefones, endereços e números de ' +
+  'contrato podem permanecer nos corpos dos comentários do Zendesk). Esse diretório está no ' +
+  '.gitignore -- revise cada arquivo manualmente antes de adicioná-lo à força (git add -f) e ' +
+  'nunca faça isso sem essa revisão.',
+);

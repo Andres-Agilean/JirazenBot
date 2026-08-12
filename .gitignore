@@ -3,3 +3,8 @@
 node_modules/
 dist/
 docs/superpowers/plans/
+
+# Captured live API payloads (scripts/capture-fixtures.ts). scrubEmails() only redacts emails --
+# real Zendesk/Jira bodies can carry customer names, phone numbers, addresses, contract ids.
+# Must be reviewed and force-added deliberately, never committed by default.
+test/fixtures/live/
