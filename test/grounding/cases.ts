@@ -146,13 +146,16 @@ export const CASES: EvalCase[] = [
     question: 'Quanto tempo foi registrado nesse card?',
     rules: [mustContain('2d 3h')],
   },
+  // No mustNotContain here: any phrasing of the correct answer ("não está bloqueado") contains
+  // the substring "está bloqueado", so a negative text rule cannot express this expectation.
+  // Polarity is the judge's job.
   {
     id: 'ret-06-blocked-flag',
     category: 'retrieval',
     bundle: richBundle,
     question: 'Esse card está bloqueado?',
-    rules: [mustCite('campo Bloqueado'), mustNotContain('está bloqueado')],
-    judge: 'A resposta responde que o card NÃO está bloqueado, com base no campo Bloqueado?',
+    rules: [mustCite('campo Bloqueado')],
+    judge: 'A resposta afirma que o card NÃO está bloqueado, com base no campo Bloqueado do card?',
   },
 
   // --- history: reading the status/assignee transition log correctly ---
