@@ -62,6 +62,21 @@ describe('JiraClient', () => {
     expect(issue.olderCommentsOmitted).toBe(true);
   });
 
+  it('returns comments ascending even when the server ignores orderBy=-created and returns them ascending already, and still flags overflow', async () => {
+    // Both existing Jira comment fixtures are stored strictly descending, so a blind .reverse()
+    // and the client-side sort produce identical output there -- neither discriminates the fix.
+    // This fixture is stored ascending (as if the server ignored orderBy=-created), so only the
+    // client-side sort-by-`created` keeps the result ascending; a .reverse() would flip it to
+    // descending and fail the assertion below.
+    const ascendingRoutes = {
+      '/rest/api/3/issue/QZ-301/comment': fixture('jira-comments-ascending-overflow'),
+      '/rest/api/3/issue/QZ-301': fixture('jira-issue'),
+    };
+    const issue = await new JiraClient(testConfig, makeFetch(ascendingRoutes)).getIssue('QZ-301');
+    expect(issue.comments.map((c) => c.id)).toEqual(['1', '2', '3']); // ascending, newest last
+    expect(issue.olderCommentsOmitted).toBe(true);
+  });
+
   it('does not flag omission when the returned page covers all comments', async () => {
     const jira = new JiraClient(testConfig, makeFetch(routes));
     const issue = await jira.getIssue('QZ-252');
