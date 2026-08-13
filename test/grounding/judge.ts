@@ -1,8 +1,10 @@
 import type { AnswerDeps } from '../../src/claude/answer.js';
+import type { Usage } from '../../src/claude/types.js';
 
 export interface Verdict {
   pass: boolean;
   reason: string;
+  usage: Usage;
 }
 
 const JUDGE_SYSTEM = `Você avalia respostas de um bot de suporte que só pode responder com base em um card do Jira/Zendesk.
@@ -53,5 +55,17 @@ export async function judge(
 
   // Robust to trailing punctuation ("Sim.") and case ("sim —"): only the leading token matters,
   // never the justification that follows the dash.
-  return { pass: /^sim\b/i.test(text), reason: text };
+  return {
+    pass: /^sim\b/i.test(text),
+    reason: text,
+    // Flattened the same way answer() (src/claude/answer.ts) flattens response.usage, so the
+    // runner can fold judge spend into the same totals shape as answer spend (Task 7 fix
+    // review finding 1) -- a judge call is a real, billable call and must not go unreported.
+    usage: {
+      input: response.usage.input_tokens,
+      output: response.usage.output_tokens,
+      cacheRead: response.usage.cache_read_input_tokens ?? 0,
+      cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
+    },
+  };
 }
