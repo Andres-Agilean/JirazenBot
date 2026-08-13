@@ -1,5 +1,6 @@
 import { App } from '@microsoft/teams.apps';
 import { handleMessage, NO_TEXT_RECEIVED, type HandleDeps } from './handleMessage.js';
+import { stripMentions, type MentionLike } from './mentions.js';
 
 const UNEXPECTED_ERROR_REPLY = 'Algo deu errado do meu lado. Tente novamente em instantes.';
 
@@ -20,12 +21,13 @@ type SendFn = (activity: any) => Promise<unknown>;
 export async function handleActivity(
   send: SendFn,
   rawText: string | undefined,
+  mentions: readonly MentionLike[],
   conversationId: string,
   conversationType: string | undefined,
   userId: string,
   deps: HandleDeps,
 ): Promise<void> {
-  const text = (rawText ?? '').trim();
+  const text = stripMentions(rawText ?? '', mentions).trim();
   if (text === '') {
     // An attachment- or image-only message has no text at all. Going silent here reads as a
     // broken bot (spec §8); tell the user what we need instead.
@@ -70,9 +72,14 @@ export function createTeamsApp(deps: HandleDeps): App {
   const app = new App({ dangerouslyAllowUnauthenticatedRequests: true });
 
   app.on('message', async ({ send, activity }) => {
+    const mentions: MentionLike[] = ((activity.entities ?? []) as Array<{ type?: string; text?: string }>)
+      .filter((e) => e.type === 'mention')
+      .map((e) => ({ text: e.text ?? '' }));
+
     await handleActivity(
       send,
       activity.text,
+      mentions,
       activity.conversation.id,
       // The SDK types this field as a "LiteralUnion" (`'personal' | 'groupChat' | Omit<string,
       // ...>`) purely for editor autocomplete; at runtime it is always a plain string, so this
