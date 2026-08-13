@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { SYSTEM_PROMPT, MAX_HISTORY_TURNS, buildMessages } from '../src/claude/prompt.js';
-import type { CardBundle } from '../src/bundle/types.js';
-import type { Turn } from '../src/claude/types.js';
+import { SYSTEM_PROMPT, MAX_HISTORY_TURNS, buildMessages } from '@/claude/prompt.js';
+import type { CardBundle } from '@/bundle/types.js';
+import type { Turn } from '@/claude/types.js';
 
 const bundle: CardBundle = {
   fetchedAt: '2026-08-12T10:00:00.000Z',

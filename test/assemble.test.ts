@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { assembleBundle, type AssembleDeps } from '../src/bundle/assemble.js';
-import { JiraClient } from '../src/fetch/jira.js';
-import { ZendeskClient } from '../src/fetch/zendesk.js';
-import { Resolver } from '../src/resolve/resolver.js';
-import { ZendeskLinksStrategy } from '../src/resolve/strategies.js';
-import { counterpartUnreadableNote, olderCommentsOmittedNote } from '../src/bundle/notes.js';
+import { assembleBundle, type AssembleDeps } from '@/bundle/assemble.js';
+import { JiraClient } from '@/fetch/jira.js';
+import { ZendeskClient } from '@/fetch/zendesk.js';
+import { Resolver } from '@/resolve/resolver.js';
+import { ZendeskLinksStrategy } from '@/resolve/strategies.js';
+import { counterpartUnreadableNote, olderCommentsOmittedNote } from '@/bundle/notes.js';
 import { fixture, makeFetch, testConfig } from './helpers.js';
 
 const happyRoutes = {

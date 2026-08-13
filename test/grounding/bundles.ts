@@ -1,5 +1,5 @@
-import type { CardBundle } from '../../src/bundle/types.js';
-import { olderCommentsOmittedNote } from '../../src/bundle/notes.js';
+import type { CardBundle } from '@/bundle/types.js';
+import { olderCommentsOmittedNote } from '@/bundle/notes.js';
 
 // Shared fetch timestamp for every bundle in this corpus, so a case's expectations about
 // "how long has this been in state X" or "what does fetched_at say" stay derivable from a

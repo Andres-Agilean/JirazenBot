@@ -1,12 +1,12 @@
-import type { CardRef } from '../resolve/types.js';
-import type { Resolver } from '../resolve/resolver.js';
-import { JiraClient, COMMENT_PAGE_SIZE as JIRA_COMMENT_PAGE_SIZE, type JiraIssue } from '../fetch/jira.js';
-import { COMMENT_PAGE_SIZE as ZENDESK_COMMENT_PAGE_SIZE, type ZendeskClient, type ZendeskTicket } from '../fetch/zendesk.js';
-import { NotFoundError } from '../fetch/errors.js';
-import { condenseChangelog } from '../fetch/condense.js';
+import type { CardRef } from '@/resolve/types.js';
+import type { Resolver } from '@/resolve/resolver.js';
+import { JiraClient, COMMENT_PAGE_SIZE as JIRA_COMMENT_PAGE_SIZE, type JiraIssue } from '@/fetch/jira.js';
+import { COMMENT_PAGE_SIZE as ZENDESK_COMMENT_PAGE_SIZE, type ZendeskClient, type ZendeskTicket } from '@/fetch/zendesk.js';
+import { NotFoundError } from '@/fetch/errors.js';
+import { condenseChangelog } from '@/fetch/condense.js';
 import { applyBudget } from './budget.js';
 import { counterpartUnreadableNote, olderCommentsOmittedNote } from './notes.js';
-import { DEFAULT_BUNDLE_TOKEN_BUDGET } from '../config.js';
+import { DEFAULT_BUNDLE_TOKEN_BUDGET } from '@/config.js';
 import type { CardBundle, Surface } from './types.js';
 
 export interface AssembleDeps { jira: JiraClient; zendesk: ZendeskClient; resolver: Resolver }

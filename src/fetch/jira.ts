@@ -1,5 +1,5 @@
-import type { Config } from '../config.js';
-import type { JiraIssueRef } from '../resolve/types.js';
+import type { Config } from '@/config.js';
+import type { JiraIssueRef } from '@/resolve/types.js';
 import { NotFoundError, httpStatusError } from './errors.js';
 
 // Jira comments API page size. Also the threshold above which older comments are omitted

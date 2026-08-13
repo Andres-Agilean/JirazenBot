@@ -1,5 +1,5 @@
-import { renderBundle } from '../bundle/render.js';
-import type { CardBundle } from '../bundle/types.js';
+import { renderBundle } from '@/bundle/render.js';
+import type { CardBundle } from '@/bundle/types.js';
 import type { Turn } from './types.js';
 
 /** Conversation turns kept after the cached prefix. Older turns are dropped oldest-first. */

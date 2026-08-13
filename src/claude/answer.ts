@@ -1,6 +1,6 @@
 import { SYSTEM_PROMPT, buildMessages } from './prompt.js';
 import type { AnthropicLike, Answer, Turn } from './types.js';
-import type { CardBundle } from '../bundle/types.js';
+import type { CardBundle } from '@/bundle/types.js';
 
 /**
  * Thinking is on but shallow: the task is question-answering over supplied context, not hard

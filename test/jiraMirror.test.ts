@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectJiraMirror } from '../src/fetch/jiraMirror.js';
+import { detectJiraMirror } from '@/fetch/jiraMirror.js';
 
 describe('detectJiraMirror', () => {
   it('detects the real live prefix (em dash separator)', () => {

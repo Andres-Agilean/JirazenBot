@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { Config } from '../config.js';
-import { requireAnthropicKey } from '../config.js';
+import type { Config } from '@/config.js';
+import { requireAnthropicKey } from '@/config.js';
 import type { AnthropicLike, AnthropicResponse } from './types.js';
 
 // The SDK's own default request timeout is 10 minutes -- fine for a batch script, wrong for the

@@ -1,4 +1,4 @@
-import type { CardBundle } from '../../src/bundle/types.js';
+import type { CardBundle } from '@/bundle/types.js';
 
 export type EvalCategory =
   | 'not_in_bundle'

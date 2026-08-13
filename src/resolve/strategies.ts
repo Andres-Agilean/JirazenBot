@@ -1,6 +1,6 @@
-import type { Config } from '../config.js';
+import type { Config } from '@/config.js';
 import type { JiraIssueRef, ResolverVia } from './types.js';
-import type { JiraClient } from '../fetch/jira.js';
+import type { JiraClient } from '@/fetch/jira.js';
 
 export interface ResolverStrategy {
   name: ResolverVia;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ZendeskLinksStrategy, JiraFieldStrategy, type ResolverStrategy } from '../src/resolve/strategies.js';
-import { Resolver } from '../src/resolve/resolver.js';
-import { JiraClient } from '../src/fetch/jira.js';
+import { ZendeskLinksStrategy, JiraFieldStrategy, type ResolverStrategy } from '@/resolve/strategies.js';
+import { Resolver } from '@/resolve/resolver.js';
+import { JiraClient } from '@/fetch/jira.js';
 import { fixture, makeFetch, testConfig } from './helpers.js';
 
 const issueRef = { issueId: '42395', issueKey: 'QZ-252' };

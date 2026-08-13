@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { wikiToMarkdown } from '../src/fetch/wikiToMarkdown.js';
+import { wikiToMarkdown } from '@/fetch/wikiToMarkdown.js';
 
 // Real body captured live from ticket 16467 / QZ-252, comment id 54276177045147 (public: false) --
 // a Jira comment mirrored into Zendesk as an internal note. Exercises {panel}, the smart-link

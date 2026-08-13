@@ -1,5 +1,5 @@
-import type { AnswerDeps } from '../../src/claude/answer.js';
-import type { Usage } from '../../src/claude/types.js';
+import type { AnswerDeps } from '@/claude/answer.js';
+import type { Usage } from '@/claude/types.js';
 
 export interface Verdict {
   pass: boolean;

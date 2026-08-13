@@ -1,8 +1,8 @@
 import 'dotenv/config';
-import { loadConfig } from '../../src/config.js';
-import { createAnthropicClient } from '../../src/claude/client.js';
-import { answer, type AnswerDeps } from '../../src/claude/answer.js';
-import type { Usage } from '../../src/claude/types.js';
+import { loadConfig } from '@/config.js';
+import { createAnthropicClient } from '@/claude/client.js';
+import { answer, type AnswerDeps } from '@/claude/answer.js';
+import type { Usage } from '@/claude/types.js';
 import { classifyCase } from './classify.js';
 import { judge } from './judge.js';
 import { CASES } from './cases.js';

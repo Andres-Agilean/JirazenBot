@@ -1,4 +1,4 @@
-import { SURFACES, type Surface } from '../src/bundle/types.js';
+import { SURFACES, type Surface } from '@/bundle/types.js';
 
 const DEFAULT_SURFACE: Surface = 'dm';
 

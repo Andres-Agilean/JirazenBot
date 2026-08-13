@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { answer, TRUNCATION_NOTICE, type AnswerDeps } from '../src/claude/answer.js';
-import { SYSTEM_PROMPT } from '../src/claude/prompt.js';
-import type { AnthropicResponse, AnthropicLike } from '../src/claude/types.js';
-import type { CardBundle } from '../src/bundle/types.js';
+import { answer, TRUNCATION_NOTICE, type AnswerDeps } from '@/claude/answer.js';
+import { SYSTEM_PROMPT } from '@/claude/prompt.js';
+import type { AnthropicResponse, AnthropicLike } from '@/claude/types.js';
+import type { CardBundle } from '@/bundle/types.js';
 
 const bundle: CardBundle = {
   fetchedAt: '2026-08-12T10:00:00.000Z',

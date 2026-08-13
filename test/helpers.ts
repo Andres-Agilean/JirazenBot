@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_BUNDLE_TOKEN_BUDGET, DEFAULT_CLAUDE_MODEL, DEFAULT_CLAUDE_MAX_TOKENS, type Config } from '../src/config.js';
+import { DEFAULT_BUNDLE_TOKEN_BUDGET, DEFAULT_CLAUDE_MODEL, DEFAULT_CLAUDE_MAX_TOKENS, type Config } from '@/config.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 

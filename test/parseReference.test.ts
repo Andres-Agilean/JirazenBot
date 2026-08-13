@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseReference } from '../src/resolve/parseReference.js';
+import { parseReference } from '@/resolve/parseReference.js';
 
 const projects = ['AGL', 'AI', 'MDO', 'QZ', 'SC'];
 const p = (text: string) => parseReference(text, projects);

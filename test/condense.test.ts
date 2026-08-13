@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { condenseChangelog, condenseDevelopment } from '../src/fetch/condense.js';
+import { condenseChangelog, condenseDevelopment } from '@/fetch/condense.js';
 import { fixture } from './helpers.js';
 
 describe('condenseChangelog', () => {

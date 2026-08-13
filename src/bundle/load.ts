@@ -1,9 +1,9 @@
-import type { Config } from '../config.js';
-import type { CardRef } from '../resolve/types.js';
-import { JiraClient } from '../fetch/jira.js';
-import { ZendeskClient } from '../fetch/zendesk.js';
-import { Resolver } from '../resolve/resolver.js';
-import { JiraFieldStrategy, ZendeskLinksStrategy, type ResolverStrategy } from '../resolve/strategies.js';
+import type { Config } from '@/config.js';
+import type { CardRef } from '@/resolve/types.js';
+import { JiraClient } from '@/fetch/jira.js';
+import { ZendeskClient } from '@/fetch/zendesk.js';
+import { Resolver } from '@/resolve/resolver.js';
+import { JiraFieldStrategy, ZendeskLinksStrategy, type ResolverStrategy } from '@/resolve/strategies.js';
 import { assembleBundle, type AssembleResult } from './assemble.js';
 import type { Surface } from './types.js';
 

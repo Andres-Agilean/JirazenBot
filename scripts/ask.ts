@@ -1,8 +1,8 @@
 import 'dotenv/config';
-import { loadConfig } from '../src/config.js';
-import { loadCardBundle } from '../src/bundle/load.js';
-import { answer } from '../src/claude/answer.js';
-import { createAnthropicClient } from '../src/claude/client.js';
+import { loadConfig } from '@/config.js';
+import { loadCardBundle } from '@/bundle/load.js';
+import { answer } from '@/claude/answer.js';
+import { createAnthropicClient } from '@/claude/client.js';
 import { parseCardArgs } from './parseCardArgs.js';
 import { splitReferenceAndQuestion } from './splitReference.js';
 

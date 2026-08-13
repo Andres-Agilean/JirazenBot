@@ -1,7 +1,7 @@
-import type { JiraComment } from '../fetch/jira.js';
-import type { Transition } from '../fetch/condense.js';
-import type { ZendeskComment } from '../fetch/zendesk.js';
-import type { ResolverVia } from '../resolve/types.js';
+import type { JiraComment } from '@/fetch/jira.js';
+import type { Transition } from '@/fetch/condense.js';
+import type { ZendeskComment } from '@/fetch/zendesk.js';
+import type { ResolverVia } from '@/resolve/types.js';
 
 // Single source of truth for the allowed --surface values: the Surface type is derived from
 // this array instead of a separately hand-maintained union, so validating a runtime string

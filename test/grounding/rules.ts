@@ -1,5 +1,5 @@
-import { renderBundle } from '../../src/bundle/render.js';
-import type { CardBundle } from '../../src/bundle/types.js';
+import { renderBundle } from '@/bundle/render.js';
+import type { CardBundle } from '@/bundle/types.js';
 import type { Rule, RuleFailure } from './types.js';
 
 /**

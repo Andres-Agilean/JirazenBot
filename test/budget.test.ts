@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { applyBudget, estimateTokens } from '../src/bundle/budget.js';
-import { renderBundle } from '../src/bundle/render.js';
-import { BUDGET_EXCEEDED_NOTE } from '../src/bundle/notes.js';
-import type { CardBundle } from '../src/bundle/types.js';
+import { applyBudget, estimateTokens } from '@/bundle/budget.js';
+import { renderBundle } from '@/bundle/render.js';
+import { BUDGET_EXCEEDED_NOTE } from '@/bundle/notes.js';
+import type { CardBundle } from '@/bundle/types.js';
 
 function pathological(): CardBundle {
   const comments = Array.from({ length: 200 }, (_, i) => ({

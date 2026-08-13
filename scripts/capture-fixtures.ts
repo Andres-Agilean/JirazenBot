@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { loadConfig } from '../src/config.js';
-import { scrubEmails } from '../src/fetch/scrub.js';
+import { loadConfig } from '@/config.js';
+import { scrubEmails } from '@/fetch/scrub.js';
 
 // Any 2xx is an acceptable capture response; anything else is an error body, not a fixture.
 const HTTP_OK_MIN = 200;

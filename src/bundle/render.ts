@@ -1,8 +1,8 @@
-import { adfToMarkdown, type AdfNode } from '../fetch/adf.js';
-import { JIRA_FIELD_LABELS, type JiraFieldMeta } from '../fetch/jira.js';
-import { condenseDevelopment, type Transition } from '../fetch/condense.js';
-import { wikiToMarkdown } from '../fetch/wikiToMarkdown.js';
-import type { ZendeskComment } from '../fetch/zendesk.js';
+import { adfToMarkdown, type AdfNode } from '@/fetch/adf.js';
+import { JIRA_FIELD_LABELS, type JiraFieldMeta } from '@/fetch/jira.js';
+import { condenseDevelopment, type Transition } from '@/fetch/condense.js';
+import { wikiToMarkdown } from '@/fetch/wikiToMarkdown.js';
+import type { ZendeskComment } from '@/fetch/zendesk.js';
 import { MIRRORED_COMMENT_NOTE } from './notes.js';
 import type { CardBundle } from './types.js';
 

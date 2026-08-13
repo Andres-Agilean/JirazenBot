@@ -1,8 +1,8 @@
 import 'dotenv/config';
-import { loadConfig } from '../src/config.js';
-import { parseReference } from '../src/resolve/parseReference.js';
-import { loadCardBundle } from '../src/bundle/load.js';
-import { renderBundle } from '../src/bundle/render.js';
+import { loadConfig } from '@/config.js';
+import { parseReference } from '@/resolve/parseReference.js';
+import { loadCardBundle } from '@/bundle/load.js';
+import { renderBundle } from '@/bundle/render.js';
 import { parseCardArgs } from './parseCardArgs.js';
 
 // Exit codes for this CLI. We set `process.exitCode` and let Node exit naturally once the event

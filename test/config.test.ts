@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadConfig, requireAnthropicKey, MISSING_ANTHROPIC_KEY_MESSAGE } from '../src/config.js';
+import { loadConfig, requireAnthropicKey, MISSING_ANTHROPIC_KEY_MESSAGE } from '@/config.js';
 import { fixture, makeFetch } from './helpers.js';
 
 const validEnv = {

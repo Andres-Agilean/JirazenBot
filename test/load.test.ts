@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildResolver } from '../src/bundle/load.js';
-import { JiraClient } from '../src/fetch/jira.js';
+import { buildResolver } from '@/bundle/load.js';
+import { JiraClient } from '@/fetch/jira.js';
 import { testConfig, makeFetch } from './helpers.js';
 
 describe('buildResolver', () => {

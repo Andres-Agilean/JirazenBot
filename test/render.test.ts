@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { renderBundle } from '../src/bundle/render.js';
-import { assembleBundle } from '../src/bundle/assemble.js';
-import { JiraClient } from '../src/fetch/jira.js';
-import { ZendeskClient } from '../src/fetch/zendesk.js';
-import { Resolver } from '../src/resolve/resolver.js';
-import { ZendeskLinksStrategy } from '../src/resolve/strategies.js';
-import type { CardBundle } from '../src/bundle/types.js';
+import { renderBundle } from '@/bundle/render.js';
+import { assembleBundle } from '@/bundle/assemble.js';
+import { JiraClient } from '@/fetch/jira.js';
+import { ZendeskClient } from '@/fetch/zendesk.js';
+import { Resolver } from '@/resolve/resolver.js';
+import { ZendeskLinksStrategy } from '@/resolve/strategies.js';
+import type { CardBundle } from '@/bundle/types.js';
 import { fixture, makeFetch, testConfig } from './helpers.js';
 
 async function makeBundle(surface: 'dm' | 'multiparty') {

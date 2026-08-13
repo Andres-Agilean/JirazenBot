@@ -1,4 +1,4 @@
-import type { Config } from '../config.js';
+import type { Config } from '@/config.js';
 import { NotFoundError, httpStatusError } from './errors.js';
 import { detectJiraMirror, type JiraMirrorMatch } from './jiraMirror.js';
 

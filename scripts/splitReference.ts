@@ -1,5 +1,5 @@
-import type { CardRef } from '../src/resolve/types.js';
-import { parseReference } from '../src/resolve/parseReference.js';
+import type { CardRef } from '@/resolve/types.js';
+import { parseReference } from '@/resolve/parseReference.js';
 
 export interface SplitRef {
   ref: CardRef;

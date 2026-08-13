@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scrubEmails } from '../src/fetch/scrub.js';
+import { scrubEmails } from '@/fetch/scrub.js';
 
 describe('scrubEmails', () => {
   it('replaces emails at any depth, leaving structure intact', () => {

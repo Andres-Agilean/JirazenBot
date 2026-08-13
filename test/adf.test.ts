@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adfToMarkdown, type AdfNode } from '../src/fetch/adf.js';
+import { adfToMarkdown, type AdfNode } from '@/fetch/adf.js';
 
 const doc = (...content: AdfNode[]): AdfNode => ({ type: 'doc', content });
 const para = (...content: AdfNode[]): AdfNode => ({ type: 'paragraph', content });
