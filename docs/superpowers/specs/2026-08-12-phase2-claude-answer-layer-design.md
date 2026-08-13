@@ -71,10 +71,29 @@ test/grounding/
 tok, US$0.076) against `thinking: disabled`/effort `low` (19/30, saída 5545 tok, US$0.083,
 plus a malformed multi-source citation not seen elsewhere) and `thinking: adaptive`/effort
 `medium` (21/30, saída 5992 tok, US$0.088) on the live eval corpus. `adaptive`/`low` won on
-both pass rate and cost and is kept as the default; nearly every failure in all three
-configurations was the same handful of cases tripped by the same corpus-rule false positive
-(`mustNotInventDate()` flagging the system-prompt-mandated `fetched_at` citation), not a
-thinking/effort effect — see task-8-report.md for the per-case breakdown.
+both pass rate and cost and is kept as the default. The cost/token ranking across the three
+configurations is unaffected by the correction below and stands as measured.
+
+**Corrected (fix wave, 2026-08-12) — this is the grounding score to cite, not the 22/30
+above.** Nearly every failure in the Task 8 sweep, in all three configurations, was the same
+handful of cases tripped by one corpus-rule defect: `mustNotInventDate()` banned every date
+shape unconditionally, while `SYSTEM_PROMPT` simultaneously *requires* citing the bundle's
+`fetched_at` when answering about current status — the eval was measuring itself, not the
+model. Fixed by making the rule bundle-aware (it now fails a candidate date only when that date
+is absent from the bundle it was given, harvested via `renderBundle()`) without touching the
+system prompt or dropping the rule. Re-run once, same configuration
+(`adaptive`/`low`), no `--judge`: **28/30**, saída 5127 tok, cache lido 40366 tok, cache
+escrito 7437 tok, US$0.079. Two cases still fail, both adjudicated as genuine model-answer gaps
+rather than corpus/rule defects, so left failing rather than weakened to pass:
+- `ret-04-zendesk-status` — the answer correctly states the Zendesk status ("hold") but never
+  restates the ticket number 20100 that `mustContain('20100')` requires. The rule is a
+  defensible (if strict) grounding check -- it proves the answer is tied to *this* ticket, not
+  just "a" status -- and the prompt has no explicit instruction to restate identifiers. Neither
+  clearly wrong; left failing.
+- `svr-01-said-not-recorded` — the model second-guessed its own citation mid-sentence
+  (`[comentário jira 70002... na verdade 70003]`) instead of just writing `[comentário jira
+  70003]`, so `mustCite('comentário jira 70003')` correctly rejects the malformed bracket. A
+  real model output defect, not a corpus/rule defect.
 
 ## 4. Prompt and cache structure
 
@@ -98,6 +117,15 @@ the two surfaces render identically would silently break that guarantee.
 **History** is capped at the **last 6 turns**, dropped oldest-first, and sits entirely after
 the cached prefix. The CLI barely exercises this; it matters from Phase 3, where the binding
 store owns conversation state.
+
+**Bundle lifetime is the caller's responsibility, not `buildMessages()`'s.** `fetched_at` sits
+inside the cached block (`messages[0]`). A bundle must be assembled **once per binding** and
+reused for follow-up questions; re-assembling it per message changes `fetched_at`, which changes
+`messages[0]`'s bytes, which invalidates the cached prefix -- costing a full-price cache write
+plus a full Jira+Zendesk refetch on every turn instead of a cheap cache read. `buildMessages()`
+(`src/claude/prompt.ts`) and `loadCardBundle()` (`src/bundle/load.ts`) both carry a doc comment
+recording this; there is no code-level enforcement, so a future caller that assembles fresh per
+message will not fail loudly -- it will just quietly stop benefiting from the cache.
 
 ## 5. Answer format and grounding
 

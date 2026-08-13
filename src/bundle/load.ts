@@ -19,6 +19,12 @@ export function buildResolver(cfg: Config, jira: JiraClient): Resolver {
 /**
  * Reference -> fully assembled, budgeted bundle. Shared by both CLIs so the card path and the
  * ask path can never drift apart in how they resolve or assemble.
+ *
+ * The caller owns the returned bundle's lifetime: assemble it once per binding/conversation and
+ * reuse it for follow-up questions via buildMessages() (src/claude/prompt.ts), rather than
+ * calling this again per message. Its `fetched_at` is baked into the cached prompt prefix, so a
+ * fresh call per turn changes that prefix, busts the prompt cache, and re-triggers a full
+ * Jira+Zendesk refetch on every question (spec §4).
  */
 export function loadCardBundle(
   ref: CardRef,

@@ -110,6 +110,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
 /** Throws when a Claude entry point is reached without an API key configured. */
 export function requireAnthropicKey(cfg: Config): string {
-  if (cfg.anthropicApiKey === '') throw new Error(MISSING_ANTHROPIC_KEY_MESSAGE);
+  if (cfg.anthropicApiKey.trim() === '') throw new Error(MISSING_ANTHROPIC_KEY_MESSAGE);
   return cfg.anthropicApiKey;
 }

@@ -91,6 +91,11 @@ describe('loadConfig — Claude settings', () => {
     const cfg = loadConfig(validEnv);
     expect(() => requireAnthropicKey(cfg)).toThrow(MISSING_ANTHROPIC_KEY_MESSAGE);
   });
+
+  it('requireAnthropicKey throws when the key is only whitespace (stray .env space)', () => {
+    const cfg = loadConfig({ ...validEnv, ANTHROPIC_API_KEY: '   ' });
+    expect(() => requireAnthropicKey(cfg)).toThrow(MISSING_ANTHROPIC_KEY_MESSAGE);
+  });
 });
 
 describe('test helpers', () => {

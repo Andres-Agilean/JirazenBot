@@ -67,4 +67,16 @@ describe('buildMessages', () => {
     expect(msgs[1].content).toBe('t4'); // t0..t3 dropped
     expect(msgs[MAX_HISTORY_TURNS].content).toBe('t9');
   });
+
+  it('renders a byte-identical cached prefix for the same bundle across questions and history (spec §4)', () => {
+    // Prefix byte-stability is what makes the prompt cache pay off across a conversation's turns;
+    // this proves the claim instead of leaving it asserted only in prose.
+    const history: Turn[] = [
+      { role: 'user', text: 'Quem validou?' },
+      { role: 'assistant', text: 'Carla Nunes [comentário jira 70003].' },
+    ];
+    const q1 = buildMessages(bundle, 'Quem validou?', []) as any[];
+    const q2 = buildMessages(bundle, 'E quando foi movido para Em Teste?', history) as any[];
+    expect(JSON.stringify(q2[0])).toBe(JSON.stringify(q1[0]));
+  });
 });
