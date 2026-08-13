@@ -67,9 +67,14 @@ test/grounding/
 | sampling params | **none** | Rejected by Sonnet 5 |
 | tools | **none in Phase 2** | The four bounded tools are Phase 5 (plan §7.4) |
 
-The thinking/effort pair is a starting point, not a conclusion. The eval runner accepts
-overrides so the configuration can be swept and settled with evidence; record the winning
-combination here when it is.
+**Measured (Task 8, 2026-08-12).** Swept `thinking: adaptive`/effort `low` (22/30, saída 4802
+tok, US$0.076) against `thinking: disabled`/effort `low` (19/30, saída 5545 tok, US$0.083,
+plus a malformed multi-source citation not seen elsewhere) and `thinking: adaptive`/effort
+`medium` (21/30, saída 5992 tok, US$0.088) on the live eval corpus. `adaptive`/`low` won on
+both pass rate and cost and is kept as the default; nearly every failure in all three
+configurations was the same handful of cases tripped by the same corpus-rule false positive
+(`mustNotInventDate()` flagging the system-prompt-mandated `fetched_at` citation), not a
+thinking/effort effect — see task-8-report.md for the per-case breakdown.
 
 ## 4. Prompt and cache structure
 

@@ -194,3 +194,67 @@ Still open:
    links API if available) into `test/fixtures/`.
 4. Rotate the Zendesk API token; provision the Jira service account + token scoped read-only to the
    five allowed projects.
+
+## 8. MVP scope — DM only, card interactions as text commands (amends plan §9.1/§9.4/§12)
+
+**Decided 2026-08-12.** The minimum viable product is the **DM surface only**. Plan §12's
+Phase 4 (multi-party chat, @mention handling, thread/group binding, Adaptive Cards, link
+unfurling) is **deferred in full** until the DM bot has been used in anger.
+
+This follows the plan's own sequencing rather than departing from it — §9.2 already ranks DM
+first ("Build and ship this first; it is the surface where free-form Q&A actually feels
+conversational") and Phase 3 is already specified as DM-only. The decision is where to
+**stop**, not how to order the work.
+
+### What ships
+
+Phase 3 (DM bot) plus the parts of Phase 5 that a production DM bot needs: rate-limit
+backoff, Key Vault wiring, and structured logging with token accounting. The four bounded
+tools (plan §7.4) stay optional. The disambiguation *card* becomes a plain-text list — the
+assembler already returns typed candidates, so nothing new is required to render it.
+
+### Nothing built so far is wasted
+
+The `surface: 'dm' | 'multiparty'` flag is already implemented in the bundle assembler and
+prompt cache key (§3). `multiparty` simply stays unexercised until Phase 4; no rework is
+needed to switch it on.
+
+### Card interactions ship as text commands — explicitly temporary
+
+Adaptive Cards provide three interactions this MVP would otherwise lose. Each gets a text
+equivalent, and **each is a placeholder to be replaced by the card affordance when Phase 4
+lands** — not a permanent design:
+
+| Card affordance | Temporary text command | Replaced by |
+|---|---|---|
+| Refresh button (plan §7.5, a *required* staleness mitigation) | User types `atualizar` → refetch and rebind | Refresh action on the card |
+| One-tap correction after a bare-number assumption (plan §6.1) | Bot states the assumption; user types `AGL-123` or `#4471` to rebind | Correction action on the card |
+| Disambiguation picker on a multi-match (plan §6.2) | Bot lists numbered candidates; user replies with the number or the key | Disambiguation card |
+
+Everything else a card would convey survives in plain text: deep links to Jira and Zendesk
+render as markdown links in Teams messages, the bound-card footer (plan §9.3) is a text line,
+and field values render as markdown bullets. Only *tables* genuinely require a card.
+
+**Do not treat the text commands as the long-term interface.** They exist so the DM MVP keeps
+the plan's full staleness and disambiguation discipline without card infrastructure. When
+Phase 4 ships cards, the commands should remain as aliases (typing is natural in a DM) but
+the buttons become the primary affordance.
+
+A side benefit worth keeping: plain text is materially easier to test than cards — no
+rendering variance between the M365 Agents Playground and a real tenant, and assertions are
+straightforward string checks.
+
+### Acceptance for the MVP
+
+In a 1:1 chat: reference a card by `QZ-252` or `chamado 16467`, get a grounded pt-BR summary;
+ask three follow-ups without re-referencing it; switch cards explicitly; confirm a bare number
+mid-conversation does **not** rebind (plan §6.1); type `atualizar` and get fresh data with a
+new `fetched_at`.
+
+### Consequence to re-confirm before shipping
+
+§3 decided internal Zendesk notes are included in DMs and suppressed in channels. With DM as
+the **only** surface, that means **every user of the MVP sees internal notes**, which can
+contain customer PII, in a chat that feels private but draws on the service account's full
+visibility. That was the right trade when channels were the risky surface; it deserves an
+explicit sign-off from whoever approves the app now that it is the only surface.
