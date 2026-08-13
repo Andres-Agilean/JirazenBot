@@ -1,27 +1,19 @@
 import { renderBundle } from '@/bundle/render.js';
 import type { CardBundle } from '@/bundle/types.js';
 import type { Rule, RuleFailure } from './types.js';
-
-/**
- * Answers are free-form pt-BR prose, so text comparisons normalize case and strip diacritics --
- * "André" and "andre" are the same claim, and a rule that only matched one would produce
- * false failures that train people to ignore the eval output.
- */
-function normalize(s: string): string {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-}
+import { normalizeText } from '@/text/normalize.js';
 
 export function mustContain(needle: string): Rule {
   return {
     label: `deve conter "${needle}"`,
-    check: (answer) => normalize(answer).includes(normalize(needle)),
+    check: (answer) => normalizeText(answer).includes(normalizeText(needle)),
   };
 }
 
 export function mustNotContain(needle: string): Rule {
   return {
     label: `não deve conter "${needle}"`,
-    check: (answer) => !normalize(answer).includes(normalize(needle)),
+    check: (answer) => !normalizeText(answer).includes(normalizeText(needle)),
   };
 }
 
@@ -37,7 +29,7 @@ export function mustNotMatch(re: RegExp, label: string): Rule {
 export function mustCite(label: string): Rule {
   return {
     label: `deve citar [${label}]`,
-    check: (answer) => normalize(answer).includes(`[${normalize(label)}`),
+    check: (answer) => normalizeText(answer).includes(`[${normalizeText(label)}`),
   };
 }
 
@@ -116,7 +108,7 @@ function harvestBundleDates(bundle: CardBundle): Set<string> {
 }
 
 function hasContextualBareDate(answer: string, known: Set<string>): boolean {
-  const normalized = normalize(answer);
+  const normalized = normalizeText(answer);
   for (const sentence of normalized.split(SENTENCE_SPLIT)) {
     if (!DATE_CONTEXT_RE.test(sentence)) continue;
     for (const match of sentence.matchAll(BARE_DAY_MONTH)) {
@@ -205,7 +197,7 @@ export function mustAdmitGap(): Rule {
     label: 'deve conter linguagem de lacuna (triagem — o juiz decide se a recusa é adequada)',
     kind: 'screen',
     check: (answer) => {
-      const n = normalize(answer);
+      const n = normalizeText(answer);
       return GAP_PHRASES.some((p) => n.includes(p));
     },
   };
