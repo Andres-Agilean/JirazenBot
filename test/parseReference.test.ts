@@ -42,6 +42,34 @@ describe('parseReference', () => {
     expect(p(text)).toEqual({ system: 'zendesk', ticketId: '11234', explicit: true });
   });
 
+  // The tenant's staff use "ticket" and "chamado" interchangeably, and pluralise both. The
+  // original pattern accepted only the singular with whitespace or "#" before the number, so
+  // "tickets 11234" and "chamado: 11234" parsed as nothing at all and the bot asked what card
+  // the user meant.
+  it.each([
+    'tickets 11234',
+    'Tickets 11234',
+    'chamados 11234',
+    'os tickets 11234',
+    'ticket: 11234',
+    'chamado: 11234',
+    'ticket - 11234',
+    'ticket nº 11234',
+    'ticket n 11234',
+    'ticket no 11234',
+    'ticket numero 11234',
+    'ticket número 11234',
+    'tickets #11234',
+  ])('parses the plural and separator forms: %s', (text) => {
+    expect(p(text)).toEqual({ system: 'zendesk', ticketId: '11234', explicit: true });
+  });
+
+  it('does not let the widened keyword form swallow unrelated counts', () => {
+    expect(p('abrimos 3 tickets essa semana')).toBeNull();
+    expect(p('fechamos os chamados ontem')).toBeNull();
+    expect(p('nao consigo abrir o ticket')).toBeNull();
+  });
+
   it('treats a whole-message bare number as a non-explicit Zendesk ref', () => {
     expect(p('16467')).toEqual({ system: 'zendesk', ticketId: '16467', explicit: false });
     expect(p('  16467? ')).toEqual({ system: 'zendesk', ticketId: '16467', explicit: false });
