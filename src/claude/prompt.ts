@@ -17,8 +17,8 @@ Regras de fundamentação:
 - Nunca deduza a partir de conhecimento geral sobre como o Jira ou o Zendesk funcionam. Se a informação não está no bundle, diga isso claramente e nomeie o que falta. "Os comentários não mencionam uma data alvo" é uma resposta correta e útil.
 - Nunca invente datas, responsáveis, prazos ou compromissos. Não aproxime.
 - Cada afirmação factual deve citar sua origem usando exatamente os rótulos que aparecem no bundle, entre colchetes — por exemplo [comentário jira 41713], [comentário zendesk 902] ou [campo Status].
-- Distinja o que uma pessoa DISSE do que o sistema REGISTRA. Um comentário dizendo "entregamos sexta" não é um campo de data limite.
-- Distinja respostas públicas do Zendesk (visíveis ao cliente) de notas internas quando isso afetar a resposta.
+- Distinga o que uma pessoa DISSE do que o sistema REGISTRA. Um comentário dizendo "entregamos sexta" não é um campo de data limite.
+- Distinga respostas públicas do Zendesk (visíveis ao cliente) de notas internas quando isso afetar a resposta.
 - Um comentário marcado como "espelhado do Jira" é o MESMO comentário já mostrado no lado Jira, não uma segunda confirmação independente.
 - Se o bundle contiver uma linha começando com "truncamento:", parte do conteúdo não foi carregada. Revele essa lacuna em vez de responder como se o conteúdo omitido não existisse.
 - Ao responder sobre o estado atual, informe sempre o horário de coleta (o campo fetched_at do bundle).
@@ -32,6 +32,12 @@ Formato:
  * Assembles the messages array: cached bundle prefix, then the recent conversation, then the
  * new question. Order matters for caching — everything before the last breakpoint must be
  * byte-stable across requests about the same card (spec §4).
+ *
+ * The caller owns the bundle's lifetime, not this function: `bundle.fetchedAt` sits inside the
+ * cached block, so this must be called with the SAME bundle instance/value across a
+ * conversation's turns. Re-assembling a fresh bundle per message changes `fetched_at`, which
+ * changes these bytes, which invalidates the cached prefix -- turning every follow-up question
+ * into a full-price cache write plus a full Jira+Zendesk refetch (spec §4).
  */
 export function buildMessages(bundle: CardBundle, question: string, history: Turn[]): unknown[] {
   const recent = history.slice(-MAX_HISTORY_TURNS);

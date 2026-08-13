@@ -22,6 +22,8 @@ export interface Answer {
 export interface AnthropicResponse {
   model: string;
   content: Array<{ type: string; text?: string }>;
+  /** Why generation stopped -- notably `'max_tokens'`, when the response was cut off mid-answer. */
+  stop_reason?: string;
   usage: {
     input_tokens: number;
     output_tokens: number;

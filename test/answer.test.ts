@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answer, type AnswerDeps } from '../src/claude/answer.js';
+import { answer, TRUNCATION_NOTICE, type AnswerDeps } from '../src/claude/answer.js';
 import { SYSTEM_PROMPT } from '../src/claude/prompt.js';
 import type { AnthropicResponse, AnthropicLike } from '../src/claude/types.js';
 import type { CardBundle } from '../src/bundle/types.js';
@@ -125,5 +125,24 @@ describe('answer', () => {
     await expect(answer(bundle, 'Qual o status?', [], deps(client))).rejects.toThrow(
       /sem texto/i,
     );
+  });
+
+  it('appends a visible pt-BR truncation notice when stop_reason is max_tokens', async () => {
+    const { client } = fakeClient({
+      content: [{ type: 'text', text: 'Está em teste desde 10/08 e' }],
+      stop_reason: 'max_tokens',
+    });
+    const result = await answer(bundle, 'Qual o status?', [], deps(client));
+    expect(result.text).toBe(`Está em teste desde 10/08 e${TRUNCATION_NOTICE}`);
+    expect(result.text).toMatch(/TRUNCAD/);
+  });
+
+  it('does not append a truncation notice when stop_reason is end_turn', async () => {
+    const { client } = fakeClient({
+      content: [{ type: 'text', text: 'Está em teste.' }],
+      stop_reason: 'end_turn',
+    });
+    const result = await answer(bundle, 'Qual o status?', [], deps(client));
+    expect(result.text).toBe('Está em teste.');
   });
 });

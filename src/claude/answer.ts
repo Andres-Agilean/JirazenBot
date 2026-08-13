@@ -10,6 +10,17 @@ export const CLAUDE_EFFORT = 'low';
 const THINKING = { type: 'adaptive' } as const;
 const EPHEMERAL = { type: 'ephemeral' } as const;
 
+// stop_reason the SDK reports when generation was cut off by max_tokens rather than finishing
+// naturally. Adaptive thinking shares the same token budget as the answer text, so a long thread
+// can be truncated mid-sentence -- without a visible marker, a partial answer that lost its
+// "...mas o card não registra isso" caveat reads as a confident, complete claim.
+const MAX_TOKENS_STOP_REASON = 'max_tokens';
+
+/** Appended to a truncated answer so the CLI, the eval, and Teams users can all tell it apart
+ * from a complete one. Deliberately loud (all-caps marker) rather than a soft caveat. */
+export const TRUNCATION_NOTICE =
+  '\n\n[RESPOSTA TRUNCADA: o limite de tokens foi atingido antes do fim da resposta -- trate como incompleta.]';
+
 export interface AnswerDeps {
   client: AnthropicLike;
   model: string;
@@ -36,7 +47,7 @@ export async function answer(
     messages: buildMessages(bundle, question, history),
   });
 
-  const text = response.content
+  let text = response.content
     .filter((b) => b.type === 'text' && b.text)
     .map((b) => b.text as string)
     .join('')
@@ -44,6 +55,12 @@ export async function answer(
 
   if (text === '') {
     throw new Error('O modelo respondeu sem texto.');
+  }
+
+  // A partial answer plus a visible warning beats throwing away a real, billed response -- never
+  // throw here, just mark it so nothing downstream mistakes it for a finished answer.
+  if (response.stop_reason === MAX_TOKENS_STOP_REASON) {
+    text += TRUNCATION_NOTICE;
   }
 
   return {
