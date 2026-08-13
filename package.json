@@ -8,10 +8,12 @@
     "card": "tsx scripts/card.ts",
     "fixtures": "tsx scripts/capture-fixtures.ts",
     "ask": "tsx scripts/ask.ts",
+    "bot": "tsx scripts/serve.ts",
     "eval": "tsx test/grounding/run.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
+    "@microsoft/teams.apps": "^2.0.15",
     "dotenv": "^17.4.2",
     "zod": "^4.4.3"
   },
