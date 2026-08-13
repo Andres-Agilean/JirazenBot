@@ -251,10 +251,17 @@ ask three follow-ups without re-referencing it; switch cards explicitly; confirm
 mid-conversation does **not** rebind (plan §6.1); type `atualizar` and get fresh data with a
 new `fetched_at`.
 
-### Consequence to re-confirm before shipping
+### Internal notes in a DM-only MVP — resolved
 
 §3 decided internal Zendesk notes are included in DMs and suppressed in channels. With DM as
-the **only** surface, that means **every user of the MVP sees internal notes**, which can
-contain customer PII, in a chat that feels private but draws on the service account's full
-visibility. That was the right trade when channels were the risky surface; it deserves an
-explicit sign-off from whoever approves the app now that it is the only surface.
+the only surface, that means every user of the MVP sees internal notes, which can contain
+customer PII.
+
+**Resolved 2026-08-12: this is acceptable and intended.** The DM surface is used exclusively
+by Agilean staff, who are already entitled to read agent-only notes in Zendesk itself. The bot
+therefore widens *convenience*, not *audience* — it surfaces content these users could already
+open the ticket to read.
+
+The channel suppression in §3 stands unchanged and is not redundant: it remains the guard for
+Phase 4, where a conversation can include participants who are not Zendesk agents. Do not
+remove the `multiparty` branch on the grounds that the DM case made it unnecessary.
