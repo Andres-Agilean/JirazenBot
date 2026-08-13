@@ -3,26 +3,10 @@ import { loadConfig } from '../../src/config.js';
 import { createAnthropicClient } from '../../src/claude/client.js';
 import { answer, type AnswerDeps } from '../../src/claude/answer.js';
 import type { Usage } from '../../src/claude/types.js';
-import { checkRules } from './rules.js';
+import { classifyCase } from './classify.js';
 import { judge } from './judge.js';
 import { CASES } from './cases.js';
-import type { RuleFailure } from './types.js';
-
-/**
- * Substring shared by every rule label produced by mustAdmitGap() (rules.ts). That function is
- * documented there, in five rounds of review, as "a screen, not a verdict": its phrase list
- * false-negatives on plainly correct pt-BR refusals (e.g. "Não há chamado Zendesk vinculado a
- * este card.") that just don't happen to use one of its listed phrasings. Per design spec §6,
- * whether a refusal was graceful and named the right gap is the JUDGE's call, not this screen's.
- * So a rule whose label carries this marker may only ever produce a WARNING here -- printed for
- * a human to notice, never counted against the case's pass/fail or the process exit code. Every
- * other rule failure, and every failed judge criterion, is a real FAILURE.
- */
-const SCREEN_LABEL_MARKER = 'triagem';
-
-// Label prefix for a printed screen warning. Built from SCREEN_LABEL_MARKER (rather than a
-// second hardcoded literal) so the two strings cannot drift apart from each other.
-const SCREEN_WARNING_PREFIX = `aviso (${SCREEN_LABEL_MARKER}, não conta como falha)`;
+import { parseOnly } from './argv.js';
 
 const EXIT_CASE_FAILURES = 1;
 const EXIT_NO_MATCHING_CASES = 2;
@@ -33,9 +17,9 @@ const EXIT_SETUP_ERROR = 3;
 // partway through" -- see the exit-code precedence comment below the loop.
 const EXIT_CASE_ERRORS = 4;
 
-function isScreenWarning(f: RuleFailure): boolean {
-  return f.label.includes(SCREEN_LABEL_MARKER);
-}
+// Label prefix for a printed screen warning (see Rule.kind in types.ts, and classifyCase in
+// classify.ts, which is what actually decides screen vs. failure now -- this is display only).
+const SCREEN_WARNING_PREFIX = 'aviso (triagem, não conta como falha)';
 
 function addUsage(totals: Usage, usage: Usage): void {
   totals.input += usage.input;
@@ -60,10 +44,14 @@ function formatUsage(totals: Usage): string {
  */
 async function runEval(): Promise<void> {
   const useJudge = process.argv.includes('--judge');
-  const only = (() => {
-    const i = process.argv.indexOf('--only');
-    return i >= 0 ? process.argv[i + 1] : null;
-  })();
+  const only = parseOnly(process.argv);
+  if (only === undefined) {
+    console.error(
+      '--only requer um valor imediatamente após (ex.: --only nib-04) -- nenhum caso executado.',
+    );
+    process.exitCode = EXIT_NO_MATCHING_CASES;
+    return;
+  }
 
   const cfg = loadConfig();
   const deps: AnswerDeps = {
@@ -97,9 +85,7 @@ async function runEval(): Promise<void> {
       const a = await answer(c.bundle, c.question, [], deps);
       addUsage(totals, a.usage);
 
-      const ruleResults = checkRules(a.text, c.rules);
-      const warnings = ruleResults.filter(isScreenWarning);
-      const ruleFailures = ruleResults.filter((f) => !isScreenWarning(f));
+      const { ok: rulesOk, warnings, ruleFailures } = classifyCase(a.text, c);
 
       let judgeFailure: string | null = null;
       if (useJudge && c.judge) {
@@ -110,7 +96,7 @@ async function runEval(): Promise<void> {
 
       if (warnings.length > 0) warnedCases++;
 
-      const ok = ruleFailures.length === 0 && judgeFailure === null;
+      const ok = rulesOk && judgeFailure === null;
       if (ok) {
         passed++;
         console.log(`✅ ${c.id}`);
