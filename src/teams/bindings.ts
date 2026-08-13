@@ -24,6 +24,13 @@ export interface Binding {
 
 export interface BindingStore {
   get(key: string): Promise<Binding | undefined>;
+  /**
+   * Store a binding. This is a dumb store — it does not inspect or modify the binding's
+   * `boundAt` field. It is the caller's responsibility to set `boundAt` correctly:
+   * - when first binding a conversation to a card, set `boundAt` to now
+   * - when re-binding a conversation to a different card, set a new `boundAt` to reset expiry
+   * See InMemoryBindingStore.get() for how the 24h TTL is computed from `boundAt`.
+   */
   set(key: string, binding: Binding): Promise<void>;
   delete(key: string): Promise<void>;
 }

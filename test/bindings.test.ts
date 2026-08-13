@@ -14,13 +14,13 @@ const bundle = {
 
 const T0 = 1_000_000;
 
-function makeBinding(at = T0): Binding {
+function makeBinding(boundAt = T0, bundleFetchedAt = T0): Binding {
   return {
     ref: { system: 'jira', issueKey: 'QZ-252', explicit: true },
     bundle,
-    bundleFetchedAt: at,
+    bundleFetchedAt,
     history: [],
-    boundAt: at,
+    boundAt,
   };
 }
 
@@ -57,10 +57,46 @@ describe('InMemoryBindingStore', () => {
     expect(await store.get('conv-1')).toBeUndefined();
   });
 
+  it('keeps a binding valid while its bundle independently goes stale', async () => {
+    let now = T0;
+    const store = new InMemoryBindingStore(() => now);
+    // Bind at T0 but fetch bundle much earlier
+    await store.set('conv-1', makeBinding(T0, T0 - 20 * 60 * 1000)); // bundle 20 minutes old
+    now = T0 + 10 * 60 * 1000; // advance 10 minutes
+    const binding = await store.get('conv-1');
+    // binding is still live (only 10m old, needs 24h to expire)
+    expect(binding).toBeDefined();
+    // but bundle is stale (was already 20m old, now 30m total, past 15m threshold)
+    expect(isBundleStale(binding!, now)).toBe(true);
+  });
+
   it('keys conversations independently', async () => {
     const store = new InMemoryBindingStore(() => T0);
-    await store.set('conv-1', makeBinding());
-    expect(await store.get('conv-2')).toBeUndefined();
+    const refA = { system: 'jira' as const, issueKey: 'QZ-252', explicit: true };
+    const refB = { system: 'zendesk' as const, ticketId: '999', explicit: false };
+    const bindingA = { ...makeBinding(), ref: refA };
+    const bindingB = { ...makeBinding(), ref: refB };
+    await store.set('conv-1', bindingA);
+    await store.set('conv-2', bindingB);
+    expect((await store.get('conv-1'))?.ref).toEqual(refA);
+    expect((await store.get('conv-2'))?.ref).toEqual(refB);
+  });
+
+  it('overwrites an existing key with a new binding', async () => {
+    const store = new InMemoryBindingStore(() => T0);
+    const binding1 = makeBinding(T0, T0);
+    const binding2 = {
+      ref: { system: 'zendesk' as const, ticketId: '999', explicit: false },
+      bundle,
+      bundleFetchedAt: T0 + 1000,
+      history: [{ role: 'user' as const, text: 'hello' }],
+      boundAt: T0 + 1000,
+    };
+    await store.set('conv-1', binding1);
+    await store.set('conv-1', binding2);
+    const retrieved = await store.get('conv-1');
+    expect(retrieved?.ref.system).toBe('zendesk');
+    expect(retrieved?.boundAt).toBe(T0 + 1000);
   });
 
   it('deletes', async () => {
