@@ -111,12 +111,42 @@ trigger for implementing a persistent store, not a nice-to-have.
 | Bundle | **15 minutes** | How long it reuses *the fetched data* before refetching Jira and Zendesk |
 
 The build plan (§7.5) mandates a 5-minute TTL, having conflated bundle freshness with the
-Claude prompt-cache TTL. They are separable: the prompt cache expires after 5 minutes and that
-is fixed by the API, but reusing the fetched bundle beyond that costs only the cache discount
-(~US$0.005 per question), not correctness. **Decided: 15 minutes.** Follow-ups within a working
-conversation stay fast and avoid hammering the tenant's APIs, while every answer discloses its
-collection time and `atualizar` always forces a refresh. A question arriving after expiry
-triggers a transparent refetch.
+Claude prompt-cache TTL. They are separable: the prompt cache TTL is fixed by the API, but
+reusing the fetched bundle beyond it costs only the cache discount, not correctness.
+**Decided: 15 minutes.** Follow-ups within a working conversation stay fast and avoid hammering
+the tenant's APIs, while every answer discloses its collection time and `atualizar` always
+forces a refresh. A question arriving after expiry triggers a transparent refetch.
+
+### 4.1 Prompt cache TTL — switch to 1 hour (amends Phase 2 spec §4)
+
+Phase 2 used the default 5-minute `cache_control` TTL. With a 15-minute bundle lifetime that
+leaves a dead zone: a follow-up between minute 5 and minute 15 reuses the same byte-identical
+bundle but finds the cache gone, and pays a full-price rewrite. **Change the breakpoints to
+`{ type: 'ephemeral', ttl: '1h' }`** so every follow-up inside the bundle's life is a cheap
+read.
+
+Reads stay at 0.1x base input either way; only the write moves, from 1.25x to 2x. On a
+~2,700-token bundle:
+
+| Event | 5-minute TTL | 1-hour TTL |
+|---|---|---|
+| First question (cache write) | US$0.0068 | US$0.0108 |
+| Follow-up within 5 minutes | US$0.0005 | US$0.0005 |
+| Follow-up at minute 8 | US$0.0068 (rewrite) | US$0.0005 |
+
+A three-question conversation spread across ten minutes costs roughly US$0.014 at the 5-minute
+TTL versus US$0.012 at one hour, and the gap widens with each additional question. At the
+projected 20-100 cards/day this is approximately the difference between US$65 and US$50 per
+month.
+
+**The tradeoff is real and points the other way for one-shot questions:** a 2x write that is
+never read back is worse than a 1.25x one. Multi-turn conversation is the premise of the DM
+surface, so one hour is the right default here — but **Phase 4's unfurl summary is genuinely
+one-shot** (a card is posted, often with no follow-up) and should reconsider the 5-minute TTL
+for that path rather than inheriting this choice unexamined.
+
+Add a test asserting the TTL value on both breakpoints, so a silent regression to the default
+is caught offline.
 
 ## 5. Message pipeline
 
