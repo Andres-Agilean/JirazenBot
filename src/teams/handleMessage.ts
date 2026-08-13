@@ -38,6 +38,13 @@ export const JIRA_UNAVAILABLE =
 export const CLAUDE_UNAVAILABLE =
   'Não consegui gerar a resposta agora. Tente novamente em instantes.';
 
+/**
+ * A DM whose activity carries no text (an attachment- or image-only message) must still get a
+ * reply — spec §8: the bot must never go silent. See src/teams/app.ts.
+ */
+export const NO_TEXT_RECEIVED =
+  'Não consegui ler nenhum texto nessa mensagem. Envie uma referência de card (ex.: `QZ-252` ou `chamado 16467`) ou sua pergunta.';
+
 export function notFoundReply(message: string): string {
   return message;
 }
@@ -46,19 +53,33 @@ export function notFoundReply(message: string): string {
  * Asks for the issue key rather than offering a numbered menu. A reply of "1" would collide with
  * the bare-number rule (plan §6.1) and be read as Zendesk ticket #1, forcing a pending-choice
  * state and an ordering rule in this pipeline. A key round-trips as an ordinary reference.
+ *
+ * Zendesk candidates must NOT be rendered as bare numbers: a bare number is exactly what the
+ * bare-number guard below reads as a question about the currently bound card, not a rebind
+ * (`parseReference`'s WHOLE_MESSAGE_NUMBER path returns `explicit: false`). Rendering them as
+ * `chamado 16467` instead makes `parseReference` take the explicit KEYWORD_TICKET path, so
+ * replying with the offered string actually rebinds. Jira candidates are already unambiguous
+ * issue keys and round-trip as-is.
  */
-export function ambiguousReply(candidates: string[]): string {
+export function ambiguousReply(candidates: string[], side: 'jira' | 'zendesk'): string {
+  const rendered = side === 'zendesk' ? candidates.map((c) => `chamado ${c}`) : candidates;
   return [
     `Essa referência aponta para ${candidates.length} cards — responda com a chave:`,
-    ...candidates.map((c) => `- ${c}`),
+    ...rendered.map((c) => `- ${c}`),
   ].join('\n');
 }
 
-async function bind(
+/**
+ * Shared by bind() and refresh(): turns a load attempt into either a usable bundle or the exact
+ * pt-BR error that describes what went wrong. Both callers must surface `not_found` and
+ * `ambiguous` distinctly rather than flattening them into the generic "tente novamente" message
+ * (finding: a deleted card previously told every follow-up to retry for up to 24h instead of
+ * saying the card is gone).
+ */
+async function loadOrError(
   ref: CardRef,
-  key: string,
   deps: HandleDeps,
-): Promise<{ binding: Binding } | { error: string }> {
+): Promise<{ bundle: CardBundle } | { error: string }> {
   let result: AssembleResult;
   try {
     result = await deps.loadBundle(ref);
@@ -66,11 +87,21 @@ async function bind(
     return { error: JIRA_UNAVAILABLE };
   }
   if (result.status === 'not_found') return { error: notFoundReply(result.message) };
-  if (result.status === 'ambiguous') return { error: ambiguousReply(result.candidates) };
+  if (result.status === 'ambiguous') return { error: ambiguousReply(result.candidates, result.side) };
+  return { bundle: result.bundle };
+}
+
+async function bind(
+  ref: CardRef,
+  key: string,
+  deps: HandleDeps,
+): Promise<{ binding: Binding } | { error: string }> {
+  const loaded = await loadOrError(ref, deps);
+  if ('error' in loaded) return loaded;
 
   const binding: Binding = {
     ref,
-    bundle: result.bundle,
+    bundle: loaded.bundle,
     bundleFetchedAt: deps.now(),
     history: [],
     boundAt: deps.now(),
@@ -106,14 +137,10 @@ async function refresh(
   key: string,
   deps: HandleDeps,
 ): Promise<{ binding: Binding } | { error: string }> {
-  let result: AssembleResult;
-  try {
-    result = await deps.loadBundle(binding.ref);
-  } catch {
-    return { error: JIRA_UNAVAILABLE };
-  }
-  if (result.status !== 'ok') return { error: JIRA_UNAVAILABLE };
-  const refreshed: Binding = { ...binding, bundle: result.bundle, bundleFetchedAt: deps.now() };
+  const loaded = await loadOrError(binding.ref, deps);
+  if ('error' in loaded) return loaded;
+
+  const refreshed: Binding = { ...binding, bundle: loaded.bundle, bundleFetchedAt: deps.now() };
   await deps.store.set(key, refreshed);
   return { binding: refreshed };
 }

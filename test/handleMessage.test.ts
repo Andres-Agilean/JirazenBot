@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { handleMessage, type HandleDeps } from '@/teams/handleMessage.js';
+import { handleMessage, JIRA_UNAVAILABLE, type HandleDeps } from '@/teams/handleMessage.js';
 import { InMemoryBindingStore, BUNDLE_TTL_MS } from '@/teams/bindings.js';
 import { testConfig } from './helpers.js';
 import type { CardBundle } from '@/bundle/types.js';
@@ -208,5 +208,100 @@ describe('errors', () => {
     const { deps } = makeDeps();
     const replies = await handleMessage('bom dia, tudo bem?', 'conv', deps);
     expect(replies[0]).toContain('referência');
+  });
+});
+
+describe('disambiguation renders candidates by side (finding 3)', () => {
+  it('keeps Jira candidates as bare keys — they already round-trip as explicit references', async () => {
+    const { deps } = makeDeps({
+      loadBundle: async () => ({ status: 'ambiguous', side: 'jira', candidates: ['QZ-252', 'AGL-1500'] }),
+    });
+    const replies = await handleMessage('chamado 16467', 'conv', deps);
+    expect(replies[0]).toContain('- QZ-252');
+    expect(replies[0]).toContain('- AGL-1500');
+  });
+
+  it('renders Zendesk candidates as "chamado <n>", and the offered string rebinds correctly on reply', async () => {
+    // Failure scenario from the finding: bound to QZ-100, user sends QZ-252 which is ambiguous
+    // on the Zendesk side, the bot lists ticket numbers, the user replies with one of them.
+    // A bare "16467" would be read as a QUESTION about QZ-100 by the bare-number guard; the
+    // offered string must be explicit enough to actually rebind.
+    const seenRefs: unknown[] = [];
+    const { deps } = makeDeps({
+      loadBundle: async (ref) => {
+        seenRefs.push(ref);
+        if (ref.system === 'jira' && ref.issueKey === 'QZ-100') {
+          return { status: 'ok', bundle: bundleFor('QZ-100', '99999') } as AssembleResult;
+        }
+        if (ref.system === 'jira' && ref.issueKey === 'QZ-252') {
+          return { status: 'ambiguous', side: 'zendesk', candidates: ['16467', '16468'] } as AssembleResult;
+        }
+        if (ref.system === 'zendesk' && ref.ticketId === '16467') {
+          return { status: 'ok', bundle: bundleFor('QZ-999', '16467') } as AssembleResult;
+        }
+        throw new Error(`unexpected ref in test: ${JSON.stringify(ref)}`);
+      },
+    });
+
+    await handleMessage('QZ-100', 'conv', deps);
+
+    const ambiguous = await handleMessage('QZ-252', 'conv', deps);
+    expect(ambiguous[0]).not.toMatch(/^- 16467$/m); // a bare number would collide with §6.1
+    expect(ambiguous[0]).not.toMatch(/^- 16468$/m);
+    expect(ambiguous[0]).toContain('- chamado 16467');
+    expect(ambiguous[0]).toContain('- chamado 16468');
+
+    // Round trip: reply with exactly the string the bot offered.
+    const rebind = await handleMessage('chamado 16467', 'conv', deps);
+    expect(seenRefs.at(-1)).toEqual({ system: 'zendesk', ticketId: '16467', explicit: true });
+    expect(rebind[0]).toContain('QZ-999'); // rebound to the new card, not answered from QZ-100
+  });
+});
+
+describe('refresh() preserves specific errors instead of flattening to JIRA_UNAVAILABLE (finding 5)', () => {
+  it('atualizar reports not_found distinctly when the bound card has been deleted', async () => {
+    let calls = 0;
+    const { deps } = makeDeps({
+      loadBundle: async () => {
+        calls += 1;
+        if (calls === 1) return { status: 'ok', bundle: bundleFor('QZ-252', '16467') } as AssembleResult;
+        return { status: 'not_found', message: 'Não encontrei o card QZ-252.' } as AssembleResult;
+      },
+    });
+    await handleMessage('QZ-252', 'conv', deps);
+    const replies = await handleMessage('atualizar', 'conv', deps);
+    expect(replies[0]).toBe('Não encontrei o card QZ-252.');
+    expect(replies[0]).not.toBe(JIRA_UNAVAILABLE);
+  });
+
+  it('atualizar reports the disambiguation key list distinctly on an ambiguous refetch', async () => {
+    let calls = 0;
+    const { deps } = makeDeps({
+      loadBundle: async () => {
+        calls += 1;
+        if (calls === 1) return { status: 'ok', bundle: bundleFor('QZ-252', '16467') } as AssembleResult;
+        return { status: 'ambiguous', side: 'jira', candidates: ['QZ-252', 'AGL-1500'] } as AssembleResult;
+      },
+    });
+    await handleMessage('QZ-252', 'conv', deps);
+    const replies = await handleMessage('atualizar', 'conv', deps);
+    expect(replies[0]).toContain('chave');
+    expect(replies[0]).not.toBe(JIRA_UNAVAILABLE);
+  });
+
+  it('a stale-bundle refresh reports not_found distinctly instead of the generic retry message', async () => {
+    let calls = 0;
+    const { deps, setNow } = makeDeps({
+      loadBundle: async () => {
+        calls += 1;
+        if (calls === 1) return { status: 'ok', bundle: bundleFor('QZ-252', '16467') } as AssembleResult;
+        return { status: 'not_found', message: 'Não encontrei o card QZ-252.' } as AssembleResult;
+      },
+    });
+    await handleMessage('QZ-252', 'conv', deps);
+    setNow(T0 + BUNDLE_TTL_MS + 1);
+    const replies = await handleMessage('e agora?', 'conv', deps);
+    expect(replies[0]).toBe('Não encontrei o card QZ-252.');
+    expect(replies[0]).not.toBe(JIRA_UNAVAILABLE);
   });
 });
