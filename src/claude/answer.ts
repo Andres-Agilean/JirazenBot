@@ -1,4 +1,4 @@
-import { SYSTEM_PROMPT, buildMessages } from './prompt.js';
+import { SYSTEM_PROMPT, buildMessages, CACHE_CONTROL } from './prompt.js';
 import type { AnthropicLike, Answer, Turn } from './types.js';
 import type { CardBundle } from '@/bundle/types.js';
 
@@ -8,7 +8,6 @@ import type { CardBundle } from '@/bundle/types.js';
  */
 export const CLAUDE_EFFORT = 'low';
 const THINKING = { type: 'adaptive' } as const;
-const EPHEMERAL = { type: 'ephemeral' } as const;
 
 // stop_reason the SDK reports when generation was cut off by max_tokens rather than finishing
 // naturally. Adaptive thinking shares the same token budget as the answer text, so a long thread
@@ -43,7 +42,7 @@ export async function answer(
     max_tokens: deps.maxTokens,
     thinking: THINKING,
     output_config: { effort: CLAUDE_EFFORT },
-    system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: EPHEMERAL }],
+    system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: CACHE_CONTROL }],
     messages: buildMessages(bundle, question, history),
   });
 

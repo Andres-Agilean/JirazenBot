@@ -33,7 +33,7 @@ describe('buildMessages', () => {
     expect(msgs[0].role).toBe('user');
     expect(msgs[0].content[0].text).toContain('<CARD_BUNDLE>');
     expect(msgs[0].content[0].text).toContain('QZ-252');
-    expect(msgs[0].content[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(msgs[0].content[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
   });
 
   it('puts the question last, with no cache breakpoint on it', () => {
@@ -78,5 +78,18 @@ describe('buildMessages', () => {
     const q1 = buildMessages(bundle, 'Quem validou?', []) as any[];
     const q2 = buildMessages(bundle, 'E quando foi movido para Em Teste?', history) as any[];
     expect(JSON.stringify(q2[0])).toBe(JSON.stringify(q1[0]));
+  });
+});
+
+import { CACHE_CONTROL } from '@/claude/prompt.js';
+
+describe('cache TTL', () => {
+  it('uses a one-hour TTL so a 15-minute bundle stays cached throughout its life', () => {
+    expect(CACHE_CONTROL).toEqual({ type: 'ephemeral', ttl: '1h' });
+  });
+
+  it('puts the one-hour breakpoint on the bundle block', () => {
+    const msgs = buildMessages(bundle, 'Qual o status?', []) as any[];
+    expect(msgs[0].content[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
   });
 });

@@ -51,7 +51,7 @@ describe('answer', () => {
     await answer(bundle, 'Qual o status?', [], deps(client));
     const system = calls[0].system as any[];
     expect(system[0].text).toBe(SYSTEM_PROMPT);
-    expect(system[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(system[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
   });
 
   it('puts a cache breakpoint on the system block and the bundle block, and nowhere else', async () => {
@@ -62,9 +62,10 @@ describe('answer', () => {
     const messages = calls[0].messages as Array<Record<string, unknown>>;
 
     // exactly the two intended breakpoints
-    expect(system[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(system[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
     expect((messages[0].content as Array<Record<string, unknown>>)[0].cache_control).toEqual({
       type: 'ephemeral',
+      ttl: '1h',
     });
 
     // and no others anywhere in the request
@@ -92,6 +93,13 @@ describe('answer', () => {
     const { client, calls } = fakeClient();
     await answer(bundle, 'Qual o status?', [], deps(client));
     expect(calls[0]).not.toHaveProperty('tools');
+  });
+
+  it('puts the one-hour breakpoint on the system block', async () => {
+    const { client, calls } = fakeClient();
+    await answer(bundle, 'Qual o status?', [], deps(client));
+    const system = calls[0].system as Array<Record<string, unknown>>;
+    expect(system[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
   });
 
   it('returns only text blocks, ignoring empty thinking blocks', async () => {

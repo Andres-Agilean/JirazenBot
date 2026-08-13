@@ -5,6 +5,17 @@ import type { Turn } from './types.js';
 /** Conversation turns kept after the cached prefix. Older turns are dropped oldest-first. */
 export const MAX_HISTORY_TURNS = 6;
 
+/**
+ * One hour, not the 5-minute default. A bundle is reused for 15 minutes (Phase 3 spec §4), so a
+ * 5-minute cache leaves a dead zone: a follow-up at minute 8 sends a byte-identical prefix but
+ * finds the cache gone and pays a full-price rewrite. Reads cost 0.1x base input either way;
+ * only the write moves, 1.25x -> 2x, which the second question already repays.
+ *
+ * Phase 4's unfurl summary is genuinely one-shot and should reconsider this rather than
+ * inheriting it (Phase 3 spec §4.1).
+ */
+export const CACHE_CONTROL = { type: 'ephemeral', ttl: '1h' } as const;
+
 /** The question the unfurl/summary path asks (plan §3: summary is answer() with a default question). */
 export const DEFAULT_SUMMARY_QUESTION =
   'Resuma este card: qual é o problema, em que estado está e o que aconteceu de mais recente?';
@@ -48,7 +59,7 @@ export function buildMessages(bundle: CardBundle, question: string, history: Tur
         {
           type: 'text',
           text: renderBundle(bundle),
-          cache_control: { type: 'ephemeral' },
+          cache_control: CACHE_CONTROL,
         },
       ],
     },
