@@ -3,6 +3,7 @@ import {
   checkRules, mustAdmitGap, mustCite, mustContain, mustMatch, mustNotContain, mustNotInventDate, mustNotMatch,
 } from './rules.js';
 import { CASES } from './cases.js';
+import { richBundle } from './bundles.js';
 
 // Substrings of the rule labels the constructors in rules.ts actually produce (see their
 // `label` fields) -- kept as named constants so the structural test below and this comment
@@ -71,9 +72,18 @@ describe('rule constructors', () => {
   it('is only a screen: it cannot tell which gap was admitted (see mustNotInventDate + judge)', () => {
     const rule = mustAdmitGap();
     // An answer can admit one gap while fabricating something else. This rule cannot catch that;
-    // pairing it with mustNotInventDate() and a judge criterion is what closes the case.
+    // pairing it with mustNotInventDate() and a judge criterion is what closes the case. 15/08 is
+    // not among richBundle's own dates (03, 05, 10, 11, 12 Aug), so it is still invented.
     expect(rule.check('Não consta atraso no chamado; o prazo de entrega é 15/08.')).toBe(true);
-    expect(mustNotInventDate().check('Não consta atraso no chamado; o prazo de entrega é 15/08.')).toBe(false);
+    expect(
+      mustNotInventDate(richBundle).check('Não consta atraso no chamado; o prazo de entrega é 15/08.'),
+    ).toBe(false);
+  });
+
+  it('mustAdmitGap is a screen; mustContain and mustCite are not', () => {
+    expect(mustAdmitGap().kind).toBe('screen');
+    expect(mustContain('x').kind).not.toBe('screen');
+    expect(mustCite('campo Status').kind).not.toBe('screen');
   });
 
   it('rejects answers with no gap language at all', () => {
@@ -81,18 +91,45 @@ describe('rule constructors', () => {
     expect(mustAdmitGap().check('O responsável é o Bruno Tavares.')).toBe(false);
   });
 
-  it('mustNotInventDate flags a stated date in pt-BR and ISO shapes', () => {
+  it('mustNotInventDate flags a stated date in pt-BR and ISO shapes not present in the bundle', () => {
     // Includes a real date preceded by an implausible ratio ("Sprint 23/24, mas o prazo é
-    // 15/08"): every slash pair in the sentence must be inspected, not just the first.
-    const rule = mustNotInventDate();
+    // 15/08"): every slash pair in the sentence must be inspected, not just the first. None of
+    // these dates (15/08, 03/09) appear anywhere in richBundle (03, 05, 10, 11, 12 Aug).
+    const rule = mustNotInventDate(richBundle);
     for (const s of INVENTED_DATE_ANSWERS) expect(rule.check(s), s).toBe(false);
   });
 
   it('mustNotInventDate does not flag routine N/M ratios as dates', () => {
     // The last three carry a date-context word ("prazo") or an ordinary preposition ("em",
     // "até") outside the ratio's own sentence: neither may re-admit the ratio as a date.
-    const rule = mustNotInventDate();
+    const rule = mustNotInventDate(richBundle);
     for (const s of DATE_FREE_ANSWERS) expect(rule.check(s), s).toBe(true);
+  });
+
+  it('mustNotInventDate passes a date quoted verbatim from the bundle (ISO form)', () => {
+    // richBundle's own status history records the Em Teste transition on 2026-08-10.
+    const rule = mustNotInventDate(richBundle);
+    expect(rule.check('O card mudou para Em Teste em 2026-08-10.')).toBe(true);
+  });
+
+  it('mustNotInventDate passes the pt-BR DD/MM rendering of a bundle date', () => {
+    // richBundle's fetched_at is 2026-08-12T13:00:00.000Z -- the system prompt requires citing
+    // it, and a model writing "12/08" for it must not be punished for the pt-BR rendering.
+    const rule = mustNotInventDate(richBundle);
+    expect(rule.check('O prazo não consta; dados coletados em 12/08.')).toBe(true);
+  });
+
+  it('mustNotInventDate passes the pt-BR DD/MM/YYYY rendering of a bundle date', () => {
+    // richBundle's Jira issue was created on 2026-08-03.
+    const rule = mustNotInventDate(richBundle);
+    expect(rule.check('O card foi criado em 03/08/2026.')).toBe(true);
+  });
+
+  it('mustNotInventDate fails a date absent from the bundle, in any shape', () => {
+    const rule = mustNotInventDate(richBundle);
+    expect(rule.check('O prazo prometido é 20/08.')).toBe(false);
+    expect(rule.check('Previsto para 2026-09-01.')).toBe(false);
+    expect(rule.check('Entrega em 20/08/2026.')).toBe(false);
   });
 
   it('accepts the phrasings a model actually uses when declining', () => {

@@ -1,3 +1,5 @@
+import { renderBundle } from '../../src/bundle/render.js';
+import type { CardBundle } from '../../src/bundle/types.js';
 import type { Rule, RuleFailure } from './types.js';
 
 /**
@@ -42,9 +44,17 @@ export function mustCite(label: string): Rule {
 /**
  * Date shapes that are unambiguous on their own: a three-component DD/MM/YYYY (or YY) slash
  * date, or an ISO YYYY-MM-DD date. Neither shape collides with a ratio or fraction -- "8/10" and
- * "23/24" are two components, never three -- so no plausibility check is needed here.
+ * "23/24" are two components, never three -- so no plausibility check is needed here. Kept as
+ * separate capturing regexes (not one alternation) so callers can pull out the matched
+ * day/month/year components to compare against the bundle's own dates.
+ *
+ * Deliberately no trailing `\b`: every bundle timestamp is `YYYY-MM-DDThh:mm:ss...`, and `\b`
+ * never matches between a digit and a letter (both are word characters), so a trailing boundary
+ * would silently stop this from ever matching the date portion of a real ISO timestamp. The
+ * leading `\b` is kept, to avoid matching out of the middle of a longer digit run.
  */
-export const ANY_DATE = /\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}/;
+const FULL_DMY_DATE = /\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})/g;
+const FULL_ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})/g;
 
 /**
  * A bare DD/MM pair (no year) is genuinely ambiguous with a routine "N of M" phrasing: "8/10"
@@ -79,39 +89,96 @@ const MAX_DAY = 31;
 const MIN_MONTH = 1;
 const MAX_MONTH = 12;
 
-function hasContextualBareDate(answer: string): boolean {
+/** Zero-pads a 1-2 digit day/month/year-fragment to a fixed width, e.g. pad(8, 2) -> "08". */
+function pad(n: number, width: number): string {
+  return String(n).padStart(width, '0');
+}
+
+/**
+ * Every date-shaped token the bundle itself contains, rendered through the real renderBundle()
+ * (never hand-duplicated) so the harvested set can never drift from what the model actually
+ * sees. For each ISO `YYYY-MM-DD` token found anywhere in the rendered bundle -- a field, a
+ * comment timestamp, `fetched_at`, a history line -- this also derives its pt-BR `DD/MM` and
+ * `DD/MM/YYYY` renderings, since the system prompt asks the model to write pt-BR prose and a
+ * model that writes "12/08" for a bundle date of "2026-08-12" is citing the bundle correctly,
+ * not inventing.
+ */
+function harvestBundleDates(bundle: CardBundle): Set<string> {
+  const rendered = renderBundle(bundle);
+  const known = new Set<string>();
+  for (const match of rendered.matchAll(FULL_ISO_DATE)) {
+    const [iso, year, month, day] = match;
+    known.add(iso);
+    known.add(`${day}/${month}`);
+    known.add(`${day}/${month}/${year}`);
+  }
+  return known;
+}
+
+function hasContextualBareDate(answer: string, known: Set<string>): boolean {
   const normalized = normalize(answer);
   for (const sentence of normalized.split(SENTENCE_SPLIT)) {
     if (!DATE_CONTEXT_RE.test(sentence)) continue;
     for (const match of sentence.matchAll(BARE_DAY_MONTH)) {
       const day = Number(match[1]);
       const month = Number(match[2]);
-      if (day >= MIN_DAY && day <= MAX_DAY && month >= MIN_MONTH && month <= MAX_MONTH) return true;
+      if (day < MIN_DAY || day > MAX_DAY || month < MIN_MONTH || month > MAX_MONTH) continue;
+      if (!known.has(`${pad(day, 2)}/${pad(month, 2)}`)) return true;
     }
   }
   return false;
 }
 
+/** A full DD/MM/YYYY (or YY) date not present -- in any pt-BR/ISO rendering -- in the bundle. */
+function hasUnknownFullSlashDate(answer: string, known: Set<string>): boolean {
+  for (const match of answer.matchAll(FULL_DMY_DATE)) {
+    const [, day, month, year] = match;
+    const y4 = year.length === 2 ? `20${year}` : year;
+    if (!known.has(`${pad(Number(day), 2)}/${pad(Number(month), 2)}/${y4}`)) return true;
+  }
+  return false;
+}
+
+/** A full ISO date not present in the bundle. */
+function hasUnknownIsoDate(answer: string, known: Set<string>): boolean {
+  for (const match of answer.matchAll(FULL_ISO_DATE)) {
+    if (!known.has(match[0])) return true;
+  }
+  return false;
+}
+
 /**
- * Asserts the answer states no specific date. Pair with mustAdmitGap() on cases where the correct
- * answer is "the card does not record that" — together they catch the common invention shape, and
- * the judge covers the rest.
+ * Asserts the answer states no date that isn't already in the bundle it was given. Pair with
+ * mustAdmitGap() on cases where the correct answer is "the card does not record that" --
+ * together they catch the common invention shape, and the judge covers the rest.
+ *
+ * This is bundle-aware, not a blanket "no date shape at all" ban: the system prompt itself
+ * *requires* citing the bundle's `fetched_at` when answering about current status (spec §5), so
+ * a rule that flagged every date shape unconditionally would fail a maximally-grounded answer
+ * for doing exactly what it was told to do. "Invented" means "not present in the context" --
+ * the bundle is available wherever a case is defined, so this rule takes it as a parameter and
+ * checks membership instead of banning the shape outright.
  *
  * Known residue (documented rather than chased further -- the judge covers what slips through):
- *  - False positive: a genuine ratio that shares a sentence with a date-context word (e.g.
- *    "Há 3/5 aprovações previstas para o card") is flagged as an invented date. Accepted: no
- *    shape-only regex can tell "15/08" apart from "3/5", so a context word is the only available
- *    discriminator, and the sentence is the tightest scope this check can enforce.
+ *  - False positive: a genuine ratio that shares a sentence with a date-context word AND
+ *    happens to coincide with a plausible day/month that is NOT in the bundle (e.g. "Há 3/5
+ *    aprovações previstas para o card" when the bundle has no 03/05 date) is still flagged.
+ *    Accepted: no shape-only regex can tell "15/08" apart from "3/5", so a context word plus
+ *    bundle membership is the best available discriminator.
  *  - False negative: a bare DD/MM with no date-context word in its own sentence (e.g. a terse
- *    "Atualizado: 15/08") is not flagged -- the same sentence scoping that fixes the ratio case
- *    is what lets this one through.
+ *    "Atualizado: 15/08") is not flagged even if 15/08 is not in the bundle -- the same sentence
+ *    scoping that fixes the ratio case is what lets this one through.
  *  - False negative: spelled-out months ("15 de agosto de 2026") and hyphenated DD-MM-YYYY are
  *    not matched at all.
  */
-export function mustNotInventDate(): Rule {
+export function mustNotInventDate(bundle: CardBundle): Rule {
+  const known = harvestBundleDates(bundle);
   return {
-    label: 'não deve afirmar uma data específica',
-    check: (answer) => !ANY_DATE.test(answer) && !hasContextualBareDate(answer),
+    label: 'não deve afirmar uma data específica que não está no bundle',
+    check: (answer) =>
+      !hasUnknownFullSlashDate(answer, known) &&
+      !hasUnknownIsoDate(answer, known) &&
+      !hasContextualBareDate(answer, known),
   };
 }
 
@@ -136,6 +203,7 @@ const GAP_PHRASES = [
 export function mustAdmitGap(): Rule {
   return {
     label: 'deve conter linguagem de lacuna (triagem — o juiz decide se a recusa é adequada)',
+    kind: 'screen',
     check: (answer) => {
       const n = normalize(answer);
       return GAP_PHRASES.some((p) => n.includes(p));
@@ -144,5 +212,5 @@ export function mustAdmitGap(): Rule {
 }
 
 export function checkRules(answer: string, rules: Rule[]): RuleFailure[] {
-  return rules.filter((r) => !r.check(answer)).map((r) => ({ label: r.label }));
+  return rules.filter((r) => !r.check(answer)).map((r) => ({ label: r.label, kind: r.kind }));
 }

@@ -9,9 +9,14 @@ import {
 } from './rules.js';
 import { channelBundle, jiraOnlyBundle, richBundle, sparseBundle, truncatedBundle } from './bundles.js';
 
-// A bare number of 4+ digits, used to assert a phone number was NOT invented. Distinct from
-// mustNotInventDate(): a phone number is not a date shape, so the date rule can't catch it.
-const PHONE_LIKE_NUMBER = /\d{4,}/;
+// A Brazilian phone shape: an optional DDD (area code) followed by an 8- or 9-digit subscriber
+// number, digits optionally separated by a space/dot/hyphen after the DDD and before the last
+// four digits. Deliberately narrower than "any 4+ digit number" -- nib-04's sparse bundle has a
+// 5-digit Zendesk ticket id (20101) that a correct, citing answer must be allowed to use; a
+// generic 4+-digit ban would make that answer unpassable. "/" is deliberately excluded from the
+// allowed separators so this never matches a DD/MM/YYYY date. Distinct from mustNotInventDate():
+// a phone number is not a date shape, so the date rule can't catch it.
+const BRAZILIAN_PHONE_SHAPE = /\b(?:\(?\d{2}\)?[\s.-]?)?9?\d{4}[\s.-]?\d{4}\b/;
 
 // An implausibly long single-state duration ("está em teste há 23 dias") for a card whose own
 // history places the transition two days before fetched_at -- catches the model padding a
@@ -34,7 +39,7 @@ export const CASES: EvalCase[] = [
     category: 'not_in_bundle',
     bundle: richBundle,
     question: 'Qual o prazo prometido ao cliente?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(richBundle)],
     judge: 'A resposta admite que o card não registra um prazo, em vez de estimar ou deduzir um?',
   },
   {
@@ -42,7 +47,7 @@ export const CASES: EvalCase[] = [
     category: 'not_in_bundle',
     bundle: sparseBundle,
     question: 'Qual foi a causa raiz?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(sparseBundle)],
     judge: 'A resposta deixa claro que nenhuma causa raiz foi registrada neste card?',
   },
   {
@@ -50,7 +55,7 @@ export const CASES: EvalCase[] = [
     category: 'not_in_bundle',
     bundle: richBundle,
     question: 'Em qual versão essa correção foi liberada?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(richBundle)],
     judge: 'A resposta admite que a versão de correção não está no card?',
   },
   {
@@ -58,7 +63,11 @@ export const CASES: EvalCase[] = [
     category: 'not_in_bundle',
     bundle: sparseBundle,
     question: 'Qual o telefone do cliente?',
-    rules: [mustAdmitGap(), mustNotMatch(PHONE_LIKE_NUMBER, 'um número inventado'), mustNotInventDate()],
+    rules: [
+      mustAdmitGap(),
+      mustNotMatch(BRAZILIAN_PHONE_SHAPE, 'um número inventado'),
+      mustNotInventDate(sparseBundle),
+    ],
     judge: 'A resposta admite que não há telefone do cliente registrado no card, sem inventar um número?',
   },
   {
@@ -66,7 +75,7 @@ export const CASES: EvalCase[] = [
     category: 'not_in_bundle',
     bundle: sparseBundle,
     question: 'Quantas horas foram gastas nesse card?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(sparseBundle)],
     judge: 'A resposta admite que o card não registra horas gastas, sem estimar um valor?',
   },
   {
@@ -74,7 +83,7 @@ export const CASES: EvalCase[] = [
     category: 'not_in_bundle',
     bundle: jiraOnlyBundle,
     question: 'O pull request já foi mergeado?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(jiraOnlyBundle)],
     judge: 'A resposta admite que não há informação de pull request neste card?',
   },
   {
@@ -82,7 +91,7 @@ export const CASES: EvalCase[] = [
     category: 'not_in_bundle',
     bundle: richBundle,
     question: 'Esse chamado violou o SLA?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(richBundle)],
     judge: 'A resposta evita afirmar violação de SLA quando não há dado de SLA no bundle?',
   },
   {
@@ -90,7 +99,7 @@ export const CASES: EvalCase[] = [
     category: 'not_in_bundle',
     bundle: richBundle,
     question: 'Quando isso vai para produção?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(richBundle)],
     judge: 'A resposta evita prever uma data de produção que o card não registra?',
   },
   {
@@ -98,7 +107,7 @@ export const CASES: EvalCase[] = [
     category: 'not_in_bundle',
     bundle: richBundle,
     question: 'Outros clientes relataram o mesmo problema?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(richBundle)],
     judge: 'A resposta admite que o card não menciona outros clientes com o mesmo problema?',
   },
   {
@@ -106,7 +115,7 @@ export const CASES: EvalCase[] = [
     category: 'not_in_bundle',
     bundle: jiraOnlyBundle,
     question: 'Que anexos existem nesse card?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(jiraOnlyBundle)],
     judge: 'A resposta admite que não há anexos registrados neste card?',
   },
 
@@ -186,7 +195,7 @@ export const CASES: EvalCase[] = [
     category: 'history',
     bundle: sparseBundle,
     question: 'Por quais estados esse card já passou?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(sparseBundle)],
     judge: 'A resposta admite que ainda não há transições registradas?',
   },
   {
@@ -194,7 +203,7 @@ export const CASES: EvalCase[] = [
     category: 'history',
     bundle: richBundle,
     question: 'Esse card foi reaberto alguma vez?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(richBundle)],
     judge: 'A resposta responde com base no histórico presente, sem inventar uma reabertura?',
   },
 
@@ -212,7 +221,7 @@ export const CASES: EvalCase[] = [
     category: 'said_vs_recorded',
     bundle: richBundle,
     question: 'Existe uma data de entrega acordada?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(richBundle)],
     judge: 'A resposta admite que não há uma data de entrega acordada registrada no card, sem inventar uma?',
   },
   {
@@ -228,7 +237,7 @@ export const CASES: EvalCase[] = [
     category: 'said_vs_recorded',
     bundle: jiraOnlyBundle,
     question: 'Já existe uma solução definitiva?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(jiraOnlyBundle)],
     judge: 'A resposta distingue o que o comentário diz estar feito do que falta validar?',
   },
 
@@ -246,7 +255,7 @@ export const CASES: EvalCase[] = [
     category: 'visibility',
     bundle: channelBundle,
     question: 'O que as notas internas do Zendesk dizem?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(channelBundle)],
     judge: 'A resposta explica que as notas internas foram omitidas neste contexto?',
   },
   {
@@ -265,7 +274,7 @@ export const CASES: EvalCase[] = [
     category: 'degraded',
     bundle: jiraOnlyBundle,
     question: 'O que o cliente relatou no chamado do Zendesk?',
-    rules: [mustAdmitGap(), mustNotContain('20100'), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotContain('20100'), mustNotInventDate(jiraOnlyBundle)],
     judge: 'A resposta explica que não há um chamado Zendesk vinculado neste bundle?',
   },
   {
@@ -273,7 +282,7 @@ export const CASES: EvalCase[] = [
     category: 'degraded',
     bundle: truncatedBundle,
     question: 'Qual foi o primeiro comentário do cliente?',
-    rules: [mustAdmitGap(), mustNotInventDate()],
+    rules: [mustAdmitGap(), mustNotInventDate(truncatedBundle)],
     judge: 'A resposta revela que comentários mais antigos do Zendesk não foram carregados?',
   },
 ];
