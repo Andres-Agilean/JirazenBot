@@ -24,7 +24,7 @@ describe('handleActivity: never goes silent on text-less activities (spec §8)',
     const send = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
 
-    await handleActivity(send, '', 'conv', deps);
+    await handleActivity(send, '', 'conv', 'personal', 'u', deps);
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(NO_TEXT_RECEIVED);
@@ -34,7 +34,7 @@ describe('handleActivity: never goes silent on text-less activities (spec §8)',
     const send = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
 
-    await handleActivity(send, undefined, 'conv', deps);
+    await handleActivity(send, undefined, 'conv', 'personal', 'u', deps);
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(NO_TEXT_RECEIVED);
@@ -44,7 +44,7 @@ describe('handleActivity: never goes silent on text-less activities (spec §8)',
     const send = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
 
-    await handleActivity(send, '   \n\t  ', 'conv', deps);
+    await handleActivity(send, '   \n\t  ', 'conv', 'personal', 'u', deps);
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(NO_TEXT_RECEIVED);
@@ -77,7 +77,7 @@ describe('handleActivity: a failing typing indicator never blocks the reply', ()
       }),
     });
 
-    await handleActivity(send, 'QZ-252', 'conv', deps);
+    await handleActivity(send, 'QZ-252', 'conv', 'personal', 'u', deps);
 
     // The typing send was attempted and rejected, but a real reply still went out.
     const nonTypingCalls = send.mock.calls.filter(([activity]) => {
@@ -96,6 +96,6 @@ describe('handleActivity: a failing typing indicator never blocks the reply', ()
     });
     const deps = makeDeps();
 
-    await expect(handleActivity(send, 'bom dia', 'conv', deps)).resolves.toBeUndefined();
+    await expect(handleActivity(send, 'bom dia', 'conv', 'personal', 'u', deps)).resolves.toBeUndefined();
   });
 });

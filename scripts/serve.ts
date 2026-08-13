@@ -2,7 +2,6 @@ import 'dotenv/config';
 import { loadConfig } from '@/config.js';
 import { createTeamsApp } from '@/teams/app.js';
 import { InMemoryBindingStore } from '@/teams/bindings.js';
-import { SURFACE } from '@/teams/surface.js';
 import { loadCardBundle } from '@/bundle/load.js';
 import { answer } from '@/claude/answer.js';
 import { createAnthropicClient } from '@/claude/client.js';
@@ -15,7 +14,7 @@ const client = createAnthropicClient(cfg);
 
 const deps: HandleDeps = {
   store: new InMemoryBindingStore(),
-  loadBundle: (ref) => loadCardBundle(ref, cfg, SURFACE),
+  loadBundle: (ref, surface) => loadCardBundle(ref, cfg, surface),
   answerFn: (bundle, question, history) =>
     answer(bundle, question, history, {
       client,

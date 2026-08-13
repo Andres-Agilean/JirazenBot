@@ -1,17 +1,15 @@
 import type { Surface } from '@/bundle/types.js';
 
+/** The only conversation type Teams uses for a 1:1 chat with the bot. */
+export const PERSONAL_CONVERSATION_TYPE = 'personal';
+
 /**
- * Phase 3 is DM-only (plan §8, spec §2/§10): every bundle load in this phase happens with this
- * constant, never derived from the activity. That is deliberate but dangerous — a group chat or
- * channel exercised through the Playground today would still be answered as `dm`, including
- * internal Zendesk agent notes that the `multiparty` surface exists specifically to suppress
- * (spec §10, addendum §3/§8).
- *
- * Phase 4's first change must be to derive the surface from
- * `activity.conversation.conversationType` instead of importing this constant, and that change
- * must land before the bot is ever exercised in a multiparty scope. `test/surface.test.ts`
- * asserts this constant is `'dm'` as the tripwire spec §10/§11.8 calls for: editing that
- * assertion to allow something other than `'dm'` is the intended signal that the derivation has
- * landed, not a silent regression.
+ * Fails closed by construction: only an exact 'personal' yields `dm`. The SDK types this field
+ * as `'personal' | 'groupChat' | Omit<string, ...>` -- an OPEN union -- so an unrecognised value
+ * is reachable, and the costs are asymmetric. Fail closed and a DM loses internal Zendesk notes
+ * it was entitled to: visible and annoying. Fail open and internal agent notes reach a channel:
+ * silent, and not undoable (spec §2, addendum §3).
  */
-export const SURFACE: Surface = 'dm';
+export function surfaceFor(conversationType: string | undefined): Surface {
+  return conversationType === PERSONAL_CONVERSATION_TYPE ? 'dm' : 'multiparty';
+}

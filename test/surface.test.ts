@@ -1,19 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { SURFACE } from '@/teams/surface.js';
+import { surfaceFor } from '@/teams/surface.js';
 
-describe('the dm-surface tripwire (spec §10 / §11.8)', () => {
-  it('is dm for every conversation in Phase 3', () => {
-    // SURFACE is a constant fed to loadCardBundle for every conversation in this phase (see
-    // scripts/serve.ts) -- there is no branch on the activity, so asserting the constant is
-    // equivalent to asserting it for every conversation the bot handles.
-    //
-    // Phase 4 must change this to derive the surface from
-    // `activity.conversation.conversationType` before the bot is ever exercised in a group chat
-    // or channel; otherwise a multiparty conversation is answered as `dm`, leaking internal
-    // Zendesk agent notes that the `multiparty` surface exists to suppress (spec §10).
-    //
-    // Editing this assertion to allow something other than 'dm' is the INTENDED signal that
-    // Phase 4's derivation has landed -- not a regression to silence.
-    expect(SURFACE).toBe('dm');
+describe('surfaceFor', () => {
+  it('treats only a personal 1:1 chat as dm', () => {
+    expect(surfaceFor('personal')).toBe('dm');
+  });
+
+  it('treats known multiparty types as multiparty', () => {
+    expect(surfaceFor('groupChat')).toBe('multiparty');
+    expect(surfaceFor('channel')).toBe('multiparty');
+  });
+
+  // The SDK types this field as an OPEN union ('personal' | 'groupChat' | Omit<string, ...>),
+  // so an unrecognised value is reachable, not theoretical. Failing closed means a future Teams
+  // conversation type omits internal Zendesk notes rather than leaking them (spec §2).
+  it('fails closed on unknown and missing types', () => {
+    expect(surfaceFor('someFutureTeamsScope')).toBe('multiparty');
+    expect(surfaceFor(undefined)).toBe('multiparty');
+    expect(surfaceFor('')).toBe('multiparty');
+    expect(surfaceFor('Personal')).toBe('multiparty'); // exact match only
   });
 });

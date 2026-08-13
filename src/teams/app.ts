@@ -21,6 +21,8 @@ export async function handleActivity(
   send: SendFn,
   rawText: string | undefined,
   conversationId: string,
+  conversationType: string | undefined,
+  userId: string,
   deps: HandleDeps,
 ): Promise<void> {
   const text = (rawText ?? '').trim();
@@ -42,7 +44,7 @@ export async function handleActivity(
 
   let replies: string[];
   try {
-    replies = await handleMessage(text, conversationId, deps);
+    replies = await handleMessage({ text, conversationId, conversationType, userId }, deps);
   } catch (err) {
     // handleMessage already converts expected failures into pt-BR replies; reaching here means
     // an unexpected bug. The user gets an apology, the detail goes to the server log.
@@ -68,7 +70,17 @@ export function createTeamsApp(deps: HandleDeps): App {
   const app = new App({ dangerouslyAllowUnauthenticatedRequests: true });
 
   app.on('message', async ({ send, activity }) => {
-    await handleActivity(send, activity.text, activity.conversation.id, deps);
+    await handleActivity(
+      send,
+      activity.text,
+      activity.conversation.id,
+      // The SDK types this field as a "LiteralUnion" (`'personal' | 'groupChat' | Omit<string,
+      // ...>`) purely for editor autocomplete; at runtime it is always a plain string, so this
+      // is a type-only widening, not a behavior change.
+      activity.conversation.conversationType as string,
+      activity.from?.id ?? '',
+      deps,
+    );
   });
 
   return app;

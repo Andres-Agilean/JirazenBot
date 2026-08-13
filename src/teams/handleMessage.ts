@@ -1,6 +1,6 @@
 import type { Config } from '@/config.js';
 import type { CardRef } from '@/resolve/types.js';
-import type { CardBundle } from '@/bundle/types.js';
+import type { CardBundle, Surface } from '@/bundle/types.js';
 import type { AssembleResult } from '@/bundle/assemble.js';
 import type { Answer, Turn } from '@/claude/types.js';
 import { parseReference } from '@/resolve/parseReference.js';
@@ -9,10 +9,23 @@ import { splitReferenceAndQuestion } from '../../scripts/splitReference.js';
 import { isBundleStale, type Binding, type BindingStore } from './bindings.js';
 import { parseCommand } from './commands.js';
 import { formatFooter, withFooter } from './reply.js';
+import { surfaceFor } from './surface.js';
+
+/**
+ * What the SDK-agnostic layer needs off an incoming activity. `conversationType` is carried
+ * as-is (not yet normalized) so `surfaceFor` can apply its exact-match, fail-closed comparison;
+ * `userId` is threaded through for future use (not consumed by any logic in this phase).
+ */
+export interface Incoming {
+  text: string;
+  conversationId: string;
+  conversationType: string | undefined;
+  userId: string;
+}
 
 export interface HandleDeps {
   store: BindingStore;
-  loadBundle: (ref: CardRef) => Promise<AssembleResult>;
+  loadBundle: (ref: CardRef, surface: Surface) => Promise<AssembleResult>;
   answerFn: (bundle: CardBundle, question: string, history: Turn[]) => Promise<Answer>;
   cfg: Config;
   now: () => number;
@@ -78,11 +91,12 @@ export function ambiguousReply(candidates: string[], side: 'jira' | 'zendesk'): 
  */
 async function loadOrError(
   ref: CardRef,
+  surface: Surface,
   deps: HandleDeps,
 ): Promise<{ bundle: CardBundle } | { error: string }> {
   let result: AssembleResult;
   try {
-    result = await deps.loadBundle(ref);
+    result = await deps.loadBundle(ref, surface);
   } catch {
     return { error: JIRA_UNAVAILABLE };
   }
@@ -94,9 +108,10 @@ async function loadOrError(
 async function bind(
   ref: CardRef,
   key: string,
+  surface: Surface,
   deps: HandleDeps,
 ): Promise<{ binding: Binding } | { error: string }> {
-  const loaded = await loadOrError(ref, deps);
+  const loaded = await loadOrError(ref, surface, deps);
   if ('error' in loaded) return loaded;
 
   const binding: Binding = {
@@ -135,9 +150,10 @@ async function ask(
 async function refresh(
   binding: Binding,
   key: string,
+  surface: Surface,
   deps: HandleDeps,
 ): Promise<{ binding: Binding } | { error: string }> {
-  const loaded = await loadOrError(binding.ref, deps);
+  const loaded = await loadOrError(binding.ref, surface, deps);
   if ('error' in loaded) return loaded;
 
   const refreshed: Binding = { ...binding, bundle: loaded.bundle, bundleFetchedAt: deps.now() };
@@ -150,10 +166,11 @@ async function refresh(
  * app.ts and this is testable offline.
  */
 export async function handleMessage(
-  text: string,
-  key: string,
+  incoming: Incoming,
   deps: HandleDeps,
 ): Promise<string[]> {
+  const { text, conversationId: key } = incoming;
+  const surface = surfaceFor(incoming.conversationType);
   const existing = await deps.store.get(key);
 
   // 1. Commands
@@ -164,7 +181,7 @@ export async function handleMessage(
   }
   if (command === 'atualizar') {
     if (!existing) return [NOTHING_BOUND];
-    const refreshed = await refresh(existing, key, deps);
+    const refreshed = await refresh(existing, key, surface, deps);
     if ('error' in refreshed) return [refreshed.error];
     return [`Dados atualizados.\n\n${formatFooter(refreshed.binding, deps.cfg)}`];
   }
@@ -179,7 +196,7 @@ export async function handleMessage(
   const isRebind = ref !== null && (ref.explicit || !existing);
 
   if (isRebind && ref) {
-    const bound = await bind(ref, key, deps);
+    const bound = await bind(ref, key, surface, deps);
     if ('error' in bound) return [bound.error];
     const question = split?.question ?? DEFAULT_SUMMARY_QUESTION;
     return [await ask(bound.binding, question, key, deps)];
@@ -189,7 +206,7 @@ export async function handleMessage(
   if (existing) {
     let binding = existing;
     if (isBundleStale(binding, deps.now())) {
-      const refreshed = await refresh(binding, key, deps);
+      const refreshed = await refresh(binding, key, surface, deps);
       if ('error' in refreshed) return [refreshed.error];
       binding = refreshed.binding;
     }
