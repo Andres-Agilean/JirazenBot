@@ -27,7 +27,7 @@ Verified against live documentation on 2026-08-13:
 | Typing indicator | `await send({ type: 'typing' })` |
 | Local auth | `new App({ skipAuth: true })` — local development only |
 | Server | `app.start(process.env.PORT || 3978)` |
-| Local test surface | M365 Agents Playground: `npm i -g @microsoft/m365agentsplayground`, then `agentsplayground -e http://localhost:3978/api/messages -c emulator`, UI at `localhost:56150` |
+| Local test surface | M365 Agents Playground: `npm i -g @microsoft/m365agentsplayground`, then `agentsplayground -e http://localhost:3978/api/messages --channel-id msteams`, UI at `localhost:56150` |
 
 Do not scaffold with TeamsFx, as a "Custom Engine Agent", or with Teams AI Library v1 — all
 three are the wrong target (plan §5.1).
@@ -47,8 +47,35 @@ members, and organizations with Premier or Unified Support. The remaining route 
 Agilean tenant, which requires approvals deliberately deferred.
 
 The Playground runs the real activity protocol against the real handler with real card data.
-What it does not exercise: sideloading, Teams identity, @mentions, and Adaptive Card
-rendering. The first two are irrelevant to a plain-text DM MVP and the last two are Phase 4.
+
+**Corrected 2026-08-13** (an earlier draft of this section understated it). Verified against the
+Agents Playground documentation:
+
+- It **supports personal, group chat, and team/channel scopes** — its mock config ships
+  `personalChat`, `groupChat`, and a `team` with channels, plus five customizable mock users.
+  Phase 4's surfaces are therefore locally testable too; that phase does not need a tenant
+  either.
+- It **does render Adaptive Cards**, using the same engine as Teams. Card rendering is not a
+  gap. (User-mention *inside* a card, typeahead search, stageview, and full-width cards are
+  unsupported.)
+- **The channel id gates Teams-specific behavior.** Launched standalone the default is
+  `msteams`; launched via Agents Toolkit it is `emulator`, and the `emulator` channel omits
+  Teams-specific mock activities (channel and team conversation updates) from the "Mock an
+  Activity" menu. Use `--channel-id msteams` to exercise those.
+- **The typing indicator is explicitly unavailable in the Playground.** §5 still requires one on
+  every Claude path — the code is correct and it will appear in real Teams — but it cannot be
+  observed locally. Do not treat its absence in the Playground as a defect.
+
+What genuinely is not exercised: sideloading, Teams identity, mobile, and meeting surfaces. All
+are irrelevant to a plain-text DM MVP.
+
+**The bot, not the tool, is what limits us to DMs.** `scripts/serve.ts` passes a constant
+`SURFACE = 'dm'`, so a group chat exercised in the Playground today would be answered as if it
+were a DM — including internal Zendesk agent notes, exactly the leak addendum §3's `multiparty`
+suppression exists to prevent. That suppression is built and tested from Phase 1; nothing
+selects it, because this phase has only one surface. **Phase 4's first change must be to derive
+the surface from the activity's `conversation.conversationType` rather than inherit this
+constant**, and that change must land before the bot is exercised in any multiparty scope.
 
 **Data-flow note.** The Playground is entirely local — `localhost:56150` talking to
 `localhost:3978`; no conversation reaches Microsoft. It therefore introduces no new exposure.
@@ -244,6 +271,14 @@ disambiguation **buttons** (all Phase 4). Azure Bot registration, hosting, dev t
 sideloading, persistent storage, per-user OAuth. The four bounded tools (plan §7.4) and
 rate-limit backoff, Key Vault, and structured logging (Phase 5).
 
+Group and channel scopes stay out of scope **by our own readiness, not by tooling limits** — the
+Playground can simulate them (§2). Do not exercise the bot in a multiparty scope until the
+surface is derived from the activity, or it will answer with internal notes included.
+
+**Acceptance step 8 is the guard:** it asserts a group-chat conversation id still resolves to the
+`dm` surface, pinning the current single-surface behavior so the Phase 4 change is a deliberate
+edit to a failing assertion rather than a silent behavioral drift.
+
 ## 11. Acceptance
 
 In the M365 Agents Playground, against the live tenant:
@@ -255,7 +290,11 @@ In the M365 Agents Playground, against the live tenant:
 5. `atualizar` → refetches, footer shows a new collection time.
 6. `ajuda` → usage text naming the bound card.
 7. A nonexistent key → the pt-BR not-found message, no stack trace.
-8. `npm test` green and offline.
+8. `npm test` green and offline, including an assertion that the surface passed to the bundle
+   loader is `dm` for every conversation — the tripwire described in §10.
+
+Not verifiable in the Playground: the typing indicator (§2). Its absence there is expected and is
+not a defect.
 
 Per plan §10, run the grounding eval with `--judge` once at the start of implementation to
 establish an honest baseline before the prompt is touched again — Phase 2 closed with a
