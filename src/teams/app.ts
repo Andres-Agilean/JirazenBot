@@ -1,6 +1,8 @@
 import { App } from '@microsoft/teams.apps';
+import { REFRESH_ACTION } from './cards.js';
 import { handleMessage, handleRefresh, NO_TEXT_RECEIVED, type HandleDeps } from './handleMessage.js';
-import { stripMentions, type MentionLike } from './mentions.js';
+import { botMentions, stripMentions, type MentionLike } from './mentions.js';
+import { runExclusive } from './serialize.js';
 import type { Reply } from './reply.js';
 
 export const UNEXPECTED_ERROR_REPLY = 'Algo deu errado do meu lado. Tente novamente em instantes.';
@@ -42,11 +44,22 @@ type SendFn = (activity: any) => Promise<unknown>;
 async function sendReplies(send: SendFn, replies: readonly Reply[]): Promise<void> {
   for (const reply of replies) {
     if (reply.kind === 'card') {
-      await send({
-        type: 'message',
-        text: reply.fallbackText,
-        attachments: [{ contentType: ADAPTIVE_CARD_CONTENT_TYPE, content: reply.card }],
-      });
+      try {
+        await send({
+          type: 'message',
+          text: reply.fallbackText,
+          attachments: [{ contentType: ADAPTIVE_CARD_CONTENT_TYPE, content: reply.card }],
+        });
+      } catch (err) {
+        // A rejected card attachment must not cost the user their answer (spec §7): every answer
+        // now carries one, so this is newly probable, not a corner case. Retry once as plain
+        // text carrying the same fallbackText the card would have shown; if THAT also throws,
+        // propagate it exactly as before this fix -- the caller's existing outer handling
+        // (handleActivity/handleCardAction's try/catch around the pipeline call) is what turns an
+        // unexpected failure into UNEXPECTED_ERROR_REPLY (review finding: Minor 7).
+        console.error('Falha ao enviar o card, tentando novamente como texto simples:', err);
+        await send(reply.fallbackText);
+      }
     } else {
       await send(reply.text);
     }
@@ -85,7 +98,16 @@ export async function handleActivity(
 
   let replies: Reply[];
   try {
-    replies = await handleMessage({ text, conversationId, conversationType, userId }, deps);
+    // Serialized per conversation (review findings: Important 1 & 2): `resolveSlots` reads the
+    // binding store at entry and `ask()` writes it back only after `answerFn` returns, so two
+    // overlapping calls for the same conversation would otherwise race on the same slot(s) --
+    // either a `voltar` racing an in-flight `ask` on the personal slot, or two people's questions
+    // against the shared binding losing one exchange to a last-write-wins `set`. This trades a
+    // little latency (a second person's message waits for the first to finish being stored) for
+    // correctness, which is the right trade inside a single thread. `handleMessage` itself stays
+    // free of this mechanism so it remains a pure pipeline (see serialize.ts).
+    replies = await runExclusive(conversationId, () =>
+      handleMessage({ text, conversationId, conversationType, userId }, deps));
   } catch (err) {
     // handleMessage already converts expected failures into pt-BR replies; reaching here means
     // an unexpected bug. The user gets an apology, the detail goes to the server log.
@@ -97,21 +119,45 @@ export async function handleActivity(
 }
 
 /**
+ * Reply for any Action.Execute invoke whose verb is not the known Refresh verb (spec §7, review
+ * finding: Minor 5). The SDK's CARD_ACTION_ROUTE dispatches EVERY Action.Execute here regardless
+ * of verb, and until this fix the handler never read the verb at all -- harmless with exactly one
+ * button, but silently treating any future second button's press as Refresh the moment one ships.
+ * Names what the bot understood rather than the unrecognised verb, per spec §7's wording.
+ */
+export const UNKNOWN_INVOKE_ACTION_REPLY =
+  'Não reconheço essa ação. A única ação que sei executar por aqui é "Atualizar" '
+  + '(buscar os dados mais recentes do card).';
+
+/**
  * The testable core of the Refresh invoke handler (spec §6): mirrors handleActivity's
  * never-goes-silent guarantee (spec §8) for the button path. Without this, an unexpected
  * failure inside handleRefresh (e.g. the store rejecting) would leave the invoke callback
  * rejecting -- nothing sent, no apology, and the user pressing Atualizar into silence.
+ *
+ * `verb` is read off the invoke activity by the caller (createTeamsApp) and routed here so the
+ * verb check itself is covered by this file's offline tests rather than living un-testably inside
+ * the SDK callback (review finding: Minor 5).
  */
 export async function handleCardAction(
   send: SendFn,
+  verb: string | undefined,
   conversationId: string,
   conversationType: string | undefined,
   userId: string,
   deps: HandleDeps,
 ): Promise<void> {
+  if (verb !== REFRESH_ACTION) {
+    await send(UNKNOWN_INVOKE_ACTION_REPLY);
+    return;
+  }
+
   let replies: Reply[];
   try {
-    replies = await handleRefresh({ conversationId, conversationType, userId }, deps);
+    // Same per-conversation serialization as handleActivity, and for the same reason: the
+    // Refresh button and a concurrent text message must not race on the same binding slot.
+    replies = await runExclusive(conversationId, () =>
+      handleRefresh({ conversationId, conversationType, userId }, deps));
   } catch (err) {
     // handleRefresh already converts expected failures into pt-BR replies; reaching here means
     // an unexpected bug. The user gets an apology, the detail goes to the server log.
@@ -135,9 +181,13 @@ export function createTeamsApp(deps: HandleDeps): App {
   const app = new App({ dangerouslyAllowUnauthenticatedRequests: true });
 
   app.on('message', async ({ send, activity }) => {
-    const mentions: MentionLike[] = ((activity.entities ?? []) as Array<{ type?: string; text?: string }>)
-      .filter((e) => e.type === 'mention')
-      .map((e) => ({ text: e.text ?? '' }));
+    // Only the bot's own mention is stripped (review finding: Minor 4): `@bot o @André validou?`
+    // must keep André's mention text intact, or the parsed question comes out mangled
+    // ("o validou?"). `activity.recipient.id` is the bot's own account id on every activity.
+    const mentions = botMentions(
+      (activity.entities ?? []) as Array<{ type?: string; text?: string; mentioned?: { id?: string } }>,
+      activity.recipient?.id,
+    );
 
     await handleActivity(
       send,
@@ -158,8 +208,14 @@ export function createTeamsApp(deps: HandleDeps): App {
   // to this route name regardless of the pressed button's `verb` -- this is not the brief's
   // unverified guess, it is what the package actually does.
   app.on(CARD_ACTION_ROUTE, async ({ send, activity }) => {
+    // The invoke's verb lives at value.action.verb (AdaptiveCardInvokeValue.action.verb per
+    // @microsoft/teams.api) -- this route previously never read it at all (review finding:
+    // Minor 5), so any Action.Execute silently ran Refresh regardless of which button sent it.
+    const verb = (activity as { value?: { action?: { verb?: string } } }).value?.action?.verb;
+
     await handleCardAction(
       send,
+      verb,
       activity.conversation.id,
       activity.conversation.conversationType as string,
       activity.from?.id ?? '',

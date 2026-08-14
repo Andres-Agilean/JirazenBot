@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  handleMessage, handleRefresh, JIRA_UNAVAILABLE, NOT_SPLIT, NOTHING_BOUND,
+  handleMessage, handleRefresh, JIRA_UNAVAILABLE, NOT_SPLIT, NO_THREAD_TO_REJOIN, NOTHING_BOUND,
   type HandleDeps, type Incoming,
 } from '@/teams/handleMessage.js';
 import { InMemoryBindingStore, BUNDLE_TTL_MS } from '@/teams/bindings.js';
@@ -450,12 +450,16 @@ describe('shared thread with personal splits (spec §4)', () => {
     expect(textOf(replies[0])).toBe(NOT_SPLIT);
   });
 
-  it('voltar with a split but no shared binding says NOTHING_BOUND without destroying the split (review finding: Minor 5)', async () => {
+  it('voltar with a split but no shared binding says there is no thread card to rejoin, not NOTHING_BOUND, and keeps the split (review finding: Minor 6)', async () => {
     const { deps } = makeDeps();
     // bruno splits off in a thread where nobody has ever bound the shared card.
     await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
     const replies = await handleMessage({ ...bruno, text: 'voltar' }, deps);
-    expect(textOf(replies[0])).toBe(NOTHING_BOUND);
+    // NOTHING_BOUND ("não sei de qual card estamos falando") would contradict the bot's own
+    // state: bruno's personal split IS a bound card, just not a thread card to return to.
+    expect(textOf(replies[0])).toContain(NO_THREAD_TO_REJOIN);
+    expect(textOf(replies[0])).not.toBe(NOTHING_BOUND);
+    expect(textOf(replies[0])).toContain('AGL-900'); // names the card that is still bound
 
     const brunoBinding = await deps.store.get({
       scope: 'personal', conversationId: 'thread', userId: 'bruno',
@@ -590,11 +594,22 @@ describe('cards (spec §5)', () => {
     }
   });
 
-  it('marks a split users card as personal', async () => {
+  it('marks a split users card as personal in a channel', async () => {
     const { deps } = makeDeps();
     await handleMessage({ ...ana, text: 'QZ-252' }, deps);
     const replies = await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
     expect(JSON.stringify(replies[0])).toContain(PERSONAL_MARKER);
+  });
+
+  it('does NOT mark a DM personal-slot answer as personal (review finding: Important 3 / cards.ts leak)', async () => {
+    // "QZ-252 quem validou?" is a reference-with-question -- it binds the PERSONAL slot even in
+    // a DM (spec §4's table applies unconditionally). Without the surface check, the header would
+    // read "**QZ-252** ↔ chamado 16467 · sua consulta" in a 1:1 chat, where there is no thread and
+    // no other reader for the marker to mean anything to -- the one visible break in §4's
+    // "collapses to exactly Phase 3 in a DM" guarantee.
+    const { deps } = makeDeps();
+    const replies = await handleMessage(dm('QZ-252 quem validou?'), deps);
+    expect(JSON.stringify(replies[0])).not.toContain(PERSONAL_MARKER);
   });
 
   it('sends errors and help as text, not cards', async () => {

@@ -57,6 +57,15 @@ export const NOT_SPLIT =
 
 export const REJOINED_THREAD = 'Você voltou para o card da conversa.';
 
+/**
+ * `voltar` with a personal split but no shared binding to rejoin (review finding: Minor 6).
+ * NOTHING_BOUND is wrong here -- something IS bound, just not a thread card to return to -- and
+ * saying "não sei de qual card estamos falando" while a card is in fact bound contradicts the
+ * bot's own state. Distinct from NOTHING_BOUND so the wording never claims nothing is bound.
+ */
+export const NO_THREAD_TO_REJOIN =
+  'Não há um card da conversa para eu voltar. Sua consulta separada continua valendo.';
+
 export const HELP_TEXT = [
   'Posso responder perguntas sobre um card do Jira e o chamado do Zendesk correspondente.',
   '',
@@ -158,6 +167,7 @@ async function ask(
   binding: Binding,
   question: string,
   slot: Slot,
+  surface: Surface,
   deps: HandleDeps,
 ): Promise<Reply> {
   let result: Answer;
@@ -174,7 +184,13 @@ async function ask(
   await deps.store.set(slot, { ...binding, history });
 
   const text = withFooter(result.text, binding, deps.cfg);
-  const personal = slot.scope === 'personal';
+  // The personal marker exists so a channel/group-chat reader can see an answer is off the
+  // thread's card (spec §4/§5). In a DM there is no thread and no other reader, so a personal
+  // slot (set whenever a reference arrives WITH a question, per §4's table) must never grow the
+  // marker -- otherwise the header reads "**QZ-252** ↔ chamado 16467 · sua consulta" in a 1:1
+  // chat, the one visible break in §4's "collapses to exactly Phase 3 in a DM" guarantee
+  // (review finding: Important 3 / cards.ts leak).
+  const personal = slot.scope === 'personal' && surface === 'multiparty';
   try {
     const card = (deps.buildCard ?? buildAnswerCard)(result.text, binding, deps.cfg, { personal });
     return { kind: 'card', card, fallbackText: text };
@@ -278,7 +294,12 @@ export async function handleMessage(
     // Check for a shared binding BEFORE deleting the personal one: with nothing to rejoin, the
     // sender's split is all they have, and destroying it would leave them with nothing bound at
     // all instead of just saying there is no thread card to return to (review finding: Minor 5).
-    if (!sharedBinding) return [{ kind: 'text', text: NOTHING_BOUND }];
+    if (!sharedBinding) {
+      return [{
+        kind: 'text',
+        text: `${NO_THREAD_TO_REJOIN}\n\n${formatFooter(personalBinding, deps.cfg)}`,
+      }];
+    }
     await deps.store.delete(personalSlot);
     return [{ kind: 'text', text: `${REJOINED_THREAD}\n\n${formatFooter(sharedBinding, deps.cfg)}` }];
   }
@@ -308,7 +329,7 @@ export async function handleMessage(
     // (review finding: Important 1).
     if (wholeMessage) await deps.store.delete(personalSlot);
     const question = split?.question ?? DEFAULT_SUMMARY_QUESTION;
-    return [await ask(bound.binding, question, targetSlot, deps)];
+    return [await ask(bound.binding, question, targetSlot, surface, deps)];
   }
 
   // 4. A question about the bound card.
@@ -319,7 +340,7 @@ export async function handleMessage(
       if ('error' in refreshed) return [{ kind: 'text', text: refreshed.error }];
       binding = refreshed.binding;
     }
-    return [await ask(binding, text, activeSlot, deps)];
+    return [await ask(binding, text, activeSlot, surface, deps)];
   }
 
   // 5. Nothing bound and nothing to bind.

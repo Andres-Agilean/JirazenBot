@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleActivity, handleCardAction, UNEXPECTED_ERROR_REPLY } from '@/teams/app.js';
+import { handleActivity, handleCardAction, UNEXPECTED_ERROR_REPLY, UNKNOWN_INVOKE_ACTION_REPLY } from '@/teams/app.js';
 import { NO_TEXT_RECEIVED, type HandleDeps } from '@/teams/handleMessage.js';
 import { InMemoryBindingStore, type Binding, type BindingStore, type Slot } from '@/teams/bindings.js';
+import { REFRESH_ACTION } from '@/teams/cards.js';
 import { testConfig } from './helpers.js';
 
 function makeDeps(over: Partial<HandleDeps> = {}): HandleDeps {
@@ -152,10 +153,176 @@ describe('handleCardAction: never goes silent on an unexpected failure (spec §6
 
     await handleCardAction(
       async (a) => { sent.push(a); return undefined; },
-      'c', 'personal', 'u', deps,
+      REFRESH_ACTION, 'c', 'personal', 'u', deps,
     );
 
     expect(sent).toHaveLength(1);
     expect(sent[0]).toBe(UNEXPECTED_ERROR_REPLY);
+  });
+});
+
+describe('handleCardAction: routes on the invoke verb (spec §7, review finding: Minor 5)', () => {
+  it('runs the Refresh path when the verb is the known Refresh verb', async () => {
+    const sent: unknown[] = [];
+    // A clock consistent with cardDeps's `now: () => 0` -- InMemoryBindingStore's own default
+    // clock is Date.now(), which would read a binding bound at boundAt=0 as 24h-expired instantly.
+    const store = new InMemoryBindingStore(() => 0);
+    const deps = cardDeps({ store });
+    // Bind first so handleRefresh has something to refresh.
+    await handleActivity(async () => undefined, 'QZ-252', [], 'c', 'personal', 'u', deps);
+
+    await handleCardAction(
+      async (a) => { sent.push(a); return undefined; },
+      REFRESH_ACTION, 'c', 'personal', 'u', deps,
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toBe(UNKNOWN_INVOKE_ACTION_REPLY);
+  });
+
+  it('replies in pt-BR naming what it understood, instead of silently running Refresh, for an unrecognised verb', async () => {
+    const sent: unknown[] = [];
+    const deps = makeDeps();
+
+    await handleCardAction(
+      async (a) => { sent.push(a); return undefined; },
+      'algumaOutraAcao', 'c', 'personal', 'u', deps,
+    );
+
+    expect(sent).toEqual([UNKNOWN_INVOKE_ACTION_REPLY]);
+  });
+
+  it('replies in pt-BR when the verb is missing entirely, instead of silently running Refresh', async () => {
+    const sent: unknown[] = [];
+    const deps = makeDeps();
+
+    await handleCardAction(
+      async (a) => { sent.push(a); return undefined; },
+      undefined, 'c', 'personal', 'u', deps,
+    );
+
+    expect(sent).toEqual([UNKNOWN_INVOKE_ACTION_REPLY]);
+  });
+});
+
+describe('sendReplies (via handleActivity): a failed card send retries once as plain text (spec §7, review finding: Minor 7)', () => {
+  it('still delivers the answer text when Teams rejects the card attachment', async () => {
+    const sent: unknown[] = [];
+    const deps = cardDeps();
+    const send = vi.fn().mockImplementation(async (activity: unknown) => {
+      const isCard = typeof activity === 'object' && activity !== null && 'attachments' in activity;
+      if (isCard) throw new Error('Teams rejected the attachment');
+      sent.push(activity);
+      return undefined;
+    });
+
+    await handleActivity(send, 'QZ-252', [], 'conv', 'personal', 'u', deps);
+
+    // Exactly one non-typing send survives (the plain-text retry) and it carries the answer.
+    const nonTyping = sent.filter((a) => !(typeof a === 'object' && a !== null && (a as { type?: string }).type === 'typing'));
+    expect(nonTyping).toHaveLength(1);
+    expect(nonTyping[0]).toContain('resposta');
+  });
+
+  it('propagates the failure when even the plain-text retry throws (no infinite retry, no silent swallow)', async () => {
+    const deps = cardDeps();
+    const send = vi.fn().mockRejectedValue(new Error('everything rejected'));
+
+    // Both the card attempt and the plain-text retry throw; nothing in this file adds a SECOND
+    // retry, so the rejection must propagate rather than being silently swallowed here.
+    await expect(
+      handleActivity(send, 'QZ-252', [], 'conv', 'personal', 'u', deps),
+    ).rejects.toThrow('everything rejected');
+  });
+});
+
+describe('handleActivity: per-conversation serialization (review findings: Important 1 & 2)', () => {
+  it('does not let two overlapping messages for the same conversation race on the shared history', async () => {
+    // A clock consistent with cardDeps's `now: () => 0` -- see the comment on the same line above.
+    const store = new InMemoryBindingStore(() => 0);
+    let releaseFirst: (() => void) | undefined;
+    // Resolved the instant answerFn('first') is actually invoked -- a fixed number of
+    // `await Promise.resolve()` ticks is not a reliable way to know `releaseFirst` has been
+    // assigned (it depends on how many microtask hops resolveSlots/store.get take internally),
+    // and calling `releaseFirst?.()` while it is still undefined would deadlock the test forever.
+    let firstStarted!: () => void;
+    const firstStartedPromise = new Promise<void>((resolve) => { firstStarted = resolve; });
+    const deps = cardDeps({
+      store,
+      answerFn: async (_b, question) => {
+        if (question === 'first') {
+          firstStarted();
+          await new Promise<void>((resolve) => { releaseFirst = resolve; });
+        }
+        return { text: `resposta:${question}`, model: 'm', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+      },
+    });
+
+    // Bind first so both calls below are follow-up QUESTIONS against the same shared binding --
+    // exactly the read-modify-write race the fix closes (both would otherwise read the same
+    // `history` at entry and the later write would clobber the earlier one).
+    await handleActivity(async () => undefined, 'QZ-252', [], 'thread', 'channel', 'ana', deps);
+
+    const p1 = handleActivity(async () => undefined, 'first', [], 'thread', 'channel', 'ana', deps);
+    const p2 = handleActivity(async () => undefined, 'second', [], 'thread', 'channel', 'bruno', deps);
+
+    // Deterministically wait until p1's answerFn has actually started (and so `releaseFirst` is
+    // assigned) before releasing it -- see the comment above on why a fixed tick count is not
+    // sufficient. Without serialization, p2's answerFn would already have completed by now
+    // because it does not block on anything.
+    await firstStartedPromise;
+
+    releaseFirst?.();
+    await p1;
+    await p2;
+
+    const shared = await store.get({ scope: 'shared', conversationId: 'thread' });
+    const texts = (shared?.history ?? []).filter((t) => t.role === 'user').map((t) => t.text);
+    // Both exchanges survive -- neither store.set() overwrote the other.
+    expect(texts).toContain('first');
+    expect(texts).toContain('second');
+  });
+
+  it('does not block a second, unrelated conversation while the first is still answering', async () => {
+    let releaseSlow: (() => void) | undefined;
+    const slowDeps = cardDeps({
+      loadBundle: async (ref, surface) => {
+        if (ref.system === 'jira' && ref.issueKey === 'AGL-1') {
+          await new Promise<void>((resolve) => { releaseSlow = resolve; });
+        }
+        return {
+          status: 'ok',
+          bundle: {
+            fetchedAt: '2026-08-13T17:32:00.000Z',
+            surface,
+            jira: { issueId: '1', issueKey: ref.system === 'jira' ? ref.issueKey : 'QZ-252', fields: {}, comments: [], statusHistory: [] },
+            resolution: { via: 'direct_only', ambiguous: false },
+            truncationNotes: [],
+          },
+        };
+      },
+    });
+
+    // Ignores the typing-indicator send, which fires immediately for both conversations
+    // regardless of the loadBundle delay and would otherwise pollute the ordering below.
+    const isTyping = (a: unknown) => typeof a === 'object' && a !== null && (a as { type?: string }).type === 'typing';
+
+    const order: string[] = [];
+    const p1 = handleActivity(
+      async (a) => { if (!isTyping(a)) order.push('slow-conv-sent'); return undefined; },
+      'AGL-1', [], 'conv-slow', 'personal', 'u', slowDeps,
+    );
+    const p2 = handleActivity(
+      async (a) => { if (!isTyping(a)) order.push('fast-conv-sent'); return undefined; },
+      'QZ-252', [], 'conv-fast', 'personal', 'u', slowDeps,
+    );
+
+    await p2;
+    // The fast, unrelated conversation completed while the slow one is still blocked.
+    expect(order).toEqual(['fast-conv-sent']);
+
+    releaseSlow?.();
+    await p1;
+    expect(order).toEqual(['fast-conv-sent', 'slow-conv-sent']);
   });
 });
