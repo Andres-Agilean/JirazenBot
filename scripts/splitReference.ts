@@ -42,3 +42,35 @@ export function splitReferenceAndQuestion(
 
   return { ref, question };
 }
+
+/**
+ * True only when the ENTIRE message is a reference -- "addressed to the room" in the shared/
+ * personal split model (spec §4), as opposed to a reference that merely appears somewhere inside
+ * a longer question. `splitReferenceAndQuestion` cannot answer this: it only recognizes a
+ * reference that is a PREFIX of the message, so "qual o status do AGL-900?" (reference at the
+ * end, not the start) reports no split even though it plainly is not addressed to the room.
+ *
+ * Implementation: tokenize on whitespace and look for the shortest contiguous run of tokens that
+ * `parseReference` accepts, scanning by ascending run length. A run shorter than the whole message
+ * counts only if the match is EXPLICIT: `parseReference`'s WHOLE_MESSAGE_NUMBER pattern is anchored
+ * to its own input, so handing it an isolated digit token in isolation (e.g. the "16467" inside
+ * "chamado 16467") trivially "matches" that token alone -- which says nothing about whether the
+ * two-word "chamado 16467" is itself the whole message. Only an explicit match is allowed to
+ * settle the search early; an implicit match is accepted only once the run already covers every
+ * token, i.e. the whole message already reduces to nothing else.
+ */
+export function isWholeMessageReference(text: string, allowedProjects: string[]): boolean {
+  const words = text.trim().split(/\s+/).filter((w) => w.length > 0);
+  if (words.length === 0) return false;
+
+  for (let len = 1; len <= words.length; len++) {
+    for (let start = 0; start + len <= words.length; start++) {
+      const candidate = words.slice(start, start + len).join(' ');
+      const parsed = parseReference(candidate, allowedProjects);
+      if (!parsed) continue;
+      if (!parsed.explicit && len < words.length) continue;
+      return len === words.length;
+    }
+  }
+  return false;
+}

@@ -13,6 +13,10 @@ function dm(text: string, conversationId: string = CONV): Incoming {
   return { text, conversationId, conversationType: 'personal', userId: 'u' };
 }
 
+/** ana and bruno share one channel thread throughout the shared/personal-split tests below. */
+const ana = { conversationId: 'thread', conversationType: 'channel', userId: 'ana' };
+const bruno = { conversationId: 'thread', conversationType: 'channel', userId: 'bruno' };
+
 function bundleFor(issueKey: string, ticketId?: string): CardBundle {
   return {
     fetchedAt: '2026-08-13T17:32:00.000Z',
@@ -358,9 +362,6 @@ describe('surface threading (spec §2)', () => {
   });
 });
 
-const ana = { conversationId: 'thread', conversationType: 'channel', userId: 'ana' };
-const bruno = { conversationId: 'thread', conversationType: 'channel', userId: 'bruno' };
-
 describe('shared thread with personal splits (spec §4)', () => {
   it('answers a second users follow-up from the shared binding', async () => {
     const { deps, answered } = makeDeps();
@@ -379,6 +380,8 @@ describe('shared thread with personal splits (spec §4)', () => {
     const brunoBinding = await deps.store.get({
       scope: 'personal', conversationId: 'thread', userId: 'bruno',
     });
+    expect(sharedBinding).toBeDefined();
+    expect(brunoBinding).toBeDefined();
     expect((sharedBinding?.ref as { issueKey: string }).issueKey).toBe('QZ-252');
     expect((brunoBinding?.ref as { issueKey: string }).issueKey).toBe('AGL-900');
     expect(loaded).toHaveLength(2);
@@ -407,6 +410,7 @@ describe('shared thread with personal splits (spec §4)', () => {
     await handleMessage({ ...bruno, text: 'SC-10' }, deps);
 
     const sharedBinding = await deps.store.get({ scope: 'shared', conversationId: 'thread' });
+    expect(sharedBinding).toBeDefined();
     expect((sharedBinding?.ref as { issueKey: string }).issueKey).toBe('SC-10');
     expect(
       await deps.store.get({ scope: 'personal', conversationId: 'thread', userId: 'bruno' }),
@@ -435,6 +439,20 @@ describe('shared thread with personal splits (spec §4)', () => {
     expect(replies[0]).toBe(NOT_SPLIT);
   });
 
+  it('voltar with a split but no shared binding says NOTHING_BOUND without destroying the split (review finding: Minor 5)', async () => {
+    const { deps } = makeDeps();
+    // bruno splits off in a thread where nobody has ever bound the shared card.
+    await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
+    const replies = await handleMessage({ ...bruno, text: 'voltar' }, deps);
+    expect(replies[0]).toBe(NOTHING_BOUND);
+
+    const brunoBinding = await deps.store.get({
+      scope: 'personal', conversationId: 'thread', userId: 'bruno',
+    });
+    expect(brunoBinding).toBeDefined();
+    expect((brunoBinding?.ref as { issueKey: string }).issueKey).toBe('AGL-900');
+  });
+
   it('keeps two threads independent', async () => {
     const { deps } = makeDeps();
     await handleMessage({ ...ana, text: 'QZ-252' }, deps);
@@ -443,5 +461,107 @@ describe('shared thread with personal splits (spec §4)', () => {
       deps,
     );
     expect(replies[0]).toBe(NOTHING_BOUND);
+  });
+});
+
+describe('a split users writes stay in the personal slot (review finding: Important 3)', () => {
+  it('accumulates a split users conversation history in the personal slot, leaving the shared history untouched', async () => {
+    const { deps } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    const sharedAfterAna = await deps.store.get({ scope: 'shared', conversationId: 'thread' });
+
+    await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
+    await handleMessage({ ...bruno, text: 'e o prazo?' }, deps);
+
+    const sharedAfterBruno = await deps.store.get({ scope: 'shared', conversationId: 'thread' });
+    const brunoBinding = await deps.store.get({
+      scope: 'personal', conversationId: 'thread', userId: 'bruno',
+    });
+    // The shared binding is exactly as ana's own turn left it -- bruno's exchanges never touched it.
+    expect(sharedAfterBruno?.history).toEqual(sharedAfterAna?.history);
+    expect(brunoBinding).toBeDefined();
+    expect((brunoBinding?.history.length ?? 0)).toBeGreaterThan(0);
+  });
+
+  it('atualizar from a split user refreshes only the personal bundle, leaving the shared bundleFetchedAt untouched', async () => {
+    const { deps, loaded, setNow } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
+    const sharedBefore = await deps.store.get({ scope: 'shared', conversationId: 'thread' });
+
+    setNow(T0 + 1_000);
+    await handleMessage({ ...bruno, text: 'atualizar' }, deps);
+
+    const sharedAfter = await deps.store.get({ scope: 'shared', conversationId: 'thread' });
+    const brunoBinding = await deps.store.get({
+      scope: 'personal', conversationId: 'thread', userId: 'bruno',
+    });
+    expect(sharedAfter?.bundleFetchedAt).toBe(sharedBefore?.bundleFetchedAt);
+    expect(brunoBinding?.bundleFetchedAt).toBe(T0 + 1_000);
+    expect(loaded).toHaveLength(3); // ana's bind, bruno's bind, bruno's atualizar
+  });
+
+  it('a staleness refresh for a split user writes the refreshed bundle to the personal slot', async () => {
+    const { deps, loaded, setNow } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
+
+    setNow(T0 + BUNDLE_TTL_MS + 1);
+    await handleMessage({ ...bruno, text: 'e o prazo?' }, deps);
+
+    const brunoBinding = await deps.store.get({
+      scope: 'personal', conversationId: 'thread', userId: 'bruno',
+    });
+    const sharedBinding = await deps.store.get({ scope: 'shared', conversationId: 'thread' });
+    expect(brunoBinding?.bundleFetchedAt).toBe(T0 + BUNDLE_TTL_MS + 1);
+    expect(sharedBinding?.bundleFetchedAt).toBe(T0); // ana's binding was never touched
+    expect(loaded).toHaveLength(3); // ana's bind, bruno's bind, bruno's stale refresh
+  });
+});
+
+describe('a failed rebind must not destroy an existing binding (review finding: Important 1)', () => {
+  it('channel: bruno keeps his personal split after a bad bare reference', async () => {
+    const { deps } = makeDeps({
+      loadBundle: async (ref) => {
+        if (ref.system === 'jira' && ref.issueKey === 'QZ-999') {
+          return { status: 'not_found', message: 'Não encontrei o card QZ-999.' } as AssembleResult;
+        }
+        const key = ref.system === 'jira' ? ref.issueKey : 'QZ-252';
+        return { status: 'ok', bundle: bundleFor(key, '16467') } as AssembleResult;
+      },
+    });
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
+
+    const replies = await handleMessage({ ...bruno, text: 'QZ-999' }, deps);
+    expect(replies[0]).toContain('QZ-999');
+
+    const brunoBinding = await deps.store.get({
+      scope: 'personal', conversationId: 'thread', userId: 'bruno',
+    });
+    expect(brunoBinding).toBeDefined();
+    expect((brunoBinding?.ref as { issueKey: string }).issueKey).toBe('AGL-900');
+
+    // The next follow-up must still be answered against bruno's surviving split, not the shared card.
+    const followUp = await handleMessage({ ...bruno, text: 'e o prazo?' }, deps);
+    expect(followUp[0]).not.toBe(NOTHING_BOUND);
+  });
+
+  it('DM: the previous binding survives a bad bare reference (Phase 3 collapse)', async () => {
+    const { deps, answered } = makeDeps({
+      loadBundle: async (ref) => {
+        if (ref.system === 'jira' && ref.issueKey === 'QZ-999') {
+          return { status: 'not_found', message: 'Não encontrei o card QZ-999.' } as AssembleResult;
+        }
+        return { status: 'ok', bundle: bundleFor('QZ-252', '16467') } as AssembleResult;
+      },
+    });
+    await handleMessage(dm('QZ-252'), deps);
+    const failed = await handleMessage(dm('QZ-999'), deps);
+    expect(failed[0]).toContain('QZ-999');
+
+    const replies = await handleMessage(dm('quem validou?'), deps);
+    expect(replies[0]).not.toBe(NOTHING_BOUND);
+    expect(answered.at(-1)).toBe('quem validou?'); // still answered on QZ-252, per Phase 3
   });
 });

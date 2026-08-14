@@ -5,7 +5,7 @@ import type { AssembleResult } from '@/bundle/assemble.js';
 import type { Answer, Turn } from '@/claude/types.js';
 import { parseReference } from '@/resolve/parseReference.js';
 import { DEFAULT_SUMMARY_QUESTION, MAX_HISTORY_TURNS } from '@/claude/prompt.js';
-import { splitReferenceAndQuestion } from '../../scripts/splitReference.js';
+import { splitReferenceAndQuestion, isWholeMessageReference } from '../../scripts/splitReference.js';
 import { isBundleStale, type Binding, type BindingStore, type Slot } from './bindings.js';
 import { parseCommand } from './commands.js';
 import { formatFooter, withFooter } from './reply.js';
@@ -14,7 +14,8 @@ import { surfaceFor } from './surface.js';
 /**
  * What the SDK-agnostic layer needs off an incoming activity. `conversationType` is carried
  * as-is (not yet normalized) so `surfaceFor` can apply its exact-match, fail-closed comparison;
- * `userId` is threaded through for future use (not consumed by any logic in this phase).
+ * `userId` keys the personal slot that lets a participant split off their own card without
+ * moving the thread's shared one (spec §4).
  */
 export interface Incoming {
   text: string;
@@ -36,6 +37,8 @@ export const NOTHING_BOUND =
 
 export const NOT_SPLIT =
   'Você já está acompanhando o card da conversa — não há consulta separada para encerrar.';
+
+export const REJOINED_THREAD = 'Você voltou para o card da conversa.';
 
 export const HELP_TEXT = [
   'Posso responder perguntas sobre um card do Jira e o chamado do Zendesk correspondente.',
@@ -201,9 +204,12 @@ export async function handleMessage(
   }
   if (command === 'voltar') {
     if (!personalBinding) return [NOT_SPLIT];
-    await deps.store.delete(personalSlot);
+    // Check for a shared binding BEFORE deleting the personal one: with nothing to rejoin, the
+    // sender's split is all they have, and destroying it would leave them with nothing bound at
+    // all instead of just saying there is no thread card to return to (review finding: Minor 5).
     if (!sharedBinding) return [NOTHING_BOUND];
-    return [`Você voltou para o card da conversa.\n\n${formatFooter(sharedBinding, deps.cfg)}`];
+    await deps.store.delete(personalSlot);
+    return [`${REJOINED_THREAD}\n\n${formatFooter(sharedBinding, deps.cfg)}`];
   }
 
   // 2 & 3. A reference in the message, with or without a question.
@@ -216,13 +222,20 @@ export async function handleMessage(
   const isRebind = ref !== null && (ref.explicit || !existing);
 
   if (isRebind && ref) {
-    // A bare reference is addressed to the room: it moves the thread's card and rejoins the
-    // sender. A reference WITH a question is that person's own enquiry: it creates a personal
-    // binding and leaves the thread's card alone (spec §4).
-    const targetSlot = split ? personalSlot : sharedSlot;
-    if (!split) await deps.store.delete(personalSlot);
+    // Addressed to the room only when the ENTIRE message is the reference (spec §4) -- a
+    // reference embedded anywhere else in a question is the sender's own enquiry and must not
+    // move the thread's shared card. `splitReferenceAndQuestion`'s prefix-only check cannot tell
+    // "AGL-900 qual o status?" apart from "qual o status do AGL-900?"; isWholeMessageReference
+    // can (review finding: Important 2).
+    const wholeMessage = isWholeMessageReference(text, deps.cfg.allowedProjects);
+    const targetSlot = wholeMessage ? sharedSlot : personalSlot;
     const bound = await bind(ref, targetSlot, surface, deps);
     if ('error' in bound) return [bound.error];
+    // Only clear the sender's split once the rebind actually SUCCEEDED. Clearing it first would
+    // mean a typo'd reference (e.g. a not_found key) silently destroys an existing split and
+    // leaves the sender's next question answered against the room's card instead
+    // (review finding: Important 1).
+    if (wholeMessage) await deps.store.delete(personalSlot);
     const question = split?.question ?? DEFAULT_SUMMARY_QUESTION;
     return [await ask(bound.binding, question, targetSlot, deps)];
   }

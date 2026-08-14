@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { splitReferenceAndQuestion } from '../scripts/splitReference.js';
+import { splitReferenceAndQuestion, isWholeMessageReference } from '../scripts/splitReference.js';
 import { testConfig } from './helpers.js';
 
 const allowed = testConfig.allowedProjects;
@@ -64,5 +64,19 @@ describe('splitReferenceAndQuestion', () => {
 
   it('returns null when no reference parses at all', () => {
     expect(splitReferenceAndQuestion('bom dia tudo bem?', allowed)).toBeNull();
+  });
+});
+
+describe('isWholeMessageReference (review finding: Important 2)', () => {
+  it.each(['QZ-252', 'chamado 16467'])('is whole-message for %s', (text) => {
+    expect(isWholeMessageReference(text, allowed)).toBe(true);
+  });
+
+  it.each([
+    'qual o status do AGL-900?',
+    'AGL-900 qual o status?',
+    'vimos o QZ-252 ontem',
+  ])('is NOT whole-message for %s -- the reference is embedded, not the entire message', (text) => {
+    expect(isWholeMessageReference(text, allowed)).toBe(false);
   });
 });
