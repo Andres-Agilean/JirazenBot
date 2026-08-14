@@ -159,6 +159,6 @@ Use a heredoc (`git commit -F -`) for multi-line commit messages; quotes inside 
   registration and a tenant permitting sideloading.
 - Phase 5: rate-limit backoff, Key Vault, structured logging with token accounting, the
   disambiguation card, the four bounded tools.
-- Owner decisions, not engineering ones: customer ticket contents currently go to Anthropic on a
-  personal account, and the bot runs on a personal Jira token rather than a scoped read-only
-  service account.
+- Owner decisions, not engineering ones: before any broader rollout, the Anthropic account and
+  the Jira/Zendesk credentials should move to organization-managed, least-privilege service
+  accounts.
