@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildAnswerCard, cardStatus, PERSONAL_MARKER } from '@/teams/cards.js';
+import { buildAnswerCard, cardStatus, PERSONAL_MARKER, REFRESH_ACTION } from '@/teams/cards.js';
+import { parseCommand } from '@/teams/commands.js';
 import { testConfig } from './helpers.js';
 import type { Binding } from '@/teams/bindings.js';
 import type { CardBundle } from '@/bundle/types.js';
@@ -105,5 +106,9 @@ describe('buildAnswerCard', () => {
     const split = buildAnswerCard('r', makeBinding(), testConfig, { personal: true });
     expect(JSON.stringify(shared)).not.toContain(PERSONAL_MARKER);
     expect(JSON.stringify(split)).toContain(PERSONAL_MARKER);
+  });
+
+  it('REFRESH_ACTION is the exact verb parseCommand recognizes as atualizar, so the button can never drift from the command', () => {
+    expect(parseCommand(REFRESH_ACTION)).toBe('atualizar');
   });
 });

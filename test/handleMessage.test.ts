@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { handleMessage, JIRA_UNAVAILABLE, NOT_SPLIT, NOTHING_BOUND, type HandleDeps, type Incoming } from '@/teams/handleMessage.js';
+import {
+  handleMessage, handleRefresh, JIRA_UNAVAILABLE, NOT_SPLIT, NOTHING_BOUND,
+  type HandleDeps, type Incoming,
+} from '@/teams/handleMessage.js';
 import { InMemoryBindingStore, BUNDLE_TTL_MS } from '@/teams/bindings.js';
+import { PERSONAL_MARKER } from '@/teams/cards.js';
+import type { Reply } from '@/teams/reply.js';
 import { testConfig } from './helpers.js';
 import type { CardBundle } from '@/bundle/types.js';
 import type { AssembleResult } from '@/bundle/assemble.js';
@@ -11,6 +16,12 @@ const CONV = 'conv';
 /** Builds an `Incoming` for a personal 1:1 chat -- the shape almost every test below exercises. */
 function dm(text: string, conversationId: string = CONV): Incoming {
   return { text, conversationId, conversationType: 'personal', userId: 'u' };
+}
+
+/** Reads the human-facing string out of a `Reply` regardless of kind, so Phase 3 assertions on
+ * plain strings keep working even though `handleMessage` now returns cards for answers. */
+function textOf(reply: Reply): string {
+  return reply.kind === 'card' ? reply.fallbackText : reply.text;
 }
 
 /** ana and bruno share one channel thread throughout the shared/personal-split tests below. */
@@ -62,9 +73,9 @@ describe('binding a card', () => {
     const { deps, answered } = makeDeps();
     const replies = await handleMessage(dm('QZ-252'), deps);
     expect(answered).toHaveLength(1);
-    expect(replies[0]).toContain('resposta para:');
-    expect(replies[0]).toContain('QZ-252');
-    expect(replies[0]).toContain('coletado às');
+    expect(textOf(replies[0])).toContain('resposta para:');
+    expect(textOf(replies[0])).toContain('QZ-252');
+    expect(textOf(replies[0])).toContain('coletado às');
   });
 
   it('binds and answers the question when both are in one message', async () => {
@@ -117,7 +128,7 @@ describe('binding a card', () => {
     const { deps } = makeDeps();
     await handleMessage(dm('QZ-252', 'conv-a'), deps);
     const replies = await handleMessage(dm('quem validou?', 'conv-b'), deps);
-    expect(replies[0]).toContain('referência');
+    expect(textOf(replies[0])).toContain('referência');
   });
 });
 
@@ -161,21 +172,21 @@ describe('commands', () => {
     await handleMessage(dm('QZ-252'), deps);
     const replies = await handleMessage(dm('atualizar'), deps);
     expect(loaded).toHaveLength(2);
-    expect(replies[0]).toContain('coletado às');
+    expect(textOf(replies[0])).toContain('coletado às');
   });
 
   it('atualizar with nothing bound says so', async () => {
     const { deps, loaded } = makeDeps();
     const replies = await handleMessage(dm('atualizar'), deps);
     expect(loaded).toHaveLength(0);
-    expect(replies[0]).toContain('referência');
+    expect(textOf(replies[0])).toContain('referência');
   });
 
   it('ajuda works with and without a binding', async () => {
     const { deps } = makeDeps();
-    expect((await handleMessage(dm('ajuda'), deps))[0]).toContain('chamado');
+    expect(textOf((await handleMessage(dm('ajuda'), deps))[0])).toContain('chamado');
     await handleMessage(dm('QZ-252'), deps);
-    expect((await handleMessage(dm('ajuda'), deps))[0]).toContain('QZ-252');
+    expect(textOf((await handleMessage(dm('ajuda'), deps))[0])).toContain('QZ-252');
   });
 });
 
@@ -185,7 +196,7 @@ describe('errors', () => {
       loadBundle: async () => ({ status: 'not_found', message: 'Não encontrei o card QZ-999.' }),
     });
     const replies = await handleMessage(dm('QZ-999'), deps);
-    expect(replies[0]).toContain('QZ-999');
+    expect(textOf(replies[0])).toContain('QZ-999');
     expect(await deps.store.get({ scope: 'shared', conversationId: 'conv' })).toBeUndefined();
   });
 
@@ -194,30 +205,30 @@ describe('errors', () => {
       loadBundle: async () => ({ status: 'ambiguous', side: 'jira', candidates: ['QZ-252', 'AGL-1500'] }),
     });
     const replies = await handleMessage(dm('chamado 16467'), deps);
-    expect(replies[0]).toContain('QZ-252');
-    expect(replies[0]).toContain('AGL-1500');
-    expect(replies[0]).toContain('chave');
-    expect(replies[0]).not.toMatch(/^\s*1\)/m); // a numbered reply would collide with §6.1
+    expect(textOf(replies[0])).toContain('QZ-252');
+    expect(textOf(replies[0])).toContain('AGL-1500');
+    expect(textOf(replies[0])).toContain('chave');
+    expect(textOf(replies[0])).not.toMatch(/^\s*1\)/m); // a numbered reply would collide with §6.1
   });
 
   it('reports a tenant failure in pt-BR instead of throwing', async () => {
     const { deps } = makeDeps({ loadBundle: async () => { throw new Error('ECONNREFUSED'); } });
     const replies = await handleMessage(dm('QZ-252'), deps);
-    expect(replies[0]).toMatch(/Jira|Zendesk/);
-    expect(replies[0]).not.toContain('ECONNREFUSED');
+    expect(textOf(replies[0])).toMatch(/Jira|Zendesk/);
+    expect(textOf(replies[0])).not.toContain('ECONNREFUSED');
   });
 
   it('reports an answer-service failure in pt-BR and keeps the binding', async () => {
     const { deps } = makeDeps({ answerFn: async () => { throw new Error('429 rate limit'); } });
     const replies = await handleMessage(dm('QZ-252'), deps);
-    expect(replies[0]).not.toContain('429');
-    expect(replies[0].length).toBeGreaterThan(0);
+    expect(textOf(replies[0])).not.toContain('429');
+    expect(textOf(replies[0]).length).toBeGreaterThan(0);
   });
 
   it('prompts for a reference when nothing is bound and the text is not one', async () => {
     const { deps } = makeDeps();
     const replies = await handleMessage(dm('bom dia, tudo bem?'), deps);
-    expect(replies[0]).toContain('referência');
+    expect(textOf(replies[0])).toContain('referência');
   });
 });
 
@@ -227,8 +238,8 @@ describe('disambiguation renders candidates by side (finding 3)', () => {
       loadBundle: async () => ({ status: 'ambiguous', side: 'jira', candidates: ['QZ-252', 'AGL-1500'] }),
     });
     const replies = await handleMessage(dm('chamado 16467'), deps);
-    expect(replies[0]).toContain('- QZ-252');
-    expect(replies[0]).toContain('- AGL-1500');
+    expect(textOf(replies[0])).toContain('- QZ-252');
+    expect(textOf(replies[0])).toContain('- AGL-1500');
   });
 
   it('renders Zendesk candidates as "chamado <n>", and the offered string rebinds correctly on reply', async () => {
@@ -256,15 +267,15 @@ describe('disambiguation renders candidates by side (finding 3)', () => {
     await handleMessage(dm('QZ-100'), deps);
 
     const ambiguous = await handleMessage(dm('QZ-252'), deps);
-    expect(ambiguous[0]).not.toMatch(/^- 16467$/m); // a bare number would collide with §6.1
-    expect(ambiguous[0]).not.toMatch(/^- 16468$/m);
-    expect(ambiguous[0]).toContain('- chamado 16467');
-    expect(ambiguous[0]).toContain('- chamado 16468');
+    expect(textOf(ambiguous[0])).not.toMatch(/^- 16467$/m); // a bare number would collide with §6.1
+    expect(textOf(ambiguous[0])).not.toMatch(/^- 16468$/m);
+    expect(textOf(ambiguous[0])).toContain('- chamado 16467');
+    expect(textOf(ambiguous[0])).toContain('- chamado 16468');
 
     // Round trip: reply with exactly the string the bot offered.
     const rebind = await handleMessage(dm('chamado 16467'), deps);
     expect(seenRefs.at(-1)).toEqual({ system: 'zendesk', ticketId: '16467', explicit: true });
-    expect(rebind[0]).toContain('QZ-999'); // rebound to the new card, not answered from QZ-100
+    expect(textOf(rebind[0])).toContain('QZ-999'); // rebound to the new card, not answered from QZ-100
   });
 });
 
@@ -280,8 +291,8 @@ describe('refresh() preserves specific errors instead of flattening to JIRA_UNAV
     });
     await handleMessage(dm('QZ-252'), deps);
     const replies = await handleMessage(dm('atualizar'), deps);
-    expect(replies[0]).toBe('Não encontrei o card QZ-252.');
-    expect(replies[0]).not.toBe(JIRA_UNAVAILABLE);
+    expect(textOf(replies[0])).toBe('Não encontrei o card QZ-252.');
+    expect(textOf(replies[0])).not.toBe(JIRA_UNAVAILABLE);
   });
 
   it('atualizar reports the disambiguation key list distinctly on an ambiguous refetch', async () => {
@@ -295,8 +306,8 @@ describe('refresh() preserves specific errors instead of flattening to JIRA_UNAV
     });
     await handleMessage(dm('QZ-252'), deps);
     const replies = await handleMessage(dm('atualizar'), deps);
-    expect(replies[0]).toContain('chave');
-    expect(replies[0]).not.toBe(JIRA_UNAVAILABLE);
+    expect(textOf(replies[0])).toContain('chave');
+    expect(textOf(replies[0])).not.toBe(JIRA_UNAVAILABLE);
   });
 
   it('a stale-bundle refresh reports not_found distinctly instead of the generic retry message', async () => {
@@ -311,8 +322,8 @@ describe('refresh() preserves specific errors instead of flattening to JIRA_UNAV
     await handleMessage(dm('QZ-252'), deps);
     setNow(T0 + BUNDLE_TTL_MS + 1);
     const replies = await handleMessage(dm('e agora?'), deps);
-    expect(replies[0]).toBe('Não encontrei o card QZ-252.');
-    expect(replies[0]).not.toBe(JIRA_UNAVAILABLE);
+    expect(textOf(replies[0])).toBe('Não encontrei o card QZ-252.');
+    expect(textOf(replies[0])).not.toBe(JIRA_UNAVAILABLE);
   });
 });
 
@@ -436,7 +447,7 @@ describe('shared thread with personal splits (spec §4)', () => {
     const { deps } = makeDeps();
     await handleMessage({ ...ana, text: 'QZ-252' }, deps);
     const replies = await handleMessage({ ...bruno, text: 'voltar' }, deps);
-    expect(replies[0]).toBe(NOT_SPLIT);
+    expect(textOf(replies[0])).toBe(NOT_SPLIT);
   });
 
   it('voltar with a split but no shared binding says NOTHING_BOUND without destroying the split (review finding: Minor 5)', async () => {
@@ -444,7 +455,7 @@ describe('shared thread with personal splits (spec §4)', () => {
     // bruno splits off in a thread where nobody has ever bound the shared card.
     await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
     const replies = await handleMessage({ ...bruno, text: 'voltar' }, deps);
-    expect(replies[0]).toBe(NOTHING_BOUND);
+    expect(textOf(replies[0])).toBe(NOTHING_BOUND);
 
     const brunoBinding = await deps.store.get({
       scope: 'personal', conversationId: 'thread', userId: 'bruno',
@@ -460,7 +471,7 @@ describe('shared thread with personal splits (spec §4)', () => {
       { conversationId: 'other', conversationType: 'channel', userId: 'ana', text: 'quem validou?' },
       deps,
     );
-    expect(replies[0]).toBe(NOTHING_BOUND);
+    expect(textOf(replies[0])).toBe(NOTHING_BOUND);
   });
 });
 
@@ -534,7 +545,7 @@ describe('a failed rebind must not destroy an existing binding (review finding: 
     await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
 
     const replies = await handleMessage({ ...bruno, text: 'QZ-999' }, deps);
-    expect(replies[0]).toContain('QZ-999');
+    expect(textOf(replies[0])).toContain('QZ-999');
 
     const brunoBinding = await deps.store.get({
       scope: 'personal', conversationId: 'thread', userId: 'bruno',
@@ -544,7 +555,7 @@ describe('a failed rebind must not destroy an existing binding (review finding: 
 
     // The next follow-up must still be answered against bruno's surviving split, not the shared card.
     const followUp = await handleMessage({ ...bruno, text: 'e o prazo?' }, deps);
-    expect(followUp[0]).not.toBe(NOTHING_BOUND);
+    expect(textOf(followUp[0])).not.toBe(NOTHING_BOUND);
   });
 
   it('DM: the previous binding survives a bad bare reference (Phase 3 collapse)', async () => {
@@ -558,10 +569,65 @@ describe('a failed rebind must not destroy an existing binding (review finding: 
     });
     await handleMessage(dm('QZ-252'), deps);
     const failed = await handleMessage(dm('QZ-999'), deps);
-    expect(failed[0]).toContain('QZ-999');
+    expect(textOf(failed[0])).toContain('QZ-999');
 
     const replies = await handleMessage(dm('quem validou?'), deps);
-    expect(replies[0]).not.toBe(NOTHING_BOUND);
+    expect(textOf(replies[0])).not.toBe(NOTHING_BOUND);
     expect(answered.at(-1)).toBe('quem validou?'); // still answered on QZ-252, per Phase 3
+  });
+});
+
+describe('cards (spec §5)', () => {
+  it('answers with a card carrying a plain-text fallback', async () => {
+    const { deps } = makeDeps();
+    const replies = await handleMessage(
+      { text: 'QZ-252', conversationId: 'c', conversationType: 'personal', userId: 'u' }, deps,
+    );
+    expect(replies[0].kind).toBe('card');
+    if (replies[0].kind === 'card') {
+      expect(replies[0].card.type).toBe('AdaptiveCard');
+      expect(replies[0].fallbackText).toContain('coletado às');
+    }
+  });
+
+  it('marks a split users card as personal', async () => {
+    const { deps } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    const replies = await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
+    expect(JSON.stringify(replies[0])).toContain(PERSONAL_MARKER);
+  });
+
+  it('sends errors and help as text, not cards', async () => {
+    const { deps } = makeDeps();
+    const replies = await handleMessage(
+      { text: 'ajuda', conversationId: 'c', conversationType: 'personal', userId: 'u' }, deps,
+    );
+    expect(replies[0].kind).toBe('text');
+  });
+
+  it('falls back to text when the card builder throws', async () => {
+    const { deps } = makeDeps({ buildCard: () => { throw new Error('bad card'); } });
+    const replies = await handleMessage(
+      { text: 'QZ-252', conversationId: 'c', conversationType: 'personal', userId: 'u' }, deps,
+    );
+    expect(replies[0].kind).toBe('text');
+    expect(textOf(replies[0])).toContain('coletado às');
+  });
+});
+
+describe('handleRefresh (spec §6)', () => {
+  it('produces the same result as typing atualizar', async () => {
+    const { deps, loaded } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    const viaCommand = await handleMessage({ ...ana, text: 'atualizar' }, deps);
+    const viaButton = await handleRefresh(ana, deps);
+    expect(textOf(viaButton[0])).toBe(textOf(viaCommand[0]));
+    expect(loaded).toHaveLength(3);
+  });
+
+  it('replies in pt-BR when nothing is bound', async () => {
+    const { deps } = makeDeps();
+    const replies = await handleRefresh(ana, deps);
+    expect(textOf(replies[0])).toBe(NOTHING_BOUND);
   });
 });

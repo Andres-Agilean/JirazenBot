@@ -84,7 +84,9 @@ describe('handleActivity: a failing typing indicator never blocks the reply', ()
       return !(typeof activity === 'object' && activity !== null && (activity as { type?: string }).type === 'typing');
     });
     expect(nonTypingCalls).toHaveLength(1);
-    expect(nonTypingCalls[0][0]).toContain('resposta');
+    // The answer now goes out as a card attachment (spec §5), not a bare string -- a read-shape
+    // change, not a weaker assertion: it still pins that the real answer content was sent.
+    expect(JSON.stringify(nonTypingCalls[0][0])).toContain('resposta');
   });
 
   it('does not throw out of handleActivity when the typing send rejects', async () => {
@@ -97,5 +99,43 @@ describe('handleActivity: a failing typing indicator never blocks the reply', ()
     const deps = makeDeps();
 
     await expect(handleActivity(send, 'bom dia', [], 'conv', 'personal', 'u', deps)).resolves.toBeUndefined();
+  });
+});
+
+describe('handleActivity: cards (spec §5)', () => {
+  it('sends a card as an adaptive-card attachment, with the fallback text on the activity', async () => {
+    const sent: unknown[] = [];
+    // `makeDeps` is the existing helper in this file; override the store-backed pipeline by
+    // stubbing loadBundle/answerFn so the reply comes back as a card.
+    const deps = makeDeps({
+      loadBundle: async () => ({
+        status: 'ok',
+        bundle: {
+          fetchedAt: '2026-08-13T17:32:00.000Z',
+          surface: 'dm',
+          jira: { issueId: '1', issueKey: 'QZ-252', fields: {}, comments: [], statusHistory: [] },
+          resolution: { via: 'direct_only', ambiguous: false },
+          truncationNotes: [],
+        },
+      }),
+      answerFn: async () => ({
+        text: 'resposta',
+        model: 'm',
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      }),
+    });
+    await handleActivity(
+      async (a) => { sent.push(a); return undefined; },
+      'QZ-252', [], 'c', 'personal', 'u', deps,
+    );
+    const activity = sent.find(
+      (a): a is { attachments: { contentType: string }[]; text: string } =>
+        typeof a === 'object' && a !== null && 'attachments' in a,
+    );
+    expect(activity).toBeDefined();
+    expect(activity?.attachments[0].contentType).toBe(
+      'application/vnd.microsoft.card.adaptive',
+    );
+    expect(activity?.text).toContain('coletado às');
   });
 });

@@ -1,8 +1,27 @@
 import { App } from '@microsoft/teams.apps';
-import { handleMessage, NO_TEXT_RECEIVED, type HandleDeps } from './handleMessage.js';
+import { handleMessage, handleRefresh, NO_TEXT_RECEIVED, type HandleDeps } from './handleMessage.js';
 import { stripMentions, type MentionLike } from './mentions.js';
+import type { Reply } from './reply.js';
 
 const UNEXPECTED_ERROR_REPLY = 'Algo deu errado do meu lado. Tente novamente em instantes.';
+
+/** The Bot Framework attachment content type for an Adaptive Card (spec §5). */
+const ADAPTIVE_CARD_CONTENT_TYPE = 'application/vnd.microsoft.card.adaptive';
+
+/**
+ * The route name @microsoft/teams.apps aliases from the Bot Framework invoke name
+ * 'adaptiveCard/action' (see node_modules/@microsoft/teams.apps/dist/routes/invoke/index.d.ts's
+ * INVOKE_ALIASES) -- not to be confused with ADAPTIVE_CARD_CONTENT_TYPE above, which labels a
+ * message attachment rather than an invoke route.
+ */
+const CARD_ACTION_ROUTE = 'card.action' as const;
+
+/**
+ * Action.Execute's "silent ack" response type. @microsoft/teams.api's AdaptiveCardActionResponse
+ * union has no void/empty variant, so *some* body is required even though the real confirmation
+ * already went out as a normal conversation activity (see sendReplies below).
+ */
+const ACTIVITY_MESSAGE_RESPONSE_TYPE = 'application/vnd.microsoft.activity.message' as const;
 
 /**
  * A minimal, SDK-agnostic shape for whatever `app.on('message', ...)` hands us. Kept separate
@@ -13,6 +32,26 @@ const UNEXPECTED_ERROR_REPLY = 'Algo deu errado do meu lado. Tente novamente em 
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SendFn = (activity: any) => Promise<unknown>;
+
+/**
+ * Sends each reply by kind (spec §5): a card goes out as an Adaptive Card attachment with the
+ * plain-text fallback on the activity's `text` (for clients that cannot render cards); a text
+ * reply goes out as-is. The one place both the message handler and the Refresh invoke handler
+ * turn `Reply[]` into actual sends, so they can never diverge on how a card is packaged.
+ */
+async function sendReplies(send: SendFn, replies: readonly Reply[]): Promise<void> {
+  for (const reply of replies) {
+    if (reply.kind === 'card') {
+      await send({
+        type: 'message',
+        text: reply.fallbackText,
+        attachments: [{ contentType: ADAPTIVE_CARD_CONTENT_TYPE, content: reply.card }],
+      });
+    } else {
+      await send(reply.text);
+    }
+  }
+}
 
 /**
  * The testable core of the message handler: never goes silent (spec §8) and never lets a
@@ -44,19 +83,17 @@ export async function handleActivity(
     console.error('Indicador de digitação falhou:', err);
   }
 
-  let replies: string[];
+  let replies: Reply[];
   try {
     replies = await handleMessage({ text, conversationId, conversationType, userId }, deps);
   } catch (err) {
     // handleMessage already converts expected failures into pt-BR replies; reaching here means
     // an unexpected bug. The user gets an apology, the detail goes to the server log.
     console.error('handleMessage falhou:', err);
-    replies = [UNEXPECTED_ERROR_REPLY];
+    replies = [{ kind: 'text', text: UNEXPECTED_ERROR_REPLY }];
   }
 
-  for (const reply of replies) {
-    await send(reply);
-  }
+  await sendReplies(send, replies);
 }
 
 /**
@@ -88,6 +125,24 @@ export function createTeamsApp(deps: HandleDeps): App {
       activity.from?.id ?? '',
       deps,
     );
+  });
+
+  // The Refresh button on an answer card (spec §6). CARD_ACTION_ROUTE is confirmed against the
+  // installed SDK (@microsoft/teams.apps 2.0.15): router.js dispatches ANY Action.Execute invoke
+  // to this route name regardless of the pressed button's `verb` -- this is not the brief's
+  // unverified guess, it is what the package actually does.
+  app.on(CARD_ACTION_ROUTE, async ({ send, activity }) => {
+    const replies = await handleRefresh(
+      {
+        conversationId: activity.conversation.id,
+        conversationType: activity.conversation.conversationType as string,
+        userId: activity.from?.id ?? '',
+      },
+      deps,
+    );
+    await sendReplies(send, replies);
+
+    return { statusCode: 200, type: ACTIVITY_MESSAGE_RESPONSE_TYPE, value: '' };
   });
 
   return app;

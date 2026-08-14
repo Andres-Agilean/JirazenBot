@@ -2,6 +2,7 @@ import type { Config } from '@/config.js';
 import type { CardBundle } from '@/bundle/types.js';
 import { renderGeneric } from '@/bundle/render.js';
 import type { Binding } from './bindings.js';
+import { ATUALIZAR_COMMAND } from './commands.js';
 import { collectedAt, jiraLink, zendeskLink } from './reply.js';
 
 const ADAPTIVE_CARD_SCHEMA = 'http://adaptivecards.io/schemas/adaptive-card.json';
@@ -10,8 +11,12 @@ const ADAPTIVE_CARD_VERSION = '1.5';
 /** Appended to the header when the answer came from the reader's own split (spec §4/§5). */
 export const PERSONAL_MARKER = '· sua consulta';
 
-/** The action id app.ts matches to route a Refresh invoke back through the atualizar path. */
-export const REFRESH_ACTION = 'atualizar';
+/**
+ * The action id app.ts matches to route a Refresh invoke back through the atualizar path.
+ * Derived from `ATUALIZAR_COMMAND` rather than a hand-written literal so the card's verb cannot
+ * silently drift from what `parseCommand` accepts (Task 5 review finding).
+ */
+export const REFRESH_ACTION = ATUALIZAR_COMMAND;
 
 /** The Jira API field id for status. `fields` is keyed by field ID, never by display label. */
 const JIRA_STATUS_FIELD_ID = 'status';
