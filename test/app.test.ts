@@ -104,13 +104,10 @@ describe('handleActivity: a failing typing indicator never blocks the reply', ()
       return !(typeof activity === 'object' && activity !== null && (activity as { type?: string }).type === 'typing');
     });
     expect(nonTypingCalls).toHaveLength(1);
-    // The answer now goes out as a card attachment (spec §5), not a bare string. Asserting on
-    // the activity's `text` field specifically (its plain-text fallback) rather than on the
-    // whole serialized activity: the card's body TextBlock also contains "resposta", so a
-    // JSON.stringify-based check would still pass even if `text` were dropped entirely --
-    // exactly the failure mode (empty text for non-card-rendering clients and mobile notification
-    // previews) this assertion exists to catch.
-    expect((nonTypingCalls[0][0] as { text?: string }).text).toContain('resposta');
+    // The answer goes out as a card attachment (spec §5), not a bare string and not on the
+    // activity's `text` -- see the no-duplication test below for why `text` is deliberately
+    // absent. Asserting the answer reached the user via the card body.
+    expect(JSON.stringify(nonTypingCalls[0][0])).toContain('resposta');
   });
 
   it('does not throw out of handleActivity when the typing send rejects', async () => {
@@ -127,7 +124,7 @@ describe('handleActivity: a failing typing indicator never blocks the reply', ()
 });
 
 describe('handleActivity: cards (spec §5)', () => {
-  it('sends a card as an adaptive-card attachment, with the fallback text on the activity', async () => {
+  it('sends a card as an adaptive-card attachment carrying the answer', async () => {
     const sent: unknown[] = [];
     const deps = cardDeps();
     await handleActivity(
@@ -135,14 +132,49 @@ describe('handleActivity: cards (spec §5)', () => {
       'QZ-252', [], 'c', 'personal', 'u', deps,
     );
     const activity = sent.find(
-      (a): a is { attachments: { contentType: string }[]; text: string } =>
+      (a): a is { attachments: { contentType: string; content: unknown }[]; text?: string } =>
         typeof a === 'object' && a !== null && 'attachments' in a,
     );
     expect(activity).toBeDefined();
     expect(activity?.attachments[0].contentType).toBe(
       'application/vnd.microsoft.card.adaptive',
     );
-    expect(activity?.text).toContain('coletado às');
+    expect(JSON.stringify(activity?.attachments[0].content)).toContain('coletado às');
+  });
+
+  // Teams renders an activity's `text` AND its `attachments`, so putting the answer in both made
+  // the user read it twice -- reproduced in the M365 Agents Playground, which uses the same
+  // rendering engine. This pins the fix: the card activity carries no `text` at all.
+  it('does not duplicate the answer on the activity text alongside the card', async () => {
+    const sent: unknown[] = [];
+    const deps = cardDeps();
+    await handleActivity(
+      async (a) => { sent.push(a); return undefined; },
+      'QZ-252', [], 'c', 'personal', 'u', deps,
+    );
+    const activity = sent.find(
+      (a): a is { attachments: unknown[]; text?: string } =>
+        typeof a === 'object' && a !== null && 'attachments' in a,
+    );
+    expect(activity?.text).toBeUndefined();
+  });
+
+  // `fallbackText` is still load-bearing after the change above: it is what a client that rejects
+  // the attachment receives, which is the real coverage for a non-card-rendering client.
+  it('resends the answer as plain text when the card attachment is rejected', async () => {
+    const sent: unknown[] = [];
+    const send = async (a: unknown) => {
+      if (typeof a === 'object' && a !== null && 'attachments' in a) throw new Error('card rejected');
+      // The typing indicator goes through the same send; it is not a reply.
+      if (typeof a === 'object' && a !== null && (a as { type?: string }).type === 'typing') {
+        return undefined;
+      }
+      sent.push(a);
+      return undefined;
+    };
+    await handleActivity(send, 'QZ-252', [], 'c', 'personal', 'u', cardDeps());
+    expect(sent).toHaveLength(1);
+    expect(String(sent[0])).toContain('coletado às');
   });
 });
 

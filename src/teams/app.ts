@@ -36,10 +36,16 @@ const ACTIVITY_MESSAGE_RESPONSE_TYPE = 'application/vnd.microsoft.activity.messa
 type SendFn = (activity: any) => Promise<unknown>;
 
 /**
- * Sends each reply by kind (spec §5): a card goes out as an Adaptive Card attachment with the
- * plain-text fallback on the activity's `text` (for clients that cannot render cards); a text
+ * Sends each reply by kind (spec §5): a card goes out as an Adaptive Card attachment and a text
  * reply goes out as-is. The one place both the message handler and the Refresh invoke handler
  * turn `Reply[]` into actual sends, so they can never diverge on how a card is packaged.
+ *
+ * The card activity deliberately carries NO `text`. An earlier version set it to
+ * `reply.fallbackText` as a fallback for clients that cannot render cards, but Teams renders
+ * `text` AND `attachments` together, so the user read the whole answer twice -- confirmed in the
+ * M365 Agents Playground, which uses the same rendering engine. `fallbackText` is still
+ * load-bearing: the catch below resends it as plain text if the attachment is rejected, which is
+ * the real coverage for a client that cannot take the card. Do not reintroduce `text` here.
  */
 async function sendReplies(send: SendFn, replies: readonly Reply[]): Promise<void> {
   for (const reply of replies) {
@@ -47,7 +53,6 @@ async function sendReplies(send: SendFn, replies: readonly Reply[]): Promise<voi
       try {
         await send({
           type: 'message',
-          text: reply.fallbackText,
           attachments: [{ contentType: ADAPTIVE_CARD_CONTENT_TYPE, content: reply.card }],
         });
       } catch (err) {
