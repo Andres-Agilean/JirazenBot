@@ -28,4 +28,4 @@ const deps: HandleDeps = {
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
 await createTeamsApp(deps).start(port);
 console.log(`Bot ouvindo em http://localhost:${port}/api/messages`);
-console.log(`Playground: agentsplayground -e http://localhost:${port}/api/messages -c emulator`);
+console.log(`Playground: agentsplayground -e http://localhost:${port}/api/messages --channel-id msteams`);
