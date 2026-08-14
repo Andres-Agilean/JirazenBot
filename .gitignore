@@ -5,6 +5,12 @@ node_modules/
 dist/
 docs/superpowers/plans/
 
+# Implementation plans, live-acceptance reports and SDD scratch: working artifacts of how the
+# code got written, not the code itself. The specs in docs/superpowers/specs/ stay tracked --
+# those record decisions and their reasoning, which outlive the process that produced them.
+docs/superpowers/reports/
+.superpowers/
+
 # Captured live API payloads (scripts/capture-fixtures.ts). scrubEmails() only redacts emails --
 # real Zendesk/Jira bodies can carry customer names, phone numbers, addresses, contract ids.
 # Must be reviewed and force-added deliberately, never committed by default.
