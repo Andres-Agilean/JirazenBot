@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleActivity } from '@/teams/app.js';
+import { handleActivity, handleCardAction, UNEXPECTED_ERROR_REPLY } from '@/teams/app.js';
 import { NO_TEXT_RECEIVED, type HandleDeps } from '@/teams/handleMessage.js';
-import { InMemoryBindingStore } from '@/teams/bindings.js';
+import { InMemoryBindingStore, type Binding, type BindingStore, type Slot } from '@/teams/bindings.js';
 import { testConfig } from './helpers.js';
 
 function makeDeps(over: Partial<HandleDeps> = {}): HandleDeps {
@@ -16,6 +16,41 @@ function makeDeps(over: Partial<HandleDeps> = {}): HandleDeps {
     cfg: testConfig,
     now: () => 0,
     ...over,
+  };
+}
+
+/**
+ * `makeDeps` overridden so a message resolves to a bound QZ-252 answer -- shared by every test
+ * below that needs an actual reply to go out, rather than each repeating the same
+ * loadBundle/answerFn stub.
+ */
+function cardDeps(over: Partial<HandleDeps> = {}): HandleDeps {
+  return makeDeps({
+    loadBundle: async () => ({
+      status: 'ok',
+      bundle: {
+        fetchedAt: '2026-08-13T17:32:00.000Z',
+        surface: 'dm',
+        jira: { issueId: '1', issueKey: 'QZ-252', fields: {}, comments: [], statusHistory: [] },
+        resolution: { via: 'direct_only', ambiguous: false },
+        truncationNotes: [],
+      },
+    }),
+    answerFn: async () => ({
+      text: 'resposta',
+      model: 'm',
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    }),
+    ...over,
+  });
+}
+
+/** A BindingStore whose every method rejects, for exercising the "unexpected failure" path. */
+function throwingStore(): BindingStore {
+  return {
+    get: async (): Promise<Binding | undefined> => { throw new Error('store.get boom'); },
+    set: async (_slot: Slot, _binding: Binding): Promise<void> => { throw new Error('store.set boom'); },
+    delete: async (): Promise<void> => { throw new Error('store.delete boom'); },
   };
 }
 
@@ -59,23 +94,7 @@ describe('handleActivity: a failing typing indicator never blocks the reply', ()
       }
       return undefined;
     });
-    const deps = makeDeps({
-      loadBundle: async () => ({
-        status: 'ok',
-        bundle: {
-          fetchedAt: '2026-08-13T17:32:00.000Z',
-          surface: 'dm',
-          jira: { issueId: '1', issueKey: 'QZ-252', fields: {}, comments: [], statusHistory: [] },
-          resolution: { via: 'direct_only', ambiguous: false },
-          truncationNotes: [],
-        },
-      }),
-      answerFn: async () => ({
-        text: 'resposta',
-        model: 'm',
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      }),
-    });
+    const deps = cardDeps();
 
     await handleActivity(send, 'QZ-252', [], 'conv', 'personal', 'u', deps);
 
@@ -84,9 +103,13 @@ describe('handleActivity: a failing typing indicator never blocks the reply', ()
       return !(typeof activity === 'object' && activity !== null && (activity as { type?: string }).type === 'typing');
     });
     expect(nonTypingCalls).toHaveLength(1);
-    // The answer now goes out as a card attachment (spec §5), not a bare string -- a read-shape
-    // change, not a weaker assertion: it still pins that the real answer content was sent.
-    expect(JSON.stringify(nonTypingCalls[0][0])).toContain('resposta');
+    // The answer now goes out as a card attachment (spec §5), not a bare string. Asserting on
+    // the activity's `text` field specifically (its plain-text fallback) rather than on the
+    // whole serialized activity: the card's body TextBlock also contains "resposta", so a
+    // JSON.stringify-based check would still pass even if `text` were dropped entirely --
+    // exactly the failure mode (empty text for non-card-rendering clients and mobile notification
+    // previews) this assertion exists to catch.
+    expect((nonTypingCalls[0][0] as { text?: string }).text).toContain('resposta');
   });
 
   it('does not throw out of handleActivity when the typing send rejects', async () => {
@@ -105,25 +128,7 @@ describe('handleActivity: a failing typing indicator never blocks the reply', ()
 describe('handleActivity: cards (spec §5)', () => {
   it('sends a card as an adaptive-card attachment, with the fallback text on the activity', async () => {
     const sent: unknown[] = [];
-    // `makeDeps` is the existing helper in this file; override the store-backed pipeline by
-    // stubbing loadBundle/answerFn so the reply comes back as a card.
-    const deps = makeDeps({
-      loadBundle: async () => ({
-        status: 'ok',
-        bundle: {
-          fetchedAt: '2026-08-13T17:32:00.000Z',
-          surface: 'dm',
-          jira: { issueId: '1', issueKey: 'QZ-252', fields: {}, comments: [], statusHistory: [] },
-          resolution: { via: 'direct_only', ambiguous: false },
-          truncationNotes: [],
-        },
-      }),
-      answerFn: async () => ({
-        text: 'resposta',
-        model: 'm',
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      }),
-    });
+    const deps = cardDeps();
     await handleActivity(
       async (a) => { sent.push(a); return undefined; },
       'QZ-252', [], 'c', 'personal', 'u', deps,
@@ -137,5 +142,20 @@ describe('handleActivity: cards (spec §5)', () => {
       'application/vnd.microsoft.card.adaptive',
     );
     expect(activity?.text).toContain('coletado às');
+  });
+});
+
+describe('handleCardAction: never goes silent on an unexpected failure (spec §6/§8)', () => {
+  it('sends UNEXPECTED_ERROR_REPLY instead of nothing when the underlying store rejects', async () => {
+    const sent: unknown[] = [];
+    const deps = makeDeps({ store: throwingStore() });
+
+    await handleCardAction(
+      async (a) => { sent.push(a); return undefined; },
+      'c', 'personal', 'u', deps,
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toBe(UNEXPECTED_ERROR_REPLY);
   });
 });

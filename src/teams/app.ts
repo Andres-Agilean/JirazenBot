@@ -3,7 +3,7 @@ import { handleMessage, handleRefresh, NO_TEXT_RECEIVED, type HandleDeps } from 
 import { stripMentions, type MentionLike } from './mentions.js';
 import type { Reply } from './reply.js';
 
-const UNEXPECTED_ERROR_REPLY = 'Algo deu errado do meu lado. Tente novamente em instantes.';
+export const UNEXPECTED_ERROR_REPLY = 'Algo deu errado do meu lado. Tente novamente em instantes.';
 
 /** The Bot Framework attachment content type for an Adaptive Card (spec §5). */
 const ADAPTIVE_CARD_CONTENT_TYPE = 'application/vnd.microsoft.card.adaptive';
@@ -97,6 +97,32 @@ export async function handleActivity(
 }
 
 /**
+ * The testable core of the Refresh invoke handler (spec §6): mirrors handleActivity's
+ * never-goes-silent guarantee (spec §8) for the button path. Without this, an unexpected
+ * failure inside handleRefresh (e.g. the store rejecting) would leave the invoke callback
+ * rejecting -- nothing sent, no apology, and the user pressing Atualizar into silence.
+ */
+export async function handleCardAction(
+  send: SendFn,
+  conversationId: string,
+  conversationType: string | undefined,
+  userId: string,
+  deps: HandleDeps,
+): Promise<void> {
+  let replies: Reply[];
+  try {
+    replies = await handleRefresh({ conversationId, conversationType, userId }, deps);
+  } catch (err) {
+    // handleRefresh already converts expected failures into pt-BR replies; reaching here means
+    // an unexpected bug. The user gets an apology, the detail goes to the server log.
+    console.error('handleRefresh falhou:', err);
+    replies = [{ kind: 'text', text: UNEXPECTED_ERROR_REPLY }];
+  }
+
+  await sendReplies(send, replies);
+}
+
+/**
  * The ONLY file that imports the Teams SDK. Everything it does is: pull the conversation key and
  * text off the activity and delegate to handleActivity. Keeping it this thin is what lets the
  * whole pipeline be tested with no SDK and no network.
@@ -132,15 +158,13 @@ export function createTeamsApp(deps: HandleDeps): App {
   // to this route name regardless of the pressed button's `verb` -- this is not the brief's
   // unverified guess, it is what the package actually does.
   app.on(CARD_ACTION_ROUTE, async ({ send, activity }) => {
-    const replies = await handleRefresh(
-      {
-        conversationId: activity.conversation.id,
-        conversationType: activity.conversation.conversationType as string,
-        userId: activity.from?.id ?? '',
-      },
+    await handleCardAction(
+      send,
+      activity.conversation.id,
+      activity.conversation.conversationType as string,
+      activity.from?.id ?? '',
       deps,
     );
-    await sendReplies(send, replies);
 
     return { statusCode: 200, type: ACTIVITY_MESSAGE_RESPONSE_TYPE, value: '' };
   });
