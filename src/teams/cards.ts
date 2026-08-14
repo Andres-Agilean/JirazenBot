@@ -12,6 +12,25 @@ const ADAPTIVE_CARD_VERSION = '1.5';
 export const PERSONAL_MARKER = '· sua consulta';
 
 /**
+ * A bracketed source citation the model emits inline, e.g. `[comentário jira 41713, André
+ * Marques]` or `[descrição Jira]`. The negative lookahead skips `[text](url)` so a markdown link
+ * is never mistaken for a citation.
+ */
+const CITATION = /\[([^\]\n]+)\](?!\()/g;
+
+/**
+ * Italicises the model's inline citations for display only.
+ *
+ * Deliberately done here rather than by changing the citation convention in `SYSTEM_PROMPT`: the
+ * grounding eval's `mustCite` rules match on the exact bracketed form the model emits, so moving
+ * the styling into the prompt would break those checks for a purely cosmetic gain. The model's
+ * contract stays fixed; only what the reader sees changes.
+ */
+export function styleCitations(answerText: string): string {
+  return answerText.replace(CITATION, '_[$1]_');
+}
+
+/**
  * The action id app.ts matches to route a Refresh invoke back through the atualizar path.
  * Derived from `ATUALIZAR_COMMAND` rather than a hand-written literal so the card's verb cannot
  * silently drift from what `parseCommand` accepts (Task 5 review finding).
@@ -68,7 +87,7 @@ export function buildAnswerCard(
     body: [
       { type: 'TextBlock', text: header, wrap: true, weight: 'Bolder' },
       { type: 'TextBlock', text: subtitle, wrap: true, isSubtle: true, spacing: 'None' },
-      { type: 'TextBlock', text: answerText, wrap: true, separator: true },
+      { type: 'TextBlock', text: styleCitations(answerText), wrap: true, separator: true },
     ],
     actions,
   };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAnswerCard, cardStatus, PERSONAL_MARKER, REFRESH_ACTION } from '@/teams/cards.js';
+import { buildAnswerCard, cardStatus, PERSONAL_MARKER, REFRESH_ACTION, styleCitations } from '@/teams/cards.js';
 import { parseCommand } from '@/teams/commands.js';
 import { testConfig } from './helpers.js';
 import type { Binding } from '@/teams/bindings.js';
@@ -47,7 +47,40 @@ describe('cardStatus', () => {
   });
 });
 
+describe('styleCitations', () => {
+  it('italicises a bracketed source citation', () => {
+    expect(styleCitations('Aprovado em 11/08 [comentário jira 41713, André Marques].')).toBe(
+      'Aprovado em 11/08 _[comentário jira 41713, André Marques]_.',
+    );
+  });
+
+  it('italicises every citation in a sentence', () => {
+    expect(styleCitations('Ver [descrição Jira] e [campo Status].')).toBe(
+      'Ver _[descrição Jira]_ e _[campo Status]_.',
+    );
+  });
+
+  // A markdown link is not a citation; italicising its label would break the link.
+  it('leaves markdown links alone', () => {
+    expect(styleCitations('veja [QZ-252](https://example.com/browse/QZ-252)')).toBe(
+      'veja [QZ-252](https://example.com/browse/QZ-252)',
+    );
+  });
+
+  it('leaves prose without citations unchanged', () => {
+    expect(styleCitations('O chamado segue em aberto.')).toBe('O chamado segue em aberto.');
+  });
+});
+
 describe('buildAnswerCard', () => {
+  it('italicises citations in the answer block', () => {
+    const card = buildAnswerCard('Aprovado [comentário jira 41713].', makeBinding(), testConfig);
+    const body = collect(card, 'TextBlock')
+      .map((b) => String(b.text))
+      .find((t) => t.includes('Aprovado'));
+    expect(body).toBe('Aprovado _[comentário jira 41713]_.');
+  });
+
   // The header used to build its own unlinked copy of the identity, so the key and ticket number
   // rendered as dead text in the card while the identical footer text was clickable.
   it('hyperlinks the Jira key and the Zendesk ticket in the header', () => {

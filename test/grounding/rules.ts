@@ -47,6 +47,8 @@ export function mustCite(label: string): Rule {
  */
 const FULL_DMY_DATE = /\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})/g;
 const FULL_ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})/g;
+/** The renderer's Brazil-local date shape, e.g. `14/08/2026`. Capture order is day, month, year. */
+const FULL_BR_DATE = /\b(\d{2})\/(\d{2})\/(\d{4})\b/g;
 
 /**
  * A bare DD/MM pair (no year) is genuinely ambiguous with a routine "N of M" phrasing: "8/10"
@@ -98,11 +100,23 @@ function pad(n: number, width: number): string {
 function harvestBundleDates(bundle: CardBundle): Set<string> {
   const rendered = renderBundle(bundle);
   const known = new Set<string>();
-  for (const match of rendered.matchAll(FULL_ISO_DATE)) {
-    const [iso, year, month, day] = match;
-    known.add(iso);
+
+  const remember = (year: string, month: string, day: string): void => {
+    known.add(`${year}-${month}-${day}`);
     known.add(`${day}/${month}`);
     known.add(`${day}/${month}/${year}`);
+  };
+
+  // The renderer emits Brazil-local `DD/MM/YYYY` dates; it used to emit raw ISO. BOTH shapes are
+  // harvested because the eval corpus's hand-written bundles still carry ISO in fields the
+  // renderer passes through untouched. Harvesting only one shape empties `known`, which silently
+  // turns every date the model correctly quotes into an "invented" one and fails the whole
+  // corpus -- the same self-measuring defect that cost Phase 2 a full fix wave.
+  for (const match of rendered.matchAll(FULL_ISO_DATE)) {
+    remember(match[1], match[2], match[3]);
+  }
+  for (const match of rendered.matchAll(FULL_BR_DATE)) {
+    remember(match[3], match[2], match[1]);
   }
   return known;
 }

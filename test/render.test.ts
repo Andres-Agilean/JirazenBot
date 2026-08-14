@@ -33,7 +33,9 @@ describe('renderBundle', () => {
     const md = renderBundle(await makeBundle('dm'));
     expect(md).toMatch(/^<CARD_BUNDLE>/);
     expect(md).toMatch(/<\/CARD_BUNDLE>$/);
-    expect(md).toContain('fetched_at: 2026-08-10T18:00:00.000Z');
+    // Dates render in Brazil local time (UTC-3), not the raw UTC ISO Jira/Zendesk return:
+    // the model quotes these back verbatim, so a raw instant reached the user three hours off.
+    expect(md).toContain('fetched_at: 10/08/2026 15:00');
     expect(md).toContain('## Jira: QZ-252');
     expect(md).toContain('## Zendesk: chamado 16467');
     expect(md).toContain('- Resumo: [GERAL - APP2.0] Aplicativo travando ao tirar uma foto');
@@ -185,7 +187,7 @@ describe('renderBundle', () => {
     };
     const md = renderBundle(bundle);
     expect(md).toContain(
-      '[comentário zendesk 54276177045147] [espelhado do Jira QZ-252] André Marques — 2026-08-11T17:34:00Z (conteúdo idêntico ao comentário Jira correspondente)',
+      '[comentário zendesk 54276177045147] [espelhado do Jira QZ-252] André Marques — 11/08/2026 14:34 (conteúdo idêntico ao comentário Jira correspondente)',
     );
     expect(md).not.toContain('{panel');
     expect(md).not.toContain('Aprovado!');

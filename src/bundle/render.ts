@@ -3,6 +3,7 @@ import { JIRA_FIELD_LABELS, type JiraFieldMeta } from '@/fetch/jira.js';
 import { condenseDevelopment, type Transition } from '@/fetch/condense.js';
 import { wikiToMarkdown } from '@/fetch/wikiToMarkdown.js';
 import type { ZendeskComment } from '@/fetch/zendesk.js';
+import { formatDateTime } from '@/text/datetime.js';
 import { MIRRORED_COMMENT_NOTE } from './notes.js';
 import type { CardBundle } from './types.js';
 
@@ -17,7 +18,7 @@ const ENVELOPE_OPEN = '<CARD_BUNDLE>';
 const ENVELOPE_CLOSE = '</CARD_BUNDLE>';
 
 export function renderBundle(b: CardBundle): string {
-  const parts: string[] = [ENVELOPE_OPEN, `fetched_at: ${b.fetchedAt}`];
+  const parts: string[] = [ENVELOPE_OPEN, `fetched_at: ${formatDateTime(b.fetchedAt)}`];
 
   if (b.jira) {
     parts.push(`\n## Jira: ${b.jira.issueKey}`);
@@ -61,8 +62,8 @@ export function renderBundle(b: CardBundle): string {
       `- Assunto: ${z.subject}`,
       `- Status: ${z.status}`,
       z.priority ? `- Prioridade: ${z.priority}` : null,
-      `- Criado em: ${z.createdAt}`,
-      `- Atualizado em: ${z.updatedAt}`,
+      `- Criado em: ${formatDateTime(z.createdAt)}`,
+      `- Atualizado em: ${formatDateTime(z.updatedAt)}`,
     ].filter(Boolean).join('\n'));
     if (z.internalNotesOmitted) parts.push('Notas internas do Zendesk foram omitidas neste contexto.');
     if (z.comments.length > 0) {
@@ -96,7 +97,15 @@ function renderParent(value: unknown): string | null {
   return `${p.key}${summary}`;
 }
 
+/**
+ * Jira field ids whose values are dates. Rendered in Brazil local time rather than the raw UTC
+ * ISO string Jira returns -- the model quotes these back verbatim, so a raw `2026-08-14T03:17Z`
+ * reaches the user three hours off and in a format nobody reads aloud.
+ */
+const DATE_FIELD_IDS = new Set(['created', 'updated', 'duedate', 'resolutiondate']);
+
 function renderFieldValue(kind: JiraFieldMeta['kind'], id: string, value: unknown): string | null {
+  if (DATE_FIELD_IDS.has(id) && typeof value === 'string') return formatDateTime(value);
   if (kind === 'development') return condenseDevelopment(value);
   if (kind === 'attachments') return renderAttachments(value);
   if (kind === 'timeTracking') {
@@ -136,7 +145,7 @@ export function renderGeneric(value: unknown): string | null {
 // wiki markup cleaned to markdown.
 function renderZendeskComment(c: ZendeskComment, jiraIssueKey: string | undefined): string {
   if (c.mirrorOf && c.mirrorOf.issueKey === jiraIssueKey) {
-    return `[comentário zendesk ${c.id}] [espelhado do Jira ${c.mirrorOf.issueKey}] ${c.mirrorOf.author} — ${c.createdAt} (${MIRRORED_COMMENT_NOTE})`;
+    return `[comentário zendesk ${c.id}] [espelhado do Jira ${c.mirrorOf.issueKey}] ${c.mirrorOf.author} — ${formatDateTime(c.createdAt)} (${MIRRORED_COMMENT_NOTE})`;
   }
   const flag = c.isPublic ? '' : '[NOTA INTERNA] ';
   return `[comentário zendesk ${c.id}] ${flag}${c.author} — ${c.createdAt}\n${wikiToMarkdown(c.body)}`;
