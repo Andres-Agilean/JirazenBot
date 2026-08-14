@@ -6,7 +6,7 @@
   "scripts": {
     "test": "vitest run",
     "card": "tsx scripts/card.ts",
-    "fixtures": "tsx scripts/capture-fixtures.ts",
+    "fixtures": "tsx scripts/captureFixtures.ts",
     "ask": "tsx scripts/ask.ts",
     "bot": "tsx scripts/serve.ts",
     "eval": "tsx test/grounding/run.ts"

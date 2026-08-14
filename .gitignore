@@ -11,9 +11,13 @@ docs/superpowers/plans/
 docs/superpowers/reports/
 .superpowers/
 
-# Captured live API payloads (scripts/capture-fixtures.ts). scrubEmails() only redacts emails --
+# Captured live API payloads (scripts/captureFixtures.ts). scrubEmails() only redacts emails --
 # real Zendesk/Jira bodies can carry customer names, phone numbers, addresses, contract ids.
 # Must be reviewed and force-added deliberately, never committed by default.
 test/fixtures/live/
 
 devTools/
+
+# The original build plan. Superseded phase by phase by the specs in
+# docs/superpowers/specs/, which record the decisions that actually govern the code.
+teams-jira-zendesk-bot-plan (1).md
