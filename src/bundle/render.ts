@@ -114,7 +114,8 @@ function renderFieldValue(kind: JiraFieldMeta['kind'], id: string, value: unknow
   return renderGeneric(value);
 }
 
-function renderGeneric(value: unknown): string | null {
+/** Also consumed by `src/teams/cards.ts` to extract the Jira status field's display name. */
+export function renderGeneric(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) {
