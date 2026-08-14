@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { handleMessage, JIRA_UNAVAILABLE, type HandleDeps, type Incoming } from '@/teams/handleMessage.js';
+import { handleMessage, JIRA_UNAVAILABLE, NOT_SPLIT, NOTHING_BOUND, type HandleDeps, type Incoming } from '@/teams/handleMessage.js';
 import { InMemoryBindingStore, BUNDLE_TTL_MS } from '@/teams/bindings.js';
 import { testConfig } from './helpers.js';
 import type { CardBundle } from '@/bundle/types.js';
@@ -182,7 +182,7 @@ describe('errors', () => {
     });
     const replies = await handleMessage(dm('QZ-999'), deps);
     expect(replies[0]).toContain('QZ-999');
-    expect(await deps.store.get('conv')).toBeUndefined();
+    expect(await deps.store.get({ scope: 'shared', conversationId: 'conv' })).toBeUndefined();
   });
 
   it('asks for a key on a multi-match, and never offers a numbered menu', async () => {
@@ -355,5 +355,93 @@ describe('surface threading (spec §2)', () => {
     await handleMessage({ ...chan, text: 'QZ-252' }, deps);
     await handleMessage({ ...chan, text: 'atualizar' }, deps);
     expect(surfaces).toEqual(['multiparty', 'multiparty']);
+  });
+});
+
+const ana = { conversationId: 'thread', conversationType: 'channel', userId: 'ana' };
+const bruno = { conversationId: 'thread', conversationType: 'channel', userId: 'bruno' };
+
+describe('shared thread with personal splits (spec §4)', () => {
+  it('answers a second users follow-up from the shared binding', async () => {
+    const { deps, answered } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    await handleMessage({ ...bruno, text: 'quem validou?' }, deps);
+    expect(answered[1]).toBe('quem validou?');
+    expect(await deps.store.get({ scope: 'shared', conversationId: 'thread' })).toBeDefined();
+  });
+
+  it('a reference WITH a question splits that user off without moving the thread', async () => {
+    const { deps, loaded } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
+
+    const sharedBinding = await deps.store.get({ scope: 'shared', conversationId: 'thread' });
+    const brunoBinding = await deps.store.get({
+      scope: 'personal', conversationId: 'thread', userId: 'bruno',
+    });
+    expect((sharedBinding?.ref as { issueKey: string }).issueKey).toBe('QZ-252');
+    expect((brunoBinding?.ref as { issueKey: string }).issueKey).toBe('AGL-900');
+    expect(loaded).toHaveLength(2);
+  });
+
+  it('resolves personal before shared for the split user, and shared for everyone else', async () => {
+    const seen: string[] = [];
+    const { deps } = makeDeps({
+      answerFn: async (bundle, question) => {
+        seen.push(`${bundle.jira?.issueKey}:${question}`);
+        return { text: 'r', model: 'm', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+      },
+    });
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
+    await handleMessage({ ...bruno, text: 'e o prazo?' }, deps);
+    await handleMessage({ ...ana, text: 'quem validou?' }, deps);
+    expect(seen[2]).toBe('AGL-900:e o prazo?');
+    expect(seen[3]).toBe('QZ-252:quem validou?');
+  });
+
+  it('a BARE reference moves the thread and rejoins the sender', async () => {
+    const { deps } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
+    await handleMessage({ ...bruno, text: 'SC-10' }, deps);
+
+    const sharedBinding = await deps.store.get({ scope: 'shared', conversationId: 'thread' });
+    expect((sharedBinding?.ref as { issueKey: string }).issueKey).toBe('SC-10');
+    expect(
+      await deps.store.get({ scope: 'personal', conversationId: 'thread', userId: 'bruno' }),
+    ).toBeUndefined();
+  });
+
+  it('voltar clears the personal binding and returns the user to the thread', async () => {
+    const seen: string[] = [];
+    const { deps } = makeDeps({
+      answerFn: async (bundle, question) => {
+        seen.push(`${bundle.jira?.issueKey}:${question}`);
+        return { text: 'r', model: 'm', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+      },
+    });
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    await handleMessage({ ...bruno, text: 'AGL-900 qual o status?' }, deps);
+    await handleMessage({ ...bruno, text: 'voltar' }, deps);
+    await handleMessage({ ...bruno, text: 'quem validou?' }, deps);
+    expect(seen[seen.length - 1]).toBe('QZ-252:quem validou?');
+  });
+
+  it('voltar with no personal binding says so in pt-BR', async () => {
+    const { deps } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    const replies = await handleMessage({ ...bruno, text: 'voltar' }, deps);
+    expect(replies[0]).toBe(NOT_SPLIT);
+  });
+
+  it('keeps two threads independent', async () => {
+    const { deps } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    const replies = await handleMessage(
+      { conversationId: 'other', conversationType: 'channel', userId: 'ana', text: 'quem validou?' },
+      deps,
+    );
+    expect(replies[0]).toBe(NOTHING_BOUND);
   });
 });

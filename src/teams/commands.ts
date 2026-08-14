@@ -4,7 +4,7 @@ import { normalizeText } from '@/text/normalize.js';
  * Temporary stand-ins for Adaptive Card affordances (addendum §8). When Phase 4 ships buttons,
  * these remain as aliases — typing is natural in a DM — but the buttons become primary.
  */
-export const COMMANDS = ['ajuda', 'atualizar'] as const;
+export const COMMANDS = ['ajuda', 'atualizar', 'voltar'] as const;
 export type Command = (typeof COMMANDS)[number];
 
 /**

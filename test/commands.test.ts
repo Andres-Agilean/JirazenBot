@@ -19,4 +19,12 @@ describe('parseCommand', () => {
     expect(parseCommand('QZ-252')).toBeNull();
     expect(parseCommand('')).toBeNull();
   });
+
+  it.each(['voltar', 'Voltar', 'VOLTAR'])('recognizes %s', (text) => {
+    expect(parseCommand(text)).toBe('voltar');
+  });
+
+  it('does not match voltar inside a question', () => {
+    expect(parseCommand('quando vao voltar o serviço?')).toBeNull();
+  });
 });

@@ -6,7 +6,7 @@ import type { Answer, Turn } from '@/claude/types.js';
 import { parseReference } from '@/resolve/parseReference.js';
 import { DEFAULT_SUMMARY_QUESTION, MAX_HISTORY_TURNS } from '@/claude/prompt.js';
 import { splitReferenceAndQuestion } from '../../scripts/splitReference.js';
-import { isBundleStale, type Binding, type BindingStore } from './bindings.js';
+import { isBundleStale, type Binding, type BindingStore, type Slot } from './bindings.js';
 import { parseCommand } from './commands.js';
 import { formatFooter, withFooter } from './reply.js';
 import { surfaceFor } from './surface.js';
@@ -34,6 +34,9 @@ export interface HandleDeps {
 export const NOTHING_BOUND =
   'Não sei de qual card estamos falando. Envie uma referência — por exemplo `QZ-252`, `chamado 16467` ou o link do card.';
 
+export const NOT_SPLIT =
+  'Você já está acompanhando o card da conversa — não há consulta separada para encerrar.';
+
 export const HELP_TEXT = [
   'Posso responder perguntas sobre um card do Jira e o chamado do Zendesk correspondente.',
   '',
@@ -43,6 +46,7 @@ export const HELP_TEXT = [
   '**Comandos**',
   '`ajuda` — esta mensagem',
   '`atualizar` — busca os dados mais recentes do card',
+  '`voltar` — encerra sua consulta separada e volta para o card da conversa',
 ].join('\n');
 
 export const JIRA_UNAVAILABLE =
@@ -107,7 +111,7 @@ async function loadOrError(
 
 async function bind(
   ref: CardRef,
-  key: string,
+  slot: Slot,
   surface: Surface,
   deps: HandleDeps,
 ): Promise<{ binding: Binding } | { error: string }> {
@@ -121,14 +125,14 @@ async function bind(
     history: [],
     boundAt: deps.now(),
   };
-  await deps.store.set(key, binding);
+  await deps.store.set(slot, binding);
   return { binding };
 }
 
 async function ask(
   binding: Binding,
   question: string,
-  key: string,
+  slot: Slot,
   deps: HandleDeps,
 ): Promise<string> {
   let result: Answer;
@@ -142,14 +146,14 @@ async function ask(
     { role: 'user' as const, text: question },
     { role: 'assistant' as const, text: result.text },
   ].slice(-MAX_HISTORY_TURNS);
-  await deps.store.set(key, { ...binding, history });
+  await deps.store.set(slot, { ...binding, history });
   return withFooter(result.text, binding, deps.cfg);
 }
 
 /** Refetches the card in place, preserving the binding and its conversation history. */
 async function refresh(
   binding: Binding,
-  key: string,
+  slot: Slot,
   surface: Surface,
   deps: HandleDeps,
 ): Promise<{ binding: Binding } | { error: string }> {
@@ -157,7 +161,7 @@ async function refresh(
   if ('error' in loaded) return loaded;
 
   const refreshed: Binding = { ...binding, bundle: loaded.bundle, bundleFetchedAt: deps.now() };
-  await deps.store.set(key, refreshed);
+  await deps.store.set(slot, refreshed);
   return { binding: refreshed };
 }
 
@@ -169,9 +173,19 @@ export async function handleMessage(
   incoming: Incoming,
   deps: HandleDeps,
 ): Promise<string[]> {
-  const { text, conversationId: key } = incoming;
+  const { text } = incoming;
   const surface = surfaceFor(incoming.conversationType);
-  const existing = await deps.store.get(key);
+
+  const sharedSlot: Slot = { scope: 'shared', conversationId: incoming.conversationId };
+  const personalSlot: Slot = {
+    scope: 'personal', conversationId: incoming.conversationId, userId: incoming.userId,
+  };
+
+  const personalBinding = await deps.store.get(personalSlot);
+  const sharedBinding = await deps.store.get(sharedSlot);
+  const existing = personalBinding ?? sharedBinding;
+  /** Writes for the resolved binding go back to the slot it came from, never the other one. */
+  const activeSlot: Slot = personalBinding ? personalSlot : sharedSlot;
 
   // 1. Commands
   const command = parseCommand(text);
@@ -181,9 +195,15 @@ export async function handleMessage(
   }
   if (command === 'atualizar') {
     if (!existing) return [NOTHING_BOUND];
-    const refreshed = await refresh(existing, key, surface, deps);
+    const refreshed = await refresh(existing, activeSlot, surface, deps);
     if ('error' in refreshed) return [refreshed.error];
     return [`Dados atualizados.\n\n${formatFooter(refreshed.binding, deps.cfg)}`];
+  }
+  if (command === 'voltar') {
+    if (!personalBinding) return [NOT_SPLIT];
+    await deps.store.delete(personalSlot);
+    if (!sharedBinding) return [NOTHING_BOUND];
+    return [`Você voltou para o card da conversa.\n\n${formatFooter(sharedBinding, deps.cfg)}`];
   }
 
   // 2 & 3. A reference in the message, with or without a question.
@@ -196,21 +216,26 @@ export async function handleMessage(
   const isRebind = ref !== null && (ref.explicit || !existing);
 
   if (isRebind && ref) {
-    const bound = await bind(ref, key, surface, deps);
+    // A bare reference is addressed to the room: it moves the thread's card and rejoins the
+    // sender. A reference WITH a question is that person's own enquiry: it creates a personal
+    // binding and leaves the thread's card alone (spec §4).
+    const targetSlot = split ? personalSlot : sharedSlot;
+    if (!split) await deps.store.delete(personalSlot);
+    const bound = await bind(ref, targetSlot, surface, deps);
     if ('error' in bound) return [bound.error];
     const question = split?.question ?? DEFAULT_SUMMARY_QUESTION;
-    return [await ask(bound.binding, question, key, deps)];
+    return [await ask(bound.binding, question, targetSlot, deps)];
   }
 
   // 4. A question about the bound card.
   if (existing) {
     let binding = existing;
     if (isBundleStale(binding, deps.now())) {
-      const refreshed = await refresh(binding, key, surface, deps);
+      const refreshed = await refresh(binding, activeSlot, surface, deps);
       if ('error' in refreshed) return [refreshed.error];
       binding = refreshed.binding;
     }
-    return [await ask(binding, text, key, deps)];
+    return [await ask(binding, text, activeSlot, deps)];
   }
 
   // 5. Nothing bound and nothing to bind.
