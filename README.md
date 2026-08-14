@@ -70,16 +70,40 @@ npm test                # 349 tests, fully offline, no API key needed
 | `JIRA_ZENDESK_ID_FIELD` | The Jira custom field holding the Zendesk ticket number |
 | `ANTHROPIC_API_KEY` | Claude API key |
 
-## Running it
+## Running it in the M365 Agents Playground
+
+The bot runs on a developer machine and is exercised through the
+[M365 Agents Playground](https://www.npmjs.com/package/@microsoft/m365agentsplayground), which
+speaks the real Teams activity protocol entirely on `localhost` — no Azure Bot resource, no
+tenant, no dev tunnel, and no conversation ever reaches Microsoft. It needs a filled-in `.env`:
+starting the bot and talking to it makes **live** calls to Jira, Zendesk and the Anthropic API.
+
+Two terminals:
 
 ```bash
+# terminal 1 — the bot, listening on http://localhost:3978/api/messages
 npm run bot
+
+# terminal 2 — the Playground, pointed at that endpoint
 npx @microsoft/m365agentsplayground -e http://localhost:3978/api/messages --channel-id msteams
 ```
 
-The M365 Agents Playground opens at `localhost:56150` and speaks the real Teams activity protocol
-locally — no Azure Bot resource, no tenant, no dev tunnel. `--channel-id msteams` matters: the
-default `emulator` channel omits the Teams-specific activities the multiparty surface needs.
+The Playground UI opens at `http://localhost:56150`. Type a card reference (`QZ-252`,
+`chamado 16467`, a Jira URL…) and go from there — see [Talking to it](#talking-to-it).
+
+Details that matter:
+
+- **`--channel-id msteams` is required.** Without it the Playground uses the `emulator` channel,
+  which omits the Teams-specific mock activities (channel and team conversation updates) that the
+  multiparty surface needs.
+- **Group chats and channels are simulated in the UI.** The Playground ships mock `personalChat`,
+  `groupChat` and `team`/channel scopes plus five customizable mock users. Use them to verify the
+  surface rule: internal Zendesk notes appear in a 1:1 chat and are omitted everywhere else.
+- **A different port works** — `scripts/serve.ts` honours `PORT`; keep the `-e` endpoint in sync.
+- **The typing indicator will not appear.** The Playground does not render it. The bot sends one
+  on every Claude call and it shows up in real Teams; its absence locally is not a defect.
+- **Link unfurling cannot be exercised here.** It is declared in the Teams app manifest, which
+  the Playground does not process — see [Status](#status).
 
 Local runs use `dangerouslyAllowUnauthenticatedRequests`. **Do not expose the port through a
 tunnel in that mode**; a hosted deployment must remove the flag and supply real credentials.
