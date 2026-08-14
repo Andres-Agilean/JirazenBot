@@ -26,17 +26,30 @@ export function collectedAt(bundle: CardBundle): string {
 }
 
 /**
- * Rendered under every answer so the user never has to guess which card the bot thinks it is
- * discussing, or how fresh the data is (plan §9.3, §7.5).
+ * Which card this is, as markdown deep links: `[QZ-252](…) ↔ [chamado 16467](…)`, omitting
+ * whichever side the bundle lacks.
+ *
+ * Shared by the text footer and the Adaptive Card header. The card header used to build its own
+ * unlinked copy of this string, so the key and ticket number rendered as dead text in the card
+ * while the identical footer text was clickable. Adaptive Card TextBlocks render markdown links,
+ * so one definition serves both — keep it that way.
  */
-export function formatFooter(binding: Binding, cfg: Config): string {
+export function cardIdentity(bundle: CardBundle, cfg: Config): string {
   const parts: string[] = [];
-  const { jira, zendesk } = binding.bundle;
+  const { jira, zendesk } = bundle;
   if (jira) parts.push(`[${jira.issueKey}](${jiraLink(jira.issueKey, cfg)})`);
   if (zendesk) {
     parts.push(`[chamado ${zendesk.ticketId}](${zendeskLink(zendesk.ticketId, cfg)})`);
   }
-  return `— ${parts.join(' ↔ ')} · coletado às ${collectedAt(binding.bundle)}`;
+  return parts.join(' ↔ ');
+}
+
+/**
+ * Rendered under every answer so the user never has to guess which card the bot thinks it is
+ * discussing, or how fresh the data is (plan §9.3, §7.5).
+ */
+export function formatFooter(binding: Binding, cfg: Config): string {
+  return `— ${cardIdentity(binding.bundle, cfg)} · coletado às ${collectedAt(binding.bundle)}`;
 }
 
 export function withFooter(answerText: string, binding: Binding, cfg: Config): string {

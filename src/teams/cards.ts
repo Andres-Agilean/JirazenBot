@@ -3,7 +3,7 @@ import type { CardBundle } from '@/bundle/types.js';
 import { renderGeneric } from '@/bundle/render.js';
 import type { Binding } from './bindings.js';
 import { ATUALIZAR_COMMAND } from './commands.js';
-import { collectedAt, jiraLink, zendeskLink } from './reply.js';
+import { cardIdentity, collectedAt, jiraLink, zendeskLink } from './reply.js';
 
 const ADAPTIVE_CARD_SCHEMA = 'http://adaptivecards.io/schemas/adaptive-card.json';
 const ADAPTIVE_CARD_VERSION = '1.5';
@@ -43,10 +43,10 @@ export function buildAnswerCard(
 ): Record<string, unknown> {
   const { jira, zendesk } = binding.bundle;
 
-  const identity = [
-    jira ? `**${jira.issueKey}**` : null,
-    zendesk ? `chamado ${zendesk.ticketId}` : null,
-  ].filter(Boolean).join(' ↔ ');
+  // Shared with the text footer so the key and ticket number are clickable here too. Emphasis
+  // comes from the TextBlock's `weight` below rather than markdown bold, which would otherwise
+  // have to nest inside the link.
+  const identity = cardIdentity(binding.bundle, cfg);
   const header = opts.personal ? `${identity} ${PERSONAL_MARKER}` : identity;
 
   const status = cardStatus(binding.bundle);
@@ -66,7 +66,7 @@ export function buildAnswerCard(
     type: 'AdaptiveCard',
     version: ADAPTIVE_CARD_VERSION,
     body: [
-      { type: 'TextBlock', text: header, wrap: true },
+      { type: 'TextBlock', text: header, wrap: true, weight: 'Bolder' },
       { type: 'TextBlock', text: subtitle, wrap: true, isSubtle: true, spacing: 'None' },
       { type: 'TextBlock', text: answerText, wrap: true, separator: true },
     ],

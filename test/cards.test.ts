@@ -48,6 +48,25 @@ describe('cardStatus', () => {
 });
 
 describe('buildAnswerCard', () => {
+  // The header used to build its own unlinked copy of the identity, so the key and ticket number
+  // rendered as dead text in the card while the identical footer text was clickable.
+  it('hyperlinks the Jira key and the Zendesk ticket in the header', () => {
+    const card = buildAnswerCard('r', makeBinding(), testConfig);
+    const header = collect(card, 'TextBlock')
+      .map((b) => String(b.text))
+      .find((t) => t.includes('QZ-252'));
+    expect(header).toContain('[QZ-252](https://your-tenant.atlassian.net/browse/QZ-252)');
+    expect(header).toContain('[chamado 16467](https://your-subdomain.zendesk.com/agent/tickets/16467)');
+  });
+
+  it('links only the side a single-sided card has', () => {
+    const jiraOnly = collect(buildAnswerCard('r', makeBinding({ zendesk: false }), testConfig), 'TextBlock')
+      .map((b) => String(b.text)).find((t) => t.includes('QZ-252'));
+    expect(jiraOnly).toContain('/browse/QZ-252');
+    expect(jiraOnly).not.toContain('zendesk.com');
+    expect(jiraOnly).not.toContain('↔');
+  });
+
   it('is a valid Adaptive Card envelope', () => {
     const card = buildAnswerCard('resposta', makeBinding(), testConfig);
     expect(card.type).toBe('AdaptiveCard');
