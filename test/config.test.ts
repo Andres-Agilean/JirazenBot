@@ -98,6 +98,38 @@ describe('loadConfig — Claude settings', () => {
   });
 });
 
+describe('loadConfig — bot credentials', () => {
+  it('defaults the bot credential fields to empty and the flag to false', () => {
+    const cfg = loadConfig(validEnv);
+    expect(cfg.botClientId).toBe('');
+    expect(cfg.botClientSecret).toBe('');
+    expect(cfg.botTenantId).toBe('');
+    expect(cfg.allowUnauthenticated).toBe(false);
+  });
+
+  it('parses the bot credential fields when set', () => {
+    const cfg = loadConfig({
+      ...validEnv,
+      BOT_CLIENT_ID: '11111111-1111-1111-1111-111111111111',
+      BOT_CLIENT_SECRET: 's3cret',
+      BOT_TENANT_ID: '22222222-2222-2222-2222-222222222222',
+    });
+    expect(cfg.botClientId).toBe('11111111-1111-1111-1111-111111111111');
+    expect(cfg.botClientSecret).toBe('s3cret');
+    expect(cfg.botTenantId).toBe('22222222-2222-2222-2222-222222222222');
+  });
+
+  it('parses ALLOW_UNAUTHENTICATED=true (and only the exact string "true")', () => {
+    expect(loadConfig({ ...validEnv, ALLOW_UNAUTHENTICATED: 'true' }).allowUnauthenticated).toBe(true);
+    expect(loadConfig({ ...validEnv, ALLOW_UNAUTHENTICATED: ' true ' }).allowUnauthenticated).toBe(true);
+    // Anything else is false: a typo must fail CLOSED (no auth config -> refuses to start later),
+    // never silently open the endpoint.
+    expect(loadConfig({ ...validEnv, ALLOW_UNAUTHENTICATED: 'TRUE' }).allowUnauthenticated).toBe(false);
+    expect(loadConfig({ ...validEnv, ALLOW_UNAUTHENTICATED: '1' }).allowUnauthenticated).toBe(false);
+    expect(loadConfig({ ...validEnv, ALLOW_UNAUTHENTICATED: '' }).allowUnauthenticated).toBe(false);
+  });
+});
+
 describe('test helpers', () => {
   it('loads fixtures and serves routed fetch responses', async () => {
     const issue = fixture('jira-issue') as { key: string };

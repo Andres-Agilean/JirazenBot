@@ -42,6 +42,14 @@ const EnvSchema = z.object({
   ANTHROPIC_API_KEY: z.string().default(''),
   CLAUDE_MODEL: z.string().default(DEFAULT_CLAUDE_MODEL),
   CLAUDE_MAX_TOKENS: z.coerce.number().int().positive().default(DEFAULT_CLAUDE_MAX_TOKENS),
+  // Azure Bot credentials (Phase 5a). Optional: their PRESENCE is what selects authenticated
+  // mode -- see src/teams/authMode.ts for the fail-closed resolution.
+  BOT_CLIENT_ID: z.string().default(''),
+  BOT_CLIENT_SECRET: z.string().default(''),
+  BOT_TENANT_ID: z.string().default(''),
+  // Only the exact string 'true' (trimmed) opens unauthenticated mode. z.coerce.boolean() would
+  // treat ANY non-empty string as true ('false' included) -- never use it for this flag.
+  ALLOW_UNAUTHENTICATED: z.string().default(''),
 });
 
 export interface Config {
@@ -72,6 +80,17 @@ export interface Config {
   anthropicApiKey: string;
   claudeModel: string;
   claudeMaxTokens: number;
+  /** Azure Bot (Entra app) client id; '' when running without credentials. */
+  botClientId: string;
+  /** Azure Bot client secret; '' when running without credentials. */
+  botClientSecret: string;
+  /** Entra tenant id of the single-tenant bot registration; '' when running without credentials. */
+  botTenantId: string;
+  /**
+   * True ONLY when ALLOW_UNAUTHENTICATED=true (exact string, trimmed). Lets the bot start with no
+   * Bot Framework auth for local M365 Agents Playground use. Never set on a hosted deployment.
+   */
+  allowUnauthenticated: boolean;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -105,6 +124,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     anthropicApiKey: e.ANTHROPIC_API_KEY,
     claudeModel: e.CLAUDE_MODEL,
     claudeMaxTokens: e.CLAUDE_MAX_TOKENS,
+    botClientId: e.BOT_CLIENT_ID.trim(),
+    botClientSecret: e.BOT_CLIENT_SECRET.trim(),
+    botTenantId: e.BOT_TENANT_ID.trim(),
+    allowUnauthenticated: e.ALLOW_UNAUTHENTICATED.trim() === 'true',
   };
 }
 

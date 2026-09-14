@@ -21,6 +21,10 @@ export const testConfig: Config = {
   anthropicApiKey: 'sk-ant-test-key',
   claudeModel: DEFAULT_CLAUDE_MODEL,
   claudeMaxTokens: DEFAULT_CLAUDE_MAX_TOKENS,
+  botClientId: '',
+  botClientSecret: '',
+  botTenantId: '',
+  allowUnauthenticated: false,
 };
 
 export function fixture(name: string): unknown {
