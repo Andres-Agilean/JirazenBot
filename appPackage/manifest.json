@@ -1,0 +1,44 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "1.0.0",
+  "id": "00000000-0000-0000-0000-000000000000",
+  "developer": {
+    "name": "Agilean",
+    "websiteUrl": "https://www.agilean.com.br",
+    "privacyUrl": "https://www.agilean.com.br",
+    "termsOfUseUrl": "https://www.agilean.com.br"
+  },
+  "name": {
+    "short": "Jirazen",
+    "full": "Jirazen — perguntas sobre cards do Jira e chamados do Zendesk"
+  },
+  "description": {
+    "short": "Responde perguntas sobre um card do Jira e o chamado Zendesk vinculado.",
+    "full": "Bot somente-leitura para o time de suporte: referencie um card (QZ-252, chamado 16467 ou uma URL) e faça perguntas livres em português sobre ele. O bot resolve o par Jira↔Zendesk, monta o contexto completo e responde com citações, mantendo o card entre perguntas. Não escreve nada no Jira nem no Zendesk."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#5B5FC7",
+  "bots": [
+    {
+      "botId": "00000000-0000-0000-0000-000000000000",
+      "scopes": ["personal", "groupChat", "team"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal", "groupChat", "team"],
+          "commands": [
+            { "title": "ajuda", "description": "Como usar o bot e exemplos de perguntas" },
+            { "title": "atualizar", "description": "Busca os dados mais recentes do card atual" }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": []
+}
