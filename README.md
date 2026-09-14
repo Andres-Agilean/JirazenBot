@@ -55,7 +55,7 @@ Requires Node 20+.
 ```bash
 npm install
 cp .env.example .env    # then fill in the blanks — see below
-npm test                # 349 tests, fully offline, no API key needed
+npm test                # 364 tests, fully offline, no API key needed
 ```
 
 `.env.example` ships with placeholder tenant values. Fill in your own:
@@ -69,6 +69,8 @@ npm test                # 349 tests, fully offline, no API key needed
 | `ZENDESK_SUBDOMAIN` / `ZENDESK_EMAIL` / `ZENDESK_API_TOKEN` | Zendesk credentials |
 | `JIRA_ZENDESK_ID_FIELD` | The Jira custom field holding the Zendesk ticket number |
 | `ANTHROPIC_API_KEY` | Claude API key |
+| `BOT_CLIENT_ID` / `BOT_CLIENT_SECRET` / `BOT_TENANT_ID` | Azure Bot credentials — hosted deployments only; see [Deploying to real Teams](#deploying-to-real-teams) |
+| `ALLOW_UNAUTHENTICATED` | `true` only for local Playground runs — never on a host |
 
 ## Running it in the M365 Agents Playground
 
@@ -171,7 +173,7 @@ message pipeline be tested offline with no SDK, no network and no API key.
 Phases 1–4 are complete: resolution, fetching and bundling; the grounded answer layer and its eval;
 the Teams DM surface; and the multiparty surface with Adaptive Cards.
 
-Not yet built: link unfurling — a manifest-driven message extension, which the Playground cannot
-exercise; the Azure Bot registration it needs is now covered by [docs/deploy-azure.md](docs/deploy-azure.md) — and
-Phase 5 hardening (rate-limit backoff, Key Vault, structured logging with token accounting, and the
-bounded tools).
+Not yet built: link unfurling, a manifest-driven message extension the Playground cannot exercise.
+The Azure Bot registration it needs is now covered by
+[docs/deploy-azure.md](docs/deploy-azure.md). Also still open: Phase 5 hardening (rate-limit
+backoff, Key Vault, structured logging with token accounting, and the bounded tools).

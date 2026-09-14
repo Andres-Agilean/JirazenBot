@@ -1,7 +1,7 @@
-import { App } from '@microsoft/teams.apps';
+import { App, type AppOptions, type IPlugin } from '@microsoft/teams.apps';
 import { REFRESH_ACTION } from './cards.js';
 import { handleMessage, handleRefresh, NO_TEXT_RECEIVED, type HandleDeps } from './handleMessage.js';
-import { appOptionsForAuthMode, type AuthMode } from './authMode.js';
+import { appOptionsForAuthMode, type AuthMode, type TeamsAppAuthOptions } from './authMode.js';
 import { botMentions, stripMentions, type MentionLike } from './mentions.js';
 import { runExclusive } from './serialize.js';
 import type { Reply } from './reply.js';
@@ -175,6 +175,24 @@ export async function handleCardAction(
 }
 
 /**
+ * Maps our SDK-free option shape onto the SDK's own `AppOptions` type (review finding: Minor 7).
+ * `new App(appOptionsForAuthMode(authMode))` passes a variable, and TypeScript's excess-property
+ * checking only fires on object literals -- so if the SDK ever renamed e.g. `clientId`, that call
+ * would keep compiling while silently dropping the option at runtime. The conditional type below
+ * fails to compile instead: it requires every key `TeamsAppAuthOptions` uses to still be a key of
+ * the installed SDK's `AppOptions`, so a rename breaks `tsc --noEmit` right here rather than
+ * passing through unnoticed.
+ */
+function toSdkAppOptions(authMode: AuthMode): AppOptions<IPlugin> {
+  const options: TeamsAppAuthOptions = appOptionsForAuthMode(authMode);
+  const authOptionKeysExistOnAppOptions: keyof TeamsAppAuthOptions extends keyof AppOptions<IPlugin>
+    ? true
+    : ['SDK renamed an AppOptions field used by TeamsAppAuthOptions -- update authMode.ts'] = true;
+  void authOptionKeysExistOnAppOptions;
+  return options;
+}
+
+/**
  * The ONLY file that imports the Teams SDK. Everything it does is: pull the conversation key and
  * text off the activity and delegate to handleActivity. Keeping it this thin is what lets the
  * whole pipeline be tested with no SDK and no network.
@@ -185,7 +203,7 @@ export async function handleCardAction(
  * the operator having set ALLOW_UNAUTHENTICATED=true on purpose.
  */
 export function createTeamsApp(deps: HandleDeps, authMode: AuthMode): App {
-  const app = new App(appOptionsForAuthMode(authMode));
+  const app = new App(toSdkAppOptions(authMode));
 
   app.on('message', async ({ send, activity }) => {
     // Only the bot's own mention is stripped (review finding: Minor 4): `@bot o @André validou?`

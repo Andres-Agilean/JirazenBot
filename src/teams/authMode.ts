@@ -58,10 +58,13 @@ export function resolveAuthMode(cfg: AuthConfig): AuthMode {
 
 /**
  * The exact option set handed to the SDK's App constructor -- kept here (SDK-free, offline-
- * testable) so app.ts only spreads it. Always explicit: AppOptions falls back to the CLIENT_ID /
- * CLIENT_SECRET / TENANT_ID / DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS env vars when an option
- * is omitted (app.d.ts), so in authenticated mode the dangerous flag is pinned to false rather
- * than left to ambient environment.
+ * testable) so app.ts only spreads it. AppOptions falls back to the CLIENT_ID / CLIENT_SECRET /
+ * TENANT_ID / DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS env vars when an option is omitted
+ * (app.d.ts); the explicit-pinning guarantee here is about the dangerous flag in authenticated
+ * mode, which is always pinned to false rather than left to ambient environment. Unauthenticated
+ * mode omits the credential keys entirely, so it is local-only (behind the explicit
+ * ALLOW_UNAUTHENTICATED flag) rather than a guarantee that ambient CLIENT_ID / CLIENT_SECRET /
+ * TENANT_ID cannot still feed outbound tokens in that mode.
  */
 export type TeamsAppAuthOptions =
   | { clientId: string; clientSecret: string; tenantId: string; dangerouslyAllowUnauthenticatedRequests: false }

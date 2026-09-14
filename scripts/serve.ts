@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { loadConfig } from '@/config.js';
 import { createTeamsApp } from '@/teams/app.js';
-import { resolveAuthMode } from '@/teams/authMode.js';
+import { resolveAuthMode, type AuthMode } from '@/teams/authMode.js';
 import { InMemoryBindingStore } from '@/teams/bindings.js';
 import { loadCardBundle } from '@/bundle/load.js';
 import { answer } from '@/claude/answer.js';
@@ -11,7 +11,18 @@ import type { HandleDeps } from '@/teams/handleMessage.js';
 const DEFAULT_PORT = 3978;
 
 const cfg = loadConfig();
-const authMode = resolveAuthMode(cfg);
+
+let authMode: AuthMode;
+try {
+  authMode = resolveAuthMode(cfg);
+} catch (err) {
+  // resolveAuthMode's failures are already pt-BR messages meant for the operator's terminal
+  // (review finding: Minor 5). Left uncaught, Node prints the message buried inside a stack
+  // trace; this surfaces just the message and exits cleanly instead.
+  console.error((err as Error).message);
+  process.exit(1);
+}
+
 const client = createAnthropicClient(cfg);
 
 const deps: HandleDeps = {

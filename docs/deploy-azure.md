@@ -13,10 +13,15 @@ Convenções abaixo: grupo de recursos `rg-jirazen`, região `brazilsouth`, App 
 
 ```bash
 az ad app create --display-name "Jirazen" --sign-in-audience AzureADMyOrg
+az ad sp create --id <appId>
 ```
 
 - `--sign-in-audience AzureADMyOrg` = single-tenant: só tokens do tenant Agilean são aceitos.
 - Anote o `appId` da saída — ele é o **BOT_CLIENT_ID** e também o id que entra no manifest.
+- `az ad sp create` cria o service principal no tenant Agilean para esse app — o portal do Azure
+  faz isso implicitamente ao registrar um app, mas o CLI não; sem ele o fluxo de client credentials
+  falha com AADSTS700016, e o sintoma (mensagens chegam, nada volta) engana como se fosse secret
+  expirado.
 - Tenant id: `az account show --query tenantId -o tsv` — é o **BOT_TENANT_ID**.
 
 Crie o secret (o **BOT_CLIENT_SECRET**; máximo 2 anos — agende a rotação):
@@ -105,8 +110,18 @@ está faltando ou com espaço — o bot se recusa a iniciar de propósito.
 
 ## 7. Operação
 
-- **Rotação do secret:** `az ad app credential reset` de novo + atualizar `BOT_CLIENT_SECRET` no
-  App Service. Quando o secret expira, o bot não consegue responder (erro 401 ao ENVIAR) — as
+- **Rotação do secret, sem derrubar o bot:** rodar `az ad app credential reset` sem `--append`
+  (como no passo 1) revoga TODOS os secrets existentes na hora, derrubando o bot em produção até a
+  variável nova ser configurada. Em vez disso:
+  1. `az ad app credential reset --id <appId> --append --years 2 --display-name jirazen-bot-<data>`
+     — `--append` mantém o secret antigo válido enquanto o novo é distribuído.
+  2. Atualize `BOT_CLIENT_SECRET` no App Service com o novo `password` e reinicie
+     (`az webapp restart --resource-group rg-jirazen --name jirazen-bot`).
+  3. Confirme no `az webapp log tail` que o bot volta a responder com o secret novo.
+  4. Só então revogue o antigo: `az ad app credential delete --id <appId> --key-id <keyId>` (o
+     `keyId` do secret antigo sai de `az ad app credential list --id <appId>`).
+
+  Quando um secret expira sem rotação, o bot não consegue responder (erro 401 ao ENVIAR) — as
   mensagens chegam mas nada volta; esse é o sintoma.
 - **401 nos logs ao receber** = token de entrada rejeitado (config errada de tenant/app id).
   **Timeout/sem resposta no Teams** = endpoint errado no recurso Bot ou app parado.
