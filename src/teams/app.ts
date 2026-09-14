@@ -1,6 +1,7 @@
 import { App } from '@microsoft/teams.apps';
 import { REFRESH_ACTION } from './cards.js';
 import { handleMessage, handleRefresh, NO_TEXT_RECEIVED, type HandleDeps } from './handleMessage.js';
+import { appOptionsForAuthMode, type AuthMode } from './authMode.js';
 import { botMentions, stripMentions, type MentionLike } from './mentions.js';
 import { runExclusive } from './serialize.js';
 import type { Reply } from './reply.js';
@@ -178,12 +179,13 @@ export async function handleCardAction(
  * text off the activity and delegate to handleActivity. Keeping it this thin is what lets the
  * whole pipeline be tested with no SDK and no network.
  *
- * dangerouslyAllowUnauthenticatedRequests is correct for local Playground use only; a hosted
- * deployment must remove it. (The plan's `skipAuth` is deprecated in SDK 2.0.15 in favor of
- * this name.)
+ * Auth is decided by resolveAuthMode (src/teams/authMode.ts) at startup, fail-closed, and handed
+ * in here as an AuthMode -- this file only maps it onto explicit App options. Unauthenticated
+ * mode is for the local M365 Agents Playground only; it must never be reachable on a host without
+ * the operator having set ALLOW_UNAUTHENTICATED=true on purpose.
  */
-export function createTeamsApp(deps: HandleDeps): App {
-  const app = new App({ dangerouslyAllowUnauthenticatedRequests: true });
+export function createTeamsApp(deps: HandleDeps, authMode: AuthMode): App {
+  const app = new App(appOptionsForAuthMode(authMode));
 
   app.on('message', async ({ send, activity }) => {
     // Only the bot's own mention is stripped (review finding: Minor 4): `@bot o @André validou?`

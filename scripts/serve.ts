@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { loadConfig } from '@/config.js';
 import { createTeamsApp } from '@/teams/app.js';
+import { resolveAuthMode } from '@/teams/authMode.js';
 import { InMemoryBindingStore } from '@/teams/bindings.js';
 import { loadCardBundle } from '@/bundle/load.js';
 import { answer } from '@/claude/answer.js';
@@ -10,6 +11,7 @@ import type { HandleDeps } from '@/teams/handleMessage.js';
 const DEFAULT_PORT = 3978;
 
 const cfg = loadConfig();
+const authMode = resolveAuthMode(cfg);
 const client = createAnthropicClient(cfg);
 
 const deps: HandleDeps = {
@@ -26,6 +28,11 @@ const deps: HandleDeps = {
 };
 
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
-await createTeamsApp(deps).start(port);
+await createTeamsApp(deps, authMode).start(port);
+console.log(
+  authMode.mode === 'authenticated'
+    ? 'Modo autenticado: validação de token do Bot Framework ativa.'
+    : 'Modo NÃO autenticado (ALLOW_UNAUTHENTICATED=true): somente uso local com o Playground. Não exponha esta porta.',
+);
 console.log(`Bot ouvindo em http://localhost:${port}/api/messages`);
 console.log(`Playground: agentsplayground -e http://localhost:${port}/api/messages --channel-id msteams`);
