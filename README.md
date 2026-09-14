@@ -55,7 +55,7 @@ Requires Node 20+.
 ```bash
 npm install
 cp .env.example .env    # then fill in the blanks — see below
-npm test                # 364 tests, fully offline, no API key needed
+npm test                # 365 tests, fully offline, no API key needed
 ```
 
 `.env.example` ships with placeholder tenant values. Fill in your own:

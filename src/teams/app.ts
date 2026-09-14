@@ -178,18 +178,28 @@ export async function handleCardAction(
  * Maps our SDK-free option shape onto the SDK's own `AppOptions` type (review finding: Minor 7).
  * `new App(appOptionsForAuthMode(authMode))` passes a variable, and TypeScript's excess-property
  * checking only fires on object literals -- so if the SDK ever renamed e.g. `clientId`, that call
- * would keep compiling while silently dropping the option at runtime. The conditional type below
- * fails to compile instead: it requires every key `TeamsAppAuthOptions` uses to still be a key of
- * the installed SDK's `AppOptions`, so a rename breaks `tsc --noEmit` right here rather than
- * passing through unnoticed.
+ * would keep compiling while silently dropping the option at runtime. The guard below fails to
+ * compile instead when that happens.
+ *
+ * `TeamsAppAuthOptions` is a two-member union (the authenticated shape and the unauthenticated
+ * shape). Plain `keyof TeamsAppAuthOptions` would resolve to the INTERSECTION of the members'
+ * keys -- here, only `dangerouslyAllowUnauthenticatedRequests` -- silently missing a rename of
+ * `clientId`, `clientSecret` or `tenantId`. `KeysOfUnion` distributes over the union first (the
+ * `T extends unknown` trick) so every member's keys are collected before comparing against
+ * `AppOptions`, covering all four keys.
  */
+type KeysOfUnion<T> = T extends unknown ? keyof T : never;
+type UnknownSdkOptionKeys = Exclude<KeysOfUnion<TeamsAppAuthOptions>, keyof AppOptions<IPlugin>>;
+// Compile-time proof that every option key we hand the SDK still exists in AppOptions: if the SDK
+// renames or removes one (clientId, clientSecret, tenantId, or the dangerous flag), this
+// assignment fails to typecheck, naming the orphaned key(s) as the error. This only proves the
+// KEYS still exist -- it does not catch a value-type change (e.g. clientId becoming a number);
+// that is separately caught by ordinary assignability at the `new App(...)` call below.
+const _sdkOptionKeysExist: UnknownSdkOptionKeys extends never ? true : UnknownSdkOptionKeys = true;
+void _sdkOptionKeysExist;
+
 function toSdkAppOptions(authMode: AuthMode): AppOptions<IPlugin> {
-  const options: TeamsAppAuthOptions = appOptionsForAuthMode(authMode);
-  const authOptionKeysExistOnAppOptions: keyof TeamsAppAuthOptions extends keyof AppOptions<IPlugin>
-    ? true
-    : ['SDK renamed an AppOptions field used by TeamsAppAuthOptions -- update authMode.ts'] = true;
-  void authOptionKeysExistOnAppOptions;
-  return options;
+  return appOptionsForAuthMode(authMode);
 }
 
 /**
