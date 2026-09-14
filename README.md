@@ -171,7 +171,7 @@ message pipeline be tested offline with no SDK, no network and no API key.
 Phases 1–4 are complete: resolution, fetching and bundling; the grounded answer layer and its eval;
 the Teams DM surface; and the multiparty surface with Adaptive Cards.
 
-Not yet built: link unfurling (needs an Azure Bot registration and a tenant that allows
-sideloading — it is a manifest-driven message extension, which the Playground cannot exercise) and
+Not yet built: link unfurling — a manifest-driven message extension, which the Playground cannot
+exercise; the Azure Bot registration it needs is now covered by [docs/deploy-azure.md](docs/deploy-azure.md) — and
 Phase 5 hardening (rate-limit backoff, Key Vault, structured logging with token accounting, and the
 bounded tools).
