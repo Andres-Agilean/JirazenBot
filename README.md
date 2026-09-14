@@ -105,8 +105,22 @@ Details that matter:
 - **Link unfurling cannot be exercised here.** It is declared in the Teams app manifest, which
   the Playground does not process — see [Status](#status).
 
-Local runs use `dangerouslyAllowUnauthenticatedRequests`. **Do not expose the port through a
-tunnel in that mode**; a hosted deployment must remove the flag and supply real credentials.
+Local runs set `ALLOW_UNAUTHENTICATED=true` in `.env` (the default in `.env.example`), which is
+what allows the bot to start without Bot Framework credentials. **Do not expose the port through
+a tunnel in that mode.** Hosted deployments use real credentials instead — see
+[Deploying to real Teams](#deploying-to-real-teams).
+
+## Deploying to real Teams
+
+The Playground needs none of this; a real Teams installation needs all of it: a single-tenant
+Entra app registration, an Azure Bot resource with the Teams channel, an App Service running
+`npm start`, and the `appPackage/` manifest zip installed in the tenant. The full operator
+walkthrough — CLI commands, env vars, smoke test, secret rotation — is in
+[docs/deploy-azure.md](docs/deploy-azure.md).
+
+Hosted deployments set `BOT_CLIENT_ID`/`BOT_CLIENT_SECRET`/`BOT_TENANT_ID` and never set
+`ALLOW_UNAUTHENTICATED`; the bot refuses to start half-configured rather than accept
+unauthenticated traffic.
 
 ## Talking to it
 
