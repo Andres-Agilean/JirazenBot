@@ -21,3 +21,4 @@ devTools/
 # The original build plan. Superseded phase by phase by the specs in
 # docs/superpowers/specs/, which record the decisions that actually govern the code.
 teams-jira-zendesk-bot-plan (1).md
+.azure/
