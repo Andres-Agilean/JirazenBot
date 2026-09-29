@@ -118,9 +118,15 @@ The Adaptive Card renders bold/bullets correctly. Four styling corrections, owne
 3. **Citations are compressed at display time, in the Teams layer only** — per the standing
    rule that citation styling never happens in the prompt (the eval matches the model's exact
    bracketed output). A `compressCitations` transform applied where answers are rendered into
-   cards: `[comentário jira 41713]` → `[jira 41713]`; `[comentário zendesk <id>]` →
-   `[zendesk …<last 4>]` when the id exceeds 6 digits, else `[zendesk <id>]`;
-   `[campo X]` → `[X]`. The model's raw output, the eval, and the CLI are untouched.
+   cards. **Owner refinement (2026-09-29): comment ids become timestamps.** The transform takes
+   the bundle and renders `[comentário jira 41713]` as `[jira 11/08 14:34]` (the comment's
+   createdAt, DD/MM HH:mm, America/Sao_Paulo — time included because same-day automation bursts
+   are common), and `[comentário zendesk <id>]` as `[zendesk 14/08 11:52]`. When the id is not
+   found in the bundle (e.g. older comments truncated away), fall back to the id forms
+   `[jira <id>]` / `[zendesk …<last 4>]` (ids over 6 digits elided) rather than guessing.
+   `[campo X]` → `[X]`. Two same-minute comments may render identical citations — accepted;
+   citations here serve humans, and the stored raw answer keeps the exact ids. The model's raw
+   output, the eval, and the CLI are untouched.
 4. **"Menos visível" is replaced by a dynamic label naming the source kind** — the section's
    bold label depends on the information shown: `**Nota interna:**`, `**Só no Jira:**`, or
    `**Interno:**` as the generic. `prompt.test.ts`'s 'Menos visível' assertion follows the
