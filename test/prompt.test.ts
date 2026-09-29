@@ -21,9 +21,18 @@ describe('SYSTEM_PROMPT', () => {
   it('states the grounding rules the spec requires', () => {
     expect(SYSTEM_PROMPT).toMatch(/pt-BR/);
     expect(SYSTEM_PROMPT).toContain('CARD_BUNDLE');
-    expect(SYSTEM_PROMPT).toContain('fetched_at');
     expect(SYSTEM_PROMPT).toContain('espelhado do Jira');
     expect(SYSTEM_PROMPT).toContain('truncamento');
+  });
+
+  it('states the style contract (answer-quality spec)', () => {
+    expect(SYSTEM_PROMPT).toContain('negrito');
+    expect(SYSTEM_PROMPT).toContain('Menos visível');
+    expect(SYSTEM_PROMPT).toContain('nota interna');
+    // Spec 2.5: the card footer carries the collection time; the prompt must tell the model NOT
+    // to repeat it (this replaces the old always-state-fetched_at rule).
+    expect(SYSTEM_PROMPT).toContain('rodapé');
+    expect(SYSTEM_PROMPT).not.toContain('informe sempre o horário de coleta');
   });
 });
 
