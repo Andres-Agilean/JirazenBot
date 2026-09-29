@@ -1,0 +1,119 @@
+# Vague queries — empresa/cliente/obra search, disambiguation, and portfolio rundown
+
+**Date:** 2026-09-29
+**Status:** approved design (initial testing scope)
+**Depends on:** Phases 1–4. Ships after the answer-quality phase
+(`2026-09-29-answer-quality-design.md`).
+
+## 1. Goal
+
+Non-technical members ask vague questions — "qual o status da empresa Y?", "como está a obra Z?" —
+and today get the generic help text. This phase adds a search path that finds the active cards
+behind such a question and either disambiguates ("which of these did you mean?") or answers with a
+portfolio rundown, without disturbing the one-card conversation model.
+
+## 2. Measured reality that shaped this design (probes, 2026-09-29)
+
+- The Jira fields that *look* right (`Clientes` cf10106, `Cliente` cf10488, `Organizations`
+  cf10004) are populated on **0 of 760 active cards** across the five allowed projects. A field
+  filter finds nothing.
+- Cliente/empresa/obra live in free text: the support template lines inside descriptions
+  ("Organização: …", "Nome da obra: …") and summaries.
+- Zendesk, by contrast, has real organizations: every ticket carries `organization_id`.
+
+Hence the hybrid: **empresa/cliente resolves through Zendesk organizations; obra through Jira
+text search.** If the Jira fields ever start being populated, a field strategy can be added in
+front — the search layer is strategy-shaped like the existing resolver.
+
+## 3. Routing — the detector can never steal a genuine question
+
+Priority order in `handleMessage` for a non-command message:
+
+1. **Binding exists → unchanged.** Every non-command, non-reference message goes to the bound
+   card exactly as today. Free-form questions are never intercepted.
+2. **No binding + parseable card reference → unchanged** (binds and summarizes).
+3. **No binding + portfolio pattern → the new search path.** Deterministic detector (regex/
+   keyword, `parseCommand` style): a name plus a portfolio marker ("status/andamento/como está"
+   × "empresa/cliente/obra/projeto"), or bare "empresa X" / "obra Y".
+4. **Anything else → help text, as today** (now also mentioning `buscar`).
+
+The detector therefore only ever replaces the help-text outcome: a false positive costs a search
+attempt instead of help; a false negative costs the help text the user would have received anyway.
+
+**Explicit command:** `buscar <nome>` triggers the search path anytime — including inside a
+conversation with a bound card (it does not unbind unless the user then selects a result).
+
+## 4. Search
+
+Both searchers are GET-only (hard rule 1 holds) and strategy-shaped.
+
+- **Empresa/cliente → Zendesk organizations.** Name match via the organizations autocomplete
+  endpoint (cap 5 orgs). One org → its open/pending tickets (cap 25) → mapped to Jira via the
+  existing resolver where a counterpart exists (tickets without one still appear, Zendesk-only).
+  Multiple orgs → org-level disambiguation first.
+- **Obra (and fallback when Zendesk finds no org) → Jira text search.** JQL
+  `text ~ "<nome>" AND project in (<allowed>) AND resolution is EMPTY ORDER BY updated DESC`,
+  cap 25. Text search is noisy by nature, so its results are ALWAYS presented as candidates or a
+  rundown — the bot never silently binds a text-search match, even a single one. (A single
+  *organization* match with a single ticket may bind directly: that path is structured, not
+  fuzzy.)
+
+## 5. Disambiguation and selection — by name and by button
+
+- Candidates render as an Adaptive Card: one line per candidate (key/org, one-phrase summary,
+  status) plus **one `Action.Execute` button per candidate** (new verb, constant derived the same
+  way `REFRESH_ACTION` is, payload carrying the selection). Up to 6 buttons; beyond that the card
+  says "e mais N — refine o nome".
+- Clicking a card button binds that card (normal binding semantics, thread/personal rules
+  unchanged) and answers with the standard summary.
+- Typing also selects, matched by **name or key** — never by list position/number. The match runs
+  against the candidate set the bot just showed (stored alongside the binding slot with the same
+  24h lifetime); an ambiguous typed name narrows the candidate card instead of failing.
+
+## 6. Portfolio rundown — deterministic, no generation step
+
+When the question is portfolio-shaped ("como estão as coisas da empresa Y"), the bot answers with
+a rundown **rendered directly from the search results — no Claude call**:
+
+```
+**Empresa Y — 6 cards ativos (coletado às HH:MM)**
+• QZ-311 — Erro no relatório de avanço — Em Teste, atualizado 25/09
+• AGL-1892 — Reprogramação exclui atividades — Em Desenvolvimento, atualizado 24/09
+… (até 8 linhas; depois "e mais N cards — pergunte por um deles")
+```
+
+- Fields shown are verbatim API values (key, summary, status name, updated date, Zendesk subject/
+  status for unlinked tickets). There is no generation step, so fabricated content is structurally
+  impossible — the residual risk is truthful-but-stale data, which the coletado-às label carries.
+- Ordering: least-recently-updated first is rejected (buries the news); most-recently-updated
+  first, with a trailing "parado há mais tempo: <key>, sem atualização desde <data>" line when
+  the oldest card is >14 days stale.
+- A rundown never binds. Selecting/naming one of its cards afterwards binds it (via §5's typed
+  match or a normal reference).
+
+## 7. Surfaces, budget, failure modes
+
+- **Multiparty-safe:** rundowns and candidate lists contain only subjects, statuses and dates —
+  never internal note content — so the same rendering serves DM and channel.
+- **No token budget concerns:** search results never enter a Claude prompt; the single-card flow
+  keeps its existing budget.
+- **Every path replies** (hard rule 3): zero matches → "não encontrei cards ativos para <nome>"
+  plus the search-refinement hint; Zendesk/Jira search errors → the existing pt-BR error replies.
+- Search result caps: 5 orgs, 25 cards fetched, 8 rundown lines, 6 buttons.
+
+## 8. Testing
+
+- Offline (fixtures, no network): detector (portfolio patterns vs. free-form questions vs.
+  references — including the binding-exists guarantee of §3.1), both searchers against captured
+  fixtures, disambiguation card construction, typed-name selection, rundown rendering (caps,
+  omissions, stale flag), `buscar` command.
+- The grounding eval is untouched — no Claude behavior changes in this phase.
+- Live: one Playground session (owner-confirmed) exercising empresa search, obra search,
+  disambiguation buttons, and the rundown; plus `npm run fixtures`-style capture of organization
+  search payloads to build the offline fixtures (owner-confirmed, GET-only).
+
+## 9. Out of scope (initial testing)
+
+LLM-based intent classification, cross-card Claude answers ("summarize these 6 cards"), resolved-
+card history search, Zendesk organization creation/edits of any kind (writes stay forbidden), and
+persisting candidate sets beyond the binding store's lifetime.
