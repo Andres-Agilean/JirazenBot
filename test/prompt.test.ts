@@ -27,7 +27,8 @@ describe('SYSTEM_PROMPT', () => {
 
   it('states the style contract (answer-quality spec)', () => {
     expect(SYSTEM_PROMPT).toContain('negrito');
-    expect(SYSTEM_PROMPT).toContain('Menos visível');
+    expect(SYSTEM_PROMPT).toContain('Nota interna:');
+    expect(SYSTEM_PROMPT).toContain('Só no Jira:');
     expect(SYSTEM_PROMPT).toContain('nota interna');
     // Spec 2.5: the card footer carries the collection time; the prompt must tell the model NOT
     // to repeat it (this replaces the old always-state-fetched_at rule).

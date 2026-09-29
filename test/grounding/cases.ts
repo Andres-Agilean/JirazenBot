@@ -311,8 +311,9 @@ const RAW_CASES: EvalCase[] = [
     category: 'style',
     bundle: richBundle,
     question: DEFAULT_SUMMARY_QUESTION,
-    // The fixed summary skeleton (spec §2.2): bold problem line naming the pair, then sections.
-    rules: [mustLeadWithBold(), mustContain('AGL-900'), mustContain('20100'), mustContain('Status'), maxLines(12)],
+    // The fixed summary skeleton (spec §2.2): bold problem line, then sections. Spec addendum
+    // §5a: the pair (AGL-900 / 20100) is no longer required in the title -- the card header shows it.
+    rules: [mustLeadWithBold(), mustContain('Status'), maxLines(12)],
     judge:
       'O resumo segue o esqueleto (problema em negrito com o par de referências, depois marcadores como Status e Último evento), omitindo seções sem conteúdo em vez de preencher com "não informado"?',
   },
