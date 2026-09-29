@@ -594,6 +594,29 @@ describe('cards (spec §5)', () => {
     }
   });
 
+  it('compresses raw citations at display time in both the card body and the fallbackText', async () => {
+    const { deps } = makeDeps({
+      answerFn: async () => ({
+        text: 'Falhou [comentário jira 11] e [comentário zendesk 40123456789] [campo Status]',
+        model: 'm', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      }),
+    });
+    const replies = await handleMessage(dm('QZ-252'), deps);
+    expect(replies[0].kind).toBe('card');
+    if (replies[0].kind === 'card') {
+      const compressed = '[jira 11] e [zendesk …6789] [Status]';
+      // The card additionally italicises each citation (cards.ts styleCitations), so the
+      // compressed forms appear individually there rather than as one contiguous string.
+      const cardJson = JSON.stringify(replies[0].card);
+      for (const citation of ['[jira 11]', '[zendesk …6789]', '[Status]']) {
+        expect(cardJson).toContain(`_${citation}_`);
+      }
+      expect(cardJson).not.toContain('comentário');
+      expect(replies[0].fallbackText).toContain(compressed);
+      expect(replies[0].fallbackText).not.toContain('comentário');
+    }
+  });
+
   it('marks a split users card as personal in a channel', async () => {
     const { deps } = makeDeps();
     await handleMessage({ ...ana, text: 'QZ-252' }, deps);

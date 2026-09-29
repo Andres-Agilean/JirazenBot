@@ -8,6 +8,7 @@ import { DEFAULT_SUMMARY_QUESTION, MAX_HISTORY_TURNS } from '@/claude/prompt.js'
 import { splitReferenceAndQuestion, isWholeMessageReference } from '../../scripts/splitReference.js';
 import { isBundleStale, type Binding, type BindingStore, type Slot } from './bindings.js';
 import { buildAnswerCard } from './cards.js';
+import { compressCitations } from './citations.js';
 import { parseCommand } from './commands.js';
 import { formatFooter, withFooter, type Reply } from './reply.js';
 import { surfaceFor } from './surface.js';
@@ -183,7 +184,10 @@ async function ask(
   ].slice(-MAX_HISTORY_TURNS);
   await deps.store.set(slot, { ...binding, history });
 
-  const text = withFooter(result.text, binding, deps.cfg);
+  // Citations are compressed here, at the single display seam, for card body and fallback alike;
+  // history above keeps the model's raw text.
+  const displayText = compressCitations(result.text);
+  const text = withFooter(displayText, binding, deps.cfg);
   // The personal marker exists so a channel/group-chat reader can see an answer is off the
   // thread's card (spec §4/§5). In a DM there is no thread and no other reader, so a personal
   // slot (set whenever a reference arrives WITH a question, per §4's table) must never grow the
@@ -192,7 +196,7 @@ async function ask(
   // (review finding: Important 3 / cards.ts leak).
   const personal = slot.scope === 'personal' && surface === 'multiparty';
   try {
-    const card = (deps.buildCard ?? buildAnswerCard)(result.text, binding, deps.cfg, { personal });
+    const card = (deps.buildCard ?? buildAnswerCard)(displayText, binding, deps.cfg, { personal });
     return { kind: 'card', card, fallbackText: text };
   } catch (err) {
     // A malformed card must never cost the user their answer (spec §7).
