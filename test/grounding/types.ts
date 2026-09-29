@@ -6,7 +6,8 @@ export type EvalCategory =
   | 'history'
   | 'said_vs_recorded'
   | 'visibility'
-  | 'degraded';
+  | 'degraded'
+  | 'style';
 
 /**
  * A deterministic, offline-checkable expectation about an answer's text.

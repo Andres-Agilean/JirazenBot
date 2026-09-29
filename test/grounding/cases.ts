@@ -1,12 +1,15 @@
-import type { EvalCase } from './types.js';
+import type { EvalCase, Rule } from './types.js';
 import {
+  maxLines,
   mustAdmitGap,
   mustCite,
   mustContain,
+  mustLeadWithBold,
   mustNotContain,
   mustNotInventDate,
   mustNotMatch,
 } from './rules.js';
+import { DEFAULT_SUMMARY_QUESTION } from '@/claude/prompt.js';
 import { channelBundle, jiraOnlyBundle, richBundle, sparseBundle, truncatedBundle } from './bundles.js';
 
 // A Brazilian phone shape: an optional DDD (area code) followed by an 8- or 9-digit subscriber
@@ -24,7 +27,7 @@ const BRAZILIAN_PHONE_SHAPE = /\b(?:\(?\d{2}\)?[\s.-]?)?9?\d{4}[\s.-]?\d{4}\b/;
 const IMPLAUSIBLE_DURATION_DAYS = /\b(1[5-9]|[2-9]\d)\s*dias?/;
 
 /**
- * Exactly 30 synthetic cases proving the bot refuses to invent facts (spec §6). Every case whose
+ * Exactly 33 synthetic cases proving the bot refuses to invent facts (spec §6). Every case whose
  * correct answer is a refusal -- every `not_in_bundle` case, and any other case whose rules
  * include mustAdmitGap() -- carries mustNotInventDate() plus a non-empty `judge` criterion:
  * mustAdmitGap() is only a cheap screen (see its doc comment in rules.ts) and cannot tell *which*
@@ -32,7 +35,7 @@ const IMPLAUSIBLE_DURATION_DAYS = /\b(1[5-9]|[2-9]\d)\s*dias?/;
  * actually closes the case instead of rewarding an answer that admits one gap while fabricating
  * something else.
  */
-export const CASES: EvalCase[] = [
+const RAW_CASES: EvalCase[] = [
   // --- not_in_bundle: the fact does not exist anywhere in the bundle ---
   {
     id: 'nib-01-no-due-date',
@@ -125,35 +128,38 @@ export const CASES: EvalCase[] = [
     category: 'retrieval',
     bundle: richBundle,
     question: 'Quem validou a correção?',
-    rules: [mustContain('Carla Nunes'), mustCite('comentário jira 70003')],
+    rules: [mustContain('Carla Nunes'), mustCite('comentário jira 70003'), mustLeadWithBold(), maxLines(8)],
   },
   {
     id: 'ret-02-current-status',
     category: 'retrieval',
     bundle: richBundle,
     question: 'Qual o status atual no Jira?',
-    rules: [mustContain('Em Teste'), mustContain('2026-08-12')],
+    // Spec'd change (answer-quality spec §2.5): the collection time moved to the card footer, so
+    // the answer no longer must repeat fetched_at in-text. The status claim now pins to its
+    // citation instead.
+    rules: [mustContain('Em Teste'), mustCite('campo Status'), mustLeadWithBold(), maxLines(8)],
   },
   {
     id: 'ret-03-assignee',
     category: 'retrieval',
     bundle: richBundle,
     question: 'Quem é o responsável?',
-    rules: [mustContain('Bruno Tavares')],
+    rules: [mustContain('Bruno Tavares'), mustLeadWithBold(), maxLines(8)],
   },
   {
     id: 'ret-04-zendesk-status',
     category: 'retrieval',
     bundle: richBundle,
     question: 'Qual o status do chamado no Zendesk?',
-    rules: [mustContain('hold'), mustContain('20100')],
+    rules: [mustContain('hold'), mustContain('20100'), mustLeadWithBold(), maxLines(8)],
   },
   {
     id: 'ret-05-time-spent',
     category: 'retrieval',
     bundle: richBundle,
     question: 'Quanto tempo foi registrado nesse card?',
-    rules: [mustContain('2d 3h')],
+    rules: [mustContain('2d 3h'), mustLeadWithBold(), maxLines(8)],
   },
   // No mustNotContain here: any phrasing of the correct answer ("não está bloqueado") contains
   // the substring "está bloqueado", so a negative text rule cannot express this expectation.
@@ -163,7 +169,7 @@ export const CASES: EvalCase[] = [
     category: 'retrieval',
     bundle: richBundle,
     question: 'Esse card está bloqueado?',
-    rules: [mustCite('campo Bloqueado')],
+    rules: [mustCite('campo Bloqueado'), mustLeadWithBold(), maxLines(8)],
     judge: 'A resposta afirma que o card NÃO está bloqueado, com base no campo Bloqueado do card?',
   },
 
@@ -285,4 +291,54 @@ export const CASES: EvalCase[] = [
     rules: [mustAdmitGap(), mustNotInventDate(truncatedBundle)],
     judge: 'A resposta revela que comentários mais antigos do Zendesk não foram carregados?',
   },
+
+  // --- style: the answer-quality contract (spec 2026-09-29) ---
+  {
+    id: 'sty-01-terse-single-fact',
+    category: 'style',
+    bundle: richBundle,
+    question: 'Quem é o tester deste card?',
+    // A single-fact answer is the bold lead line alone: no bullets, no padding (spec §2.1).
+    rules: [
+      mustContain('Carla Nunes'),
+      mustLeadWithBold(),
+      maxLines(2),
+      mustNotMatch(/^- /m, 'marcadores em resposta de fato único'),
+    ],
+  },
+  {
+    id: 'sty-02-summary-skeleton',
+    category: 'style',
+    bundle: richBundle,
+    question: DEFAULT_SUMMARY_QUESTION,
+    // The fixed summary skeleton (spec §2.2): bold problem line naming the pair, then sections.
+    rules: [mustLeadWithBold(), mustContain('AGL-900'), mustContain('20100'), mustContain('Status'), maxLines(12)],
+    judge:
+      'O resumo segue o esqueleto (problema em negrito com o par de referências, depois marcadores como Status e Último evento), omitindo seções sem conteúdo em vez de preencher com "não informado"?',
+  },
+  {
+    id: 'sty-03-internal-source-preferred',
+    category: 'style',
+    bundle: richBundle,
+    question: 'O que exatamente o cliente relatou ao abrir o chamado?',
+    // The opening report lives in an internal note (90001); the answer should use it and say
+    // it is internal (spec §2.3).
+    rules: [mustCite('comentário zendesk 90001'), mustContain('interna')],
+    judge: 'A resposta usa a nota interna de abertura como fonte e a identifica como nota interna?',
+  },
 ];
+
+/**
+ * Format rules that hold for EVERY answer (answer-quality spec §2.4): the reply renders inside
+ * an Adaptive Card TextBlock, which has no headers or code fences. Applied here rather than
+ * per-case so a new case can never forget them.
+ */
+const GLOBAL_FORMAT_RULES: Rule[] = [
+  mustNotMatch(/^#{1,6}\s/m, 'um cabeçalho markdown'),
+  mustNotMatch(/```/, 'um bloco de código'),
+];
+
+export const CASES: EvalCase[] = RAW_CASES.map((c) => ({
+  ...c,
+  rules: [...c.rules, ...GLOBAL_FORMAT_RULES],
+}));
