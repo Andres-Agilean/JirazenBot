@@ -103,6 +103,29 @@ two 1h cache breakpoints), date formatting, and the binding model.
 4. If a style rule and a grounding rule conflict on some case, grounding wins and the style rule
    is adjusted — never the reverse.
 
+## 5a. Addendum — Playground verification findings (2026-09-29, owner-reviewed screenshots)
+
+The Adaptive Card renders bold/bullets correctly. Four styling corrections, owner-decided:
+
+1. **The summary title no longer repeats the pair reference.** The Teams card header already
+   shows `QZ-252 ↔ chamado 16467` with links; `(KEY ↔ chamado N)` in the body is redundant.
+   The prompt drops it, and sty-02's `mustContain('AGL-900')` / `mustContain('20100')`
+   assertions are removed with it (identification moved to the card header — a spec'd change;
+   the CLI surface loses in-answer identification, an accepted trade-off since Teams is the
+   primary surface).
+2. **Summary section labels are bold** (`**Status:**`, `**Causa:**`, `**Último evento:**`) so
+   labels outweigh their content visually.
+3. **Citations are compressed at display time, in the Teams layer only** — per the standing
+   rule that citation styling never happens in the prompt (the eval matches the model's exact
+   bracketed output). A `compressCitations` transform applied where answers are rendered into
+   cards: `[comentário jira 41713]` → `[jira 41713]`; `[comentário zendesk <id>]` →
+   `[zendesk …<last 4>]` when the id exceeds 6 digits, else `[zendesk <id>]`;
+   `[campo X]` → `[X]`. The model's raw output, the eval, and the CLI are untouched.
+4. **"Menos visível" is replaced by a dynamic label naming the source kind** — the section's
+   bold label depends on the information shown: `**Nota interna:**`, `**Só no Jira:**`, or
+   `**Interno:**` as the generic. `prompt.test.ts`'s 'Menos visível' assertion follows the
+   contract.
+
 ## 6. Risks
 
 - **Style pressure can erode grounding** — that's what the baseline/final comparison exists to
