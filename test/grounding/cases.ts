@@ -315,7 +315,7 @@ const RAW_CASES: EvalCase[] = [
     // §5a: the pair (AGL-900 / 20100) is no longer required in the title -- the card header shows it.
     rules: [mustLeadWithBold(), mustContain('Status'), maxLines(12)],
     judge:
-      'O resumo segue o esqueleto (problema em negrito com o par de referências, depois marcadores como Status e Último evento), omitindo seções sem conteúdo em vez de preencher com "não informado"?',
+      'O resumo segue o esqueleto (problema em negrito na primeira linha, depois marcadores com rótulos em negrito como **Status:** e **Último evento:**), omitindo seções sem conteúdo em vez de preencher com "não informado"?',
   },
   {
     id: 'sty-03-internal-source-preferred',
