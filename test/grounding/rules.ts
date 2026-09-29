@@ -220,3 +220,26 @@ export function mustAdmitGap(): Rule {
 export function checkRules(answer: string, rules: Rule[]): RuleFailure[] {
   return rules.filter((r) => !r.check(answer)).map((r) => ({ label: r.label, kind: r.kind }));
 }
+
+/** Style contract (answer-quality spec §3): scannable replies. Counts non-empty lines only. */
+export function maxLines(n: number): Rule {
+  return {
+    label: `deve ter no máximo ${n} linhas`,
+    check: (answer) => answer.split('\n').filter((l) => l.trim() !== '').length <= n,
+  };
+}
+
+/**
+ * Style contract (answer-quality spec §2.1): the first non-empty line carries the key fact in
+ * bold. Bold anywhere in that line counts — a correct lead may open with a preamble word or a
+ * quote before the bolded fact.
+ */
+export function mustLeadWithBold(): Rule {
+  return {
+    label: 'deve abrir com o fato central em **negrito** na primeira linha',
+    check: (answer) => {
+      const first = answer.split('\n').find((l) => l.trim() !== '') ?? '';
+      return /\*\*[^*]+\*\*/.test(first);
+    },
+  };
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  checkRules, mustAdmitGap, mustCite, mustContain, mustMatch, mustNotContain, mustNotInventDate, mustNotMatch,
+  checkRules, maxLines, mustAdmitGap, mustCite, mustContain, mustLeadWithBold, mustMatch, mustNotContain, mustNotInventDate, mustNotMatch,
 } from './rules.js';
 import { CASES } from './cases.js';
 import { richBundle } from './bundles.js';
@@ -150,6 +150,43 @@ describe('rule constructors', () => {
     ]) {
       expect(rule.check(s), s).toBe(true);
     }
+  });
+});
+
+describe('maxLines', () => {
+  it('passa quando as linhas não vazias cabem no limite', () => {
+    expect(maxLines(3).check('**a** [campo X]\n\n- b\n- c')).toBe(true);
+  });
+
+  it('falha quando excede, contando apenas linhas não vazias', () => {
+    expect(maxLines(2).check('a\n\nb\n\nc')).toBe(false);
+  });
+
+  it('não conta linhas em branco (um aviso de truncamento com linha em branco não muda a contagem indevidamente)', () => {
+    const truncated = '**resposta** [campo X]' + '\n\n[RESPOSTA TRUNCADA: o limite de tokens foi atingido antes do fim da resposta -- trate como incompleta.]';
+    expect(maxLines(2).check(truncated)).toBe(true);
+  });
+});
+
+describe('mustLeadWithBold', () => {
+  it('passa com negrito na primeira linha não vazia, mesmo após linhas em branco', () => {
+    expect(mustLeadWithBold().check('\n**Carla Nunes** validou [comentário jira 70003]')).toBe(true);
+  });
+
+  it('passa quando o negrito não está no início da linha (citação ou aspas antes)', () => {
+    expect(mustLeadWithBold().check('Segundo o card, **Em Teste** desde 10/08 [campo Status]')).toBe(true);
+  });
+
+  it('falha sem negrito na primeira linha, mesmo com negrito depois', () => {
+    expect(mustLeadWithBold().check('Carla validou.\n**detalhe** depois')).toBe(false);
+  });
+});
+
+describe('regras globais de formato (via mustNotMatch)', () => {
+  it('cabeçalho markdown no início de linha falha; # no meio da linha passa', () => {
+    const noHeaders = mustNotMatch(/^#{1,6}\s/m, 'um cabeçalho markdown');
+    expect(noHeaders.check('## Resumo\ntexto')).toBe(false);
+    expect(noHeaders.check('o card AGL-900 #2 menciona isso')).toBe(true);
   });
 });
 
