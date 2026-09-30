@@ -160,9 +160,10 @@ async function bind(
 }
 
 /**
- * Answers the question and wraps it as a card (spec §5), keeping the Phase 3 plain-text answer
- * as `fallbackText` byte-for-byte -- both for clients that cannot render cards and so a malformed
- * card never costs the user their answer (spec §7).
+ * Answers the question and wraps it as a card (spec §5). `fallbackText` is the display text
+ * (citations compressed, footer appended) -- for clients that cannot render cards, and so a
+ * malformed card never costs the user their answer (spec §7). Binding history keeps the model's
+ * RAW text; compression is display-only.
  */
 async function ask(
   binding: Binding,

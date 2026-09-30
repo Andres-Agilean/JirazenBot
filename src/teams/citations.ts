@@ -17,26 +17,34 @@ import { formatDayMonthTime } from '@/text/datetime.js';
  *   [comentário zendesk 90001]         -> [zendesk 90001]
  *   [campo Status]                     -> [Status]
  *
- * Idempotent: the regexes only match digit-only ids, so compressed output (which starts with a
- * digit-and-slash timestamp or an ellipsis) never matches again. Everything else is untouched.
+ * A comma tail after the id (`[comentário jira 41713, André Marques]`) is accepted and dropped.
+ *
+ * Idempotent: re-running is safe because the `comentário ` / `campo ` prefix is consumed by the
+ * first pass, so its output no longer matches. (`[nota interna <id>]` keeps its label, but its
+ * output is a timestamp or an ellipsis form, and a short raw id maps to itself.) Everything else
+ * is untouched.
  */
 const ZENDESK_FULL_ID_MAX_DIGITS = 6;
 const ZENDESK_ELIDED_TAIL_DIGITS = 4;
+const ZENDESK_LABEL = 'comentário zendesk';
 
 export function compressCitations(text: string, bundle?: CardBundle): string {
   const jiraAt = new Map((bundle?.jira?.comments ?? []).map((c) => [String(c.id), c.createdAt]));
   const zendeskAt = new Map((bundle?.zendesk?.comments ?? []).map((c) => [String(c.id), c.createdAt]));
   return text
-    .replace(/\[comentário jira (\d+)\]/g, (_match, id: string) => {
+    .replace(/\[comentário jira (\d+)(?:,[^\]]*)?\]/g, (_match, id: string) => {
       const at = jiraAt.get(id);
       return `[jira ${at ? formatDayMonthTime(at) : id}]`;
     })
-    .replace(/\[comentário zendesk (\d+)\]/g, (_match, id: string) => {
+    // `[nota interna <id>]` is a defensive match for a label the model sometimes invents (the
+    // prompt forbids it); it is handled exactly like a zendesk comment, keeping its own label.
+    .replace(/\[(comentário zendesk|nota interna) (\d+)(?:,[^\]]*)?\]/g, (_match, label: string, id: string) => {
+      const shown = label === ZENDESK_LABEL ? 'zendesk' : label;
       const at = zendeskAt.get(id);
-      if (at) return `[zendesk ${formatDayMonthTime(at)}]`;
+      if (at) return `[${shown} ${formatDayMonthTime(at)}]`;
       return id.length > ZENDESK_FULL_ID_MAX_DIGITS
-        ? `[zendesk …${id.slice(-ZENDESK_ELIDED_TAIL_DIGITS)}]`
-        : `[zendesk ${id}]`;
+        ? `[${shown} …${id.slice(-ZENDESK_ELIDED_TAIL_DIGITS)}]`
+        : `[${shown} ${id}]`;
     })
     .replace(/\[campo ([^\]]+)\]/g, '[$1]');
 }

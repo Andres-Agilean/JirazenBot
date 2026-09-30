@@ -615,6 +615,12 @@ describe('cards (spec §5)', () => {
       expect(replies[0].fallbackText).toContain(compressed);
       expect(replies[0].fallbackText).not.toContain('comentário');
     }
+    // Compression is display-only: the stored history keeps the model's RAW text.
+    const stored = await deps.store.get({ scope: 'shared', conversationId: CONV });
+    const lastTurn = stored?.history.at(-1);
+    expect(lastTurn?.role).toBe('assistant');
+    expect(lastTurn?.text).toContain('[comentário jira 11]');
+    expect(lastTurn?.text).toContain('[comentário zendesk 40123456789]');
   });
 
   it('marks a split users card as personal in a channel', async () => {

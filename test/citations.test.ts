@@ -59,6 +59,30 @@ describe('compressCitations', () => {
       );
     });
 
+    it('handles the invented [nota interna <id>] form like a zendesk comment', () => {
+      expect(compressCitations('[nota interna 40123456789]', bundle)).toBe('[nota interna 14/08 11:52]');
+      expect(compressCitations('[nota interna 40999999999]', bundle)).toBe('[nota interna …9999]');
+      expect(compressCitations('[nota interna 90001]', bundle)).toBe('[nota interna 90001]');
+      expect(compressCitations('[nota interna 40999999999]')).toBe('[nota interna …9999]');
+    });
+
+    it('drops a comma tail (variant labels the model sometimes emits)', () => {
+      expect(compressCitations('[comentário jira 41713, André Marques]', bundle)).toBe('[jira 11/08 14:34]');
+      expect(compressCitations('[comentário zendesk 40123456789, Ana]', bundle)).toBe('[zendesk 14/08 11:52]');
+      expect(compressCitations('[nota interna 40999999999, Ana]', bundle)).toBe('[nota interna …9999]');
+      expect(compressCitations('[comentário jira 99999, X]')).toBe('[jira 99999]');
+    });
+
+    it('stays idempotent after dropping a comma tail', () => {
+      const once = compressCitations('[comentário jira 41713, André Marques]', bundle);
+      expect(compressCitations(once, bundle)).toBe(once);
+    });
+
+    it('is idempotent with nota interna citations', () => {
+      const once = compressCitations('[nota interna 40123456789] [nota interna 40999999999]', bundle);
+      expect(compressCitations(once, bundle)).toBe(once);
+    });
+
     it('is idempotent with timestamps', () => {
       const once = compressCitations('[comentário jira 41713] [comentário zendesk 40123456789] [campo Status]', bundle);
       expect(once).toBe('[jira 11/08 14:34] [zendesk 14/08 11:52] [Status]');
