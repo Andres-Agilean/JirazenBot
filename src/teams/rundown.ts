@@ -25,6 +25,19 @@ const dayMonth = (iso: string): string => formatDayMonthTime(iso).split(' ')[0];
 /** `↔ chamado N` after a Jira key whose Zendesk pair is known (spec §10.4). */
 const pairSuffix = (c: CardCandidate): string => (c.zendeskId ? ` ↔ chamado ${c.zendeskId}` : '');
 
+/** Most labels the rundown overflow line names before trailing off with an ellipsis. */
+export const OVERFLOW_LABEL_CAP = 10;
+
+/** `e mais N: A, B, …` -- names the candidates past the line cap so each is reachable by typing. */
+function overflowLine(cards: CardCandidate[], total: number): string | undefined {
+  const hidden = total - Math.min(cards.length, RUNDOWN_LINE_CAP);
+  if (hidden <= 0) return undefined;
+  const beyond = cards.slice(RUNDOWN_LINE_CAP).map((c) => c.label);
+  if (beyond.length === 0) return `e mais ${hidden}`;
+  const listed = beyond.slice(0, OVERFLOW_LABEL_CAP).join(', ');
+  return `e mais ${hidden}: ${listed}${beyond.length > OVERFLOW_LABEL_CAP ? ', …' : ''}`;
+}
+
 const cardLine = (c: CardCandidate): string =>
   `${c.label}${pairSuffix(c)} — ${c.summary} — ${c.status}, atualizado ${dayMonth(c.updatedAt)}`;
 
@@ -58,7 +71,7 @@ export function statusColor(status: string): StatusColor {
 function cardBlocks(c: CardCandidate): Record<string, unknown>[] {
   const detail = [c.status, c.assignee, `atualizado ${dayMonth(c.updatedAt)}`].filter(Boolean).join(' · ');
   return [
-    { type: 'TextBlock', text: `**${c.label}**${pairSuffix(c)} — ${c.summary}`, wrap: true, spacing: 'Small' },
+    { type: 'TextBlock', text: `**${c.label}${pairSuffix(c)}** — ${c.summary}`, wrap: true, spacing: 'Small' },
     { type: 'TextBlock', text: detail, wrap: true, isSubtle: true, color: statusColor(c.status), spacing: 'None' },
   ];
 }
@@ -66,9 +79,14 @@ function cardBlocks(c: CardCandidate): Record<string, unknown>[] {
 /** Card body blocks for `cards`, grouped under bold subtle section headers. */
 const sectionBlocks = (cards: CardCandidate[]): Record<string, unknown>[] =>
   sectioned(cards).flatMap((s) => [
-    { type: 'TextBlock', text: s.title, wrap: true, weight: 'Bolder', isSubtle: true, spacing: 'Medium' },
+    { type: 'TextBlock', text: s.title, wrap: true, weight: 'Bolder', separator: true, spacing: 'Medium' },
     ...s.cards.flatMap(cardBlocks),
   ]);
+
+/** The card title: the matched name and count, prominent (never subtle). */
+const titleBlock = (name: string, total: number): Record<string, unknown> => (
+  { type: 'TextBlock', text: `${name} — ${countLabel(total)}`, wrap: true, weight: 'Bolder', size: 'Large' }
+);
 
 const subtle = (text: string): Record<string, unknown> => ({ type: 'TextBlock', text, wrap: true, isSubtle: true });
 
@@ -119,8 +137,8 @@ export function renderRundown(
 /** The overflow and stale lines shared by the text rundown and the rundown card. */
 function footerLines(cards: CardCandidate[], total: number, nowMs: number): string[] {
   const lines: string[] = [];
-  const hidden = total - Math.min(cards.length, RUNDOWN_LINE_CAP);
-  if (hidden > 0) lines.push(`e mais ${hidden} cards — pergunte por um deles`);
+  const overflow = overflowLine(cards, total);
+  if (overflow) lines.push(overflow);
   const stale = staleCard(cards, nowMs);
   if (stale) {
     lines.push(`parado há mais tempo: ${stale.label}, sem atualização desde ${dayMonth(stale.updatedAt)}`);
@@ -137,7 +155,7 @@ export function buildRundownCard(
 ): Record<string, unknown> {
   const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
   return adaptiveCard([
-    { type: 'TextBlock', text: `${name} — ${countLabel(total)}`, wrap: true, weight: 'Bolder' },
+    titleBlock(name, total),
     ...sectionBlocks(cards.slice(0, RUNDOWN_LINE_CAP)),
     ...footerLines(cards, total, collectedAtMs).map(subtle),
     subtle(`coletado às ${time}`),
@@ -152,7 +170,7 @@ export function buildCandidateCard(
 ): Record<string, unknown> {
   const shown = cards.slice(0, BUTTON_CAP);
   const body: Record<string, unknown>[] = [
-    { type: 'TextBlock', text: `${name} — ${countLabel(total)}`, wrap: true, weight: 'Bolder' },
+    titleBlock(name, total),
     ...sectionBlocks(cards),
   ];
   const hidden = cards.length - shown.length;

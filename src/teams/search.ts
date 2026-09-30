@@ -18,8 +18,8 @@ export interface CardCandidate {
 
 export type SearchOutcome =
   | { kind: 'orgs'; name: string; orgs: ZendeskOrg[] }
-  | { kind: 'bind'; candidate: CardCandidate }
-  | { kind: 'cards'; name: string; cards: CardCandidate[]; total: number }
+  | { kind: 'bind'; candidate: CardCandidate; displayName: string }
+  | { kind: 'cards'; name: string; displayName: string; cards: CardCandidate[]; total: number }
   | { kind: 'none'; name: string };
 
 export interface SearchDeps {
@@ -77,11 +77,11 @@ const instant = (s: string): number => {
 const newestFirst = (a: CardCandidate, b: CardCandidate): number =>
   instant(b.updatedAt) - instant(a.updatedAt);
 
-function cardsOutcome(name: string, candidates: CardCandidate[]): SearchOutcome {
+function cardsOutcome(name: string, displayName: string, candidates: CardCandidate[]): SearchOutcome {
   if (candidates.length === 0) return { kind: 'none', name };
   // Several tickets can map to one Jira card; sorted newest-first, dedupe keeps the newest.
   const sorted = dedupeCandidates([...candidates].sort(newestFirst));
-  return { kind: 'cards', name, cards: sorted.slice(0, CARD_FETCH_CAP), total: sorted.length };
+  return { kind: 'cards', name, displayName, cards: sorted.slice(0, CARD_FETCH_CAP), total: sorted.length };
 }
 
 /** Map an organization's open tickets to Jira in ONE call; unmapped tickets keep a Zendesk ref. */
@@ -113,13 +113,13 @@ export async function searchPortfolio(name: string, deps: SearchDeps): Promise<S
     // Deliberate: a single ticket binds with the ZENDESK ref and skips searchByZendeskIds.
     // loadCardBundle resolves the Jira counterpart at bind time anyway, and skipping the
     // mapping keeps this path at 2 GETs.
-    if (tickets.length === 1) return { kind: 'bind', candidate: zendeskCandidate(tickets[0]) };
-    if (tickets.length > 1) return cardsOutcome(query, await candidatesForTickets(tickets, deps));
+    if (tickets.length === 1) return { kind: 'bind', candidate: zendeskCandidate(tickets[0]), displayName: orgs[0].name };
+    if (tickets.length > 1) return cardsOutcome(query, orgs[0].name, await candidatesForTickets(tickets, deps));
     // zero open tickets: fall through to Jira text search
   }
 
   // Text search never silently binds, even for a single hit (spec §4).
-  return cardsOutcome(query, (await deps.searchActiveByText(query)).map(jiraCandidate));
+  return cardsOutcome(query, query, (await deps.searchActiveByText(query)).map(jiraCandidate));
 }
 
 export function createSearchCache(now: () => number = Date.now): {

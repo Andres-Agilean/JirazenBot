@@ -338,12 +338,12 @@ async function runSearch(
     case 'bind':
       // With a card already bound, a search never moves it (spec §3): offer the one match as a
       // button, exactly like a longer list. Only with nothing bound does a lone match bind.
-      if (existing) return offerCandidates(name, [outcome.candidate], 1, 'candidates', sharedSlot, deps);
+      if (existing) return offerCandidates(outcome.displayName, [outcome.candidate], 1, 'candidates', sharedSlot, deps);
       return selectCard(outcome.candidate.ref, sharedSlot, personalSlot, surface, deps);
     case 'none':
       return { kind: 'text', text: SEARCH_NONE(outcome.name) };
     case 'cards':
-      return offerCandidates(outcome.name, outcome.cards, outcome.total, mode, sharedSlot, deps);
+      return offerCandidates(outcome.displayName, outcome.cards, outcome.total, mode, sharedSlot, deps);
   }
 }
 

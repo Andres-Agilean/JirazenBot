@@ -690,11 +690,12 @@ describe('busca de portfólio', () => {
     ref: { system: 'jira', issueKey: key, explicit: true },
     label: key, summary, status: 'Em Teste', updatedAt: '2026-09-20T10:00:00.000Z',
   });
-  const cardsOutcome = (cards: CardCandidate[], name = 'norte'): SearchOutcome =>
-    ({ kind: 'cards', name, cards, total: cards.length });
+  const cardsOutcome = (cards: CardCandidate[], name = 'norte', displayName = name): SearchOutcome =>
+    ({ kind: 'cards', name, displayName, cards, total: cards.length });
   const two = [jiraCard('AGL-11', 'Reforma do telhado'), jiraCard('AGL-12', 'Pintura externa')];
   const bindOutcome: SearchOutcome = {
     kind: 'bind',
+    displayName: 'NORTE CONSTRUTORA',
     candidate: {
       ref: { system: 'zendesk', ticketId: '16467', explicit: true },
       label: 'chamado 16467', summary: 'Aplicativo travando', status: 'open',
@@ -906,6 +907,33 @@ describe('busca de portfólio', () => {
       { system: 'jira', issueKey: 'AGL-11', explicit: true },
       { system: 'zendesk', ticketId: '16467', explicit: true },
     ]);
+  });
+
+  it('headers and the stored set use the matched displayName, not the typed query', async () => {
+    const outcome = cardsOutcome(two, 'dalle', 'DALLÉ CONSTRUTORA');
+    const { deps } = withSearch(outcome);
+    const cardReply = (await handleMessage(dm('buscar dalle'), deps))[0];
+    if (cardReply.kind !== 'card') throw new Error('unreachable');
+    expect(cardReply.fallbackText.startsWith('**DALLÉ CONSTRUTORA — ')).toBe(true);
+    expect(JSON.stringify(cardReply.card)).toContain('DALLÉ CONSTRUTORA — 2 cards ativos');
+    expect((await deps.candidates.get(shared))?.name).toBe('DALLÉ CONSTRUTORA');
+
+    const rundown = (await handleMessage(dm('como estao os cards da dalle?'), deps))[0];
+    expect(textOf(rundown).startsWith('**DALLÉ CONSTRUTORA — ')).toBe(true);
+  });
+
+  it('the one-candidate card (single match over a binding) is headed by the matched displayName', async () => {
+    const { deps } = withSearch(bindOutcome);
+    await handleMessage(dm('QZ-252'), deps);
+    const reply = (await handleMessage(dm('buscar norte'), deps))[0];
+    if (reply.kind !== 'card') throw new Error('unreachable');
+    expect(JSON.stringify(reply.card)).toContain('NORTE CONSTRUTORA — 1 cards ativos');
+    expect((await deps.candidates.get(shared))?.name).toBe('NORTE CONSTRUTORA');
+  });
+
+  it('SEARCH_NONE keeps the typed name', async () => {
+    const { deps } = withSearch({ kind: 'none', name: 'dalle' });
+    expect(textOf((await handleMessage(dm('buscar dalle'), deps))[0])).toBe(SEARCH_NONE('dalle'));
   });
 
   it('buscar passes the name to search verbatim, accents and case intact', async () => {

@@ -199,6 +199,33 @@ it('Jira candidates carry their Zendesk pair id (batch mapping and text search);
   expect(text.cards.map((c) => c.zendeskId)).toEqual(['17058', undefined]);
 });
 
+it('displayName is the matched org real name on the org path, the typed name on the text path', async () => {
+  const orgPath = deps({
+    searchOrganizations: async () => [{ id: 1, name: 'DALLÉ CONSTRUTORA' }],
+    openTicketsForOrganization: async () =>
+      [ticket(100, '2026-09-01T00:00:00Z'), ticket(200, '2026-09-20T00:00:00Z')],
+  });
+  expect(await searchPortfolio('dalle', orgPath)).toMatchObject({ kind: 'cards', name: 'dalle', displayName: 'DALLÉ CONSTRUTORA' });
+
+  const single = deps({
+    searchOrganizations: async () => [{ id: 1, name: 'DALLÉ CONSTRUTORA' }],
+    openTicketsForOrganization: async () => [ticket(100, '2026-09-01T00:00:00Z')],
+  });
+  expect(await searchPortfolio('dalle', single)).toMatchObject({ kind: 'bind', displayName: 'DALLÉ CONSTRUTORA' });
+
+  const textPath = deps({ searchActiveByText: async () =>
+    [{ issueKey: 'MDO-9', summary: 'x', status: 's', updatedAt: '2026-09-25T00:00:00Z' }] });
+  expect(await searchPortfolio('Obra X', textPath)).toMatchObject({ kind: 'cards', displayName: 'Obra X' });
+
+  // an org that resolved but has no open tickets falls to text search: typed name again
+  const emptyOrg = deps({
+    searchOrganizations: async () => [{ id: 1, name: 'DALLÉ CONSTRUTORA' }],
+    searchActiveByText: async () =>
+      [{ issueKey: 'MDO-9', summary: 'x', status: 's', updatedAt: '2026-09-25T00:00:00Z' }],
+  });
+  expect(await searchPortfolio('dalle', emptyOrg)).toMatchObject({ kind: 'cards', displayName: 'dalle' });
+});
+
 it('two orgs with the very same name stay a choice', async () => {
   const d = deps({ searchOrganizations: async () => [{ id: 1, name: 'Norte' }, { id: 2, name: 'norte' }] });
   expect((await searchPortfolio('norte', d)).kind).toBe('orgs');
