@@ -192,11 +192,13 @@ export class JiraClient {
   }
 
   async searchByZendeskIds(ticketIds: string[]): Promise<Array<JiraCardSummary & { zendeskId: string }>> {
-    if (ticketIds.length === 0) {
+    // Filter to only valid numeric IDs; drop hostile input like '1" OR project=SEC OR cf[10356] ~ "2'
+    const validIds = ticketIds.filter((id) => /^\d+$/.test(id));
+    if (validIds.length === 0) {
       return [];
     }
     const cfNumber = this.cfg.zendeskIdField.replace('customfield_', '');
-    const orClauses = ticketIds.map((id) => `cf[${cfNumber}] ~ "${id}"`).join(' OR ');
+    const orClauses = validIds.map((id) => `cf[${cfNumber}] ~ "${id}"`).join(' OR ');
     const jql = `project in (${this.cfg.allowedProjects.join(',')}) AND (${orClauses})`;
     const raw = (await this.get(
       `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated,${this.cfg.zendeskIdField}&maxResults=25`,

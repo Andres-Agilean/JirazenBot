@@ -122,6 +122,8 @@ describe('JiraClient', () => {
     const result = await new JiraClient(testConfig, f).searchActiveByText('obra "x" OR project=SEC');
     expect(calls[0]).toContain('text ~ "obra x OR project=SEC"');   // quotes stripped, value stays inside ONE string
     expect(calls[0]).toContain('resolution is EMPTY');
+    expect(calls[0]).toContain('fields=summary,status,updated');
+    expect(calls[0]).toContain('maxResults=25');
     expect(result).toEqual([{ issueKey: 'AGL-900', summary: 'Relatório', status: 'Em Teste', updatedAt: '2026-09-28T10:00:00.000-0300' }]);
   });
 
@@ -137,6 +139,25 @@ describe('JiraClient', () => {
         fields: { summary: 'Crash', status: { name: 'Done' }, updated: '2026-09-01T10:00:00.000-0300', customfield_10356: '16467' } }] }), { status: 200 }); }) as any;
     const result = await new JiraClient(testConfig, f).searchByZendeskIds(['16467', '16468']);
     expect(calls[0]).toContain('cf[10356] ~ "16467" OR cf[10356] ~ "16468"');
+    expect(calls[0]).toContain('fields=summary,status,updated,customfield_10356');
+    expect(calls[0]).toContain('maxResults=25');
     expect(result[0]).toMatchObject({ issueKey: 'QZ-252', zendeskId: '16467' });
+  });
+
+  it('searchByZendeskIds drops hostile ids and returns [] without a request when only hostile ids are provided', async () => {
+    const f: typeof fetch = (async () => { throw new Error('must not be called'); }) as any;
+    expect(await new JiraClient(testConfig, f).searchByZendeskIds(['1" OR project=SEC OR cf[10356] ~ "2'])).toEqual([]);
+  });
+
+  it('searchByZendeskIds drops hostile ids when mixed with valid ids', async () => {
+    const calls: string[] = [];
+    const f: typeof fetch = (async (url: any) => { calls.push(decodeURIComponent(String(url)));
+      return new Response(JSON.stringify({ issues: [{ id: '1', key: 'QZ-252',
+        fields: { summary: 'Crash', status: { name: 'Done' }, updated: '2026-09-01T10:00:00.000-0300', customfield_10356: '16467' } }] }), { status: 200 }); }) as any;
+    const result = await new JiraClient(testConfig, f).searchByZendeskIds(['16467', '1" OR project=SEC OR cf[10356] ~ "2']);
+    // Only the valid ID should be in the query
+    expect(calls[0]).toContain('cf[10356] ~ "16467"');
+    expect(calls[0]).not.toContain('OR project=SEC');
+    expect(result).toHaveLength(1);
   });
 });
