@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CLAUDE_UNAVAILABLE, handleMessage, handleRefresh, handleSelect, JIRA_UNAVAILABLE, NOT_SPLIT, NO_THREAD_TO_REJOIN, NOTHING_BOUND,
   SEARCH_NONE, SEARCH_UNAVAILABLE, SELECTION_INVALID, HELP_TEXT, handleSwitchBuscar, handleSwitchContinuar,
+  handleReminderPick,
   type HandleDeps, type Incoming,
 } from '@/teams/handleMessage.js';
+import {
+  NOT_IN_ORG, NOTE_TOO_LONG, NOTE_MAX_CHARS, NO_ASSIGNEE_REPLY, REMINDER_NEEDS_CARD, REMIND_PICK_ACTION,
+  REMIND_SEND_ACTION, REMINDER_EXPIRED, UNCONFIGURED_DIRECTORY,
+} from '@/teams/reminder.js';
+import { DIRECTORY_UNAVAILABLE, type DirectoryUser } from '@/msgraph/directory.js';
 import { BUSCAR_ACTION, CONTINUAR_ACTION } from '@/teams/rundown.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
 import { renderRundown, SECTION_LINE_CAP, STALE_AFTER_DAYS } from '@/teams/rundown.js';
@@ -1811,5 +1817,139 @@ describe('move-on semantics and vocabulary-aware switching (spec §11.2)', () =>
     expect(byAssignee[0].kind).toBe('card');
     expect(textOf(byAssignee[0])).toContain('João Silva — 1');
     expect(answered.length).toBe(before);
+  });
+});
+
+describe('lembrar responsável (reminder spec §3-§5)', () => {
+  const joao: DirectoryUser = { id: 'g1', displayName: 'João Silva', mail: 'joao@org.com' };
+  const joao2: DirectoryUser = { id: 'g2', displayName: 'João Silva', mail: null };
+
+  function assigneeBundle(assignee: unknown): CardBundle {
+    const base = bundleFor('QZ-252');
+    return { ...base, jira: { ...base.jira!, fields: { summary: 'Erro no relatório', assignee } } } as CardBundle;
+  }
+
+  /** A DM bound to QZ-252 whose Jira assignee is `assignee`, with a spied directory. */
+  async function bound(assignee: unknown, users: DirectoryUser[] | Error) {
+    const searchByName = vi.fn(async (_q: string) => {
+      if (users instanceof Error) throw users;
+      return users;
+    });
+    const made = makeDeps({
+      loadBundle: async () => ({ status: 'ok', bundle: assigneeBundle(assignee) } as AssembleResult),
+      directory: { searchByName },
+    });
+    await handleMessage(dm('QZ-252'), made.deps);
+    return { ...made, searchByName };
+  }
+
+  const joaoAssignee = { displayName: 'João Silva' };
+
+  it('without a card explains how to start', async () => {
+    const { deps } = makeDeps();
+    const replies = await handleMessage(dm('lembrar responsável'), deps);
+    expect(replies).toEqual([{ kind: 'text', text: REMINDER_NEEDS_CARD }]);
+  });
+
+  it('an over-long note answers NOTE_TOO_LONG, no directory call', async () => {
+    const { deps, searchByName } = await bound(joaoAssignee, [joao]);
+    const replies = await handleMessage(dm(`lembrar responsável: ${'x'.repeat(NOTE_MAX_CHARS + 1)}`), deps);
+    expect(replies).toEqual([{ kind: 'text', text: NOTE_TOO_LONG }]);
+    expect(searchByName).not.toHaveBeenCalled();
+  });
+
+  it('bound card without assignee answers NO_ASSIGNEE_REPLY, no directory call', async () => {
+    const { deps, searchByName } = await bound(null, [joao]);
+    const replies = await handleMessage(dm('lembrar responsável'), deps);
+    expect(replies).toEqual([{ kind: 'text', text: NO_ASSIGNEE_REPLY }]);
+    expect(searchByName).not.toHaveBeenCalled();
+  });
+
+  it('one directory match -> confirmation card with the note, nothing sent', async () => {
+    const { deps, answered } = await bound(joaoAssignee, [joao]);
+    const before = answered.length;
+    const [reply] = await handleMessage(dm('lembrar responsável: reunião às 10h'), deps);
+    expect(reply.kind).toBe('card');
+    const card = JSON.stringify((reply as { card: unknown }).card);
+    for (const s of [REMIND_SEND_ACTION, 'João Silva', 'joao@org.com', 'QZ-252', 'Erro no relatório', 'reunião às 10h']) {
+      expect(card).toContain(s);
+    }
+    expect(textOf(reply)).toContain('Enviar lembrete para **João Silva**');
+    expect(answered.length).toBe(before); // never reaches Claude
+  });
+
+  it('several matches -> pick card, one button per candidate', async () => {
+    const { deps } = await bound(joaoAssignee, [joao, joao2]);
+    const [reply] = await handleMessage(dm('lembrar responsável'), deps);
+    expect(reply.kind).toBe('card');
+    const card = (reply as unknown as { card: { actions: { verb: string }[] } }).card;
+    expect(card.actions.filter((a) => a.verb === REMIND_PICK_ACTION)).toHaveLength(2);
+    expect(textOf(reply)).toContain('sem e-mail');
+  });
+
+  it('zero matches -> NOT_IN_ORG with the assignee name', async () => {
+    const { deps } = await bound(joaoAssignee, []);
+    const replies = await handleMessage(dm('lembrar responsável'), deps);
+    expect(replies).toEqual([{ kind: 'text', text: NOT_IN_ORG('João Silva') }]);
+  });
+
+  it('directory throwing -> DIRECTORY_UNAVAILABLE, no error text leaks', async () => {
+    const { deps } = await bound(joaoAssignee, new Error('boom graph 500'));
+    const replies = await handleMessage(dm('lembrar responsável'), deps);
+    expect(replies).toEqual([{ kind: 'text', text: DIRECTORY_UNAVAILABLE }]);
+  });
+
+  it('deps.directory undefined -> unconfigured reply (spec §7)', async () => {
+    const { deps } = makeDeps({
+      loadBundle: async () => ({ status: 'ok', bundle: assigneeBundle(joaoAssignee) } as AssembleResult),
+    });
+    await handleMessage(dm('QZ-252'), deps);
+    const replies = await handleMessage(dm('lembrar responsável'), deps);
+    expect(replies).toEqual([{ kind: 'text', text: UNCONFIGURED_DIRECTORY }]);
+    expect(UNCONFIGURED_DIRECTORY).toContain('indisponível neste ambiente');
+  });
+
+  it('a genuine question mentioning lembrar is NOT the command', async () => {
+    const { deps, answered, searchByName } = await bound(joaoAssignee, [joao]);
+    const replies = await handleMessage(dm('como faço para lembrar o responsável?'), deps);
+    expect(answered).toContain('como faço para lembrar o responsável?');
+    expect(searchByName).not.toHaveBeenCalled();
+    expect(textOf(replies[0])).toContain('resposta para');
+  });
+
+  describe('handleReminderPick', () => {
+    const conv = { conversationId: CONV, conversationType: 'personal', userId: 'u' };
+    const pick = { action: REMIND_PICK_ACTION, userId: 'g2', userName: 'João Silva', userMail: null, cardKey: 'QZ-252', note: 'oi' };
+
+    it('a pick answers with the same confirmation card for the picked user', async () => {
+      const { deps } = await bound(joaoAssignee, [joao, joao2]);
+      const [reply] = await handleReminderPick(conv, pick, deps);
+      expect(reply.kind).toBe('card');
+      const card = (reply as unknown as { card: { actions: { verb: string; data: Record<string, unknown> }[] } }).card;
+      const send = card.actions.find((a) => a.verb === REMIND_SEND_ACTION);
+      expect(send?.data).toMatchObject({ userId: 'g2', userMail: null, cardKey: 'QZ-252', note: 'oi' });
+      expect(textOf(reply)).toContain('sem e-mail');
+      expect(textOf(reply)).toContain('Erro no relatório');
+    });
+
+    it.each([
+      ['a non-object', 'x'], ['null', null],
+      ['a missing userId', { ...pick, userId: undefined }],
+      ['a blank userName', { ...pick, userName: '  ' }],
+      ['a numeric mail', { ...pick, userMail: 5 }],
+      ['a numeric note', { ...pick, note: 5 }],
+      ['a missing cardKey', { ...pick, cardKey: undefined }],
+    ])('malformed payload (%s) -> SELECTION_INVALID', async (_n, data) => {
+      const { deps } = await bound(joaoAssignee, [joao]);
+      expect(await handleReminderPick(conv, data, deps)).toEqual([{ kind: 'text', text: SELECTION_INVALID }]);
+    });
+
+    it('nothing bound, or a different card bound -> REMINDER_EXPIRED', async () => {
+      const { deps } = makeDeps();
+      expect(await handleReminderPick(conv, pick, deps)).toEqual([{ kind: 'text', text: REMINDER_EXPIRED }]);
+      const b = await bound(joaoAssignee, [joao]);
+      const other = { ...pick, cardKey: 'QZ-999' };
+      expect(await handleReminderPick(conv, other, b.deps)).toEqual([{ kind: 'text', text: REMINDER_EXPIRED }]);
+    });
   });
 });

@@ -96,7 +96,7 @@ export function statusColor(status: string): StatusColor {
   return 'default';
 }
 
-const subtle = (text: string): Record<string, unknown> => ({ type: 'TextBlock', text, wrap: true, isSubtle: true });
+export const subtle = (text: string): Record<string, unknown> => ({ type: 'TextBlock', text, wrap: true, isSubtle: true });
 
 /** The two TextBlocks of one card line: bold linked key + summary, then a subtle colored status line. */
 function cardBlocks(c: CardCandidate, cfg: Config): Record<string, unknown>[] {
@@ -128,7 +128,7 @@ const titleBlock = (name: string, total: number): Record<string, unknown> => (
   { type: 'TextBlock', text: `${name} — ${countLabel(total)}`, wrap: true, weight: 'Bolder', size: 'Large' }
 );
 
-const adaptiveCard = (body: Record<string, unknown>[]): Record<string, unknown> => ({
+export const adaptiveCard = (body: Record<string, unknown>[]): Record<string, unknown> => ({
   $schema: ADAPTIVE_CARD_SCHEMA,
   type: 'AdaptiveCard',
   version: ADAPTIVE_CARD_VERSION,

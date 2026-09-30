@@ -23,6 +23,12 @@ import {
 } from './rundown.js';
 import type { CardCandidate, SearchOutcome } from './search.js';
 import { surfaceFor } from './surface.js';
+import {
+  bundleAssignee, bundleSummary, buildReminderConfirmCard, buildReminderPickCard, NO_ASSIGNEE_REPLY, NOT_IN_ORG,
+  NOTE_TOO_LONG, parseLembrar, parseReminderPayload, REMINDER_EXPIRED, REMINDER_NEEDS_CARD, renderReminderConfirm,
+  renderReminderPick, resolveAssignee, UNCONFIGURED_DIRECTORY,
+} from './reminder.js';
+import { DIRECTORY_UNAVAILABLE, type DirectoryClientLike, type DirectoryUser } from '@/msgraph/directory.js';
 
 /**
  * What the SDK-agnostic layer needs off an incoming activity. `conversationType` is carried
@@ -49,6 +55,8 @@ export interface HandleDeps {
   answerPortfolioFn: (rendered: string, question: string, history: Turn[]) => Promise<Answer>;
   /** Portfolio search by company/client/project name (read-only against Jira and Zendesk). */
   search: (name: string) => Promise<SearchOutcome>;
+  /** Org directory for `lembrar responsável`; absent when Graph is not configured (spec §7). */
+  directory?: DirectoryClientLike;
   /**
    * Overridable for tests only (e.g. to exercise the "card builder throws" fallback path,
    * spec §7). Production code always falls through to `buildAnswerCard`.
@@ -514,6 +522,67 @@ async function askPortfolio(
   }
 }
 
+/** The confirmation card reply for one resolved person: the single builder behind both the single-match and pick paths. */
+function confirmReply(user: DirectoryUser, binding: Binding, note: string | undefined): Reply {
+  const key = cardLabel(binding.bundle);
+  const summary = bundleSummary(binding.bundle);
+  return {
+    kind: 'card',
+    card: buildReminderConfirmCard(user, key, summary, note),
+    fallbackText: renderReminderConfirm(user, key, summary, note),
+  };
+}
+
+/**
+ * `lembrar responsável` (reminder spec §3-§5): resolves the bound card's assignee in the org
+ * directory and answers with a confirmation (one match), a clarification (several) or an honest
+ * reply. Never sends anything -- delivery waits for the confirmation click.
+ */
+async function remindAssignee(
+  parsed: NonNullable<ReturnType<typeof parseLembrar>>,
+  existing: Binding | undefined,
+  deps: HandleDeps,
+): Promise<Reply> {
+  const text = (t: string): Reply => ({ kind: 'text', text: t });
+  if (!existing) return text(REMINDER_NEEDS_CARD);
+  if (parsed.tooLong) return text(NOTE_TOO_LONG);
+  const name = bundleAssignee(existing.bundle);
+  if (!name) return text(NO_ASSIGNEE_REPLY);
+  if (!deps.directory) return text(UNCONFIGURED_DIRECTORY);
+  let users: DirectoryUser[];
+  try {
+    users = await resolveAssignee(name, deps.directory);
+  } catch {
+    return text(DIRECTORY_UNAVAILABLE);
+  }
+  if (users.length === 0) return text(NOT_IN_ORG(name));
+  if (users.length === 1) return confirmReply(users[0]!, existing, parsed.note);
+  const key = cardLabel(existing.bundle);
+  return {
+    kind: 'card',
+    card: buildReminderPickCard(users, key, parsed.note),
+    fallbackText: renderReminderPick(users, key, parsed.note),
+  };
+}
+
+/**
+ * The pick card's button: answers with the same confirmation card for the chosen person. The
+ * payload's card must still be the bound one -- otherwise the summary would describe a different
+ * card than the one being confirmed, so a moved-on or expired binding says so (spec §5).
+ */
+export async function handleReminderPick(
+  incoming: RefreshRequest,
+  data: unknown,
+  deps: HandleDeps,
+): Promise<Reply[]> {
+  const payload = parseReminderPayload(data);
+  if (!payload) return [{ kind: 'text', text: SELECTION_INVALID }];
+  const { existing } = await resolveSlots(incoming, deps);
+  if (!existing || cardLabel(existing.bundle) !== payload.cardKey) return [{ kind: 'text', text: REMINDER_EXPIRED }];
+  const user: DirectoryUser = { id: payload.userId, displayName: payload.userName, mail: payload.userMail };
+  return [confirmReply(user, existing, payload.note)];
+}
+
 /**
  * The whole DM pipeline (Phase 3 spec §5). Returns replies as data so the Teams SDK stays in
  * app.ts and this is testable offline.
@@ -550,6 +619,10 @@ export async function handleMessage(
     await deps.store.delete(personalSlot);
     return [{ kind: 'text', text: `${REJOINED_THREAD}\n\n${formatFooter(sharedBinding, deps.cfg)}` }];
   }
+
+  // 1a. `lembrar responsável`: a whole-message command on the bound card (reminder spec §3).
+  const lembrar = parseLembrar(text);
+  if (lembrar) return [await remindAssignee(lembrar, existing, deps)];
 
   // 1b. Explicit search: works with or without a binding and never unbinds.
   const buscarName = parseBuscar(text);
