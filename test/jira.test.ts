@@ -113,4 +113,30 @@ describe('JiraClient', () => {
     expect(jql).toContain('cf[10356] ~ "16467"');
     expect(jql).toContain('project in (AGL,AI,MDO,QZ,SC)');
   });
+
+  it('searchActiveByText builds the JQL with sanitized text and maps results', async () => {
+    const calls: string[] = [];
+    const f: typeof fetch = (async (url: any) => { calls.push(decodeURIComponent(String(url)));
+      return new Response(JSON.stringify({ issues: [{ id: '1', key: 'AGL-900',
+        fields: { summary: 'Relatório', status: { name: 'Em Teste' }, updated: '2026-09-28T10:00:00.000-0300' } }] }), { status: 200 }); }) as any;
+    const result = await new JiraClient(testConfig, f).searchActiveByText('obra "x" OR project=SEC');
+    expect(calls[0]).toContain('text ~ "obra x OR project=SEC"');   // quotes stripped, value stays inside ONE string
+    expect(calls[0]).toContain('resolution is EMPTY');
+    expect(result).toEqual([{ issueKey: 'AGL-900', summary: 'Relatório', status: 'Em Teste', updatedAt: '2026-09-28T10:00:00.000-0300' }]);
+  });
+
+  it('searchByZendeskIds returns [] without a request for empty input', async () => {
+    const f: typeof fetch = (async () => { throw new Error('must not be called'); }) as any;
+    expect(await new JiraClient(testConfig, f).searchByZendeskIds([])).toEqual([]);
+  });
+
+  it('searchByZendeskIds ORs the ids into one query and carries the zendesk id back', async () => {
+    const calls: string[] = [];
+    const f: typeof fetch = (async (url: any) => { calls.push(decodeURIComponent(String(url)));
+      return new Response(JSON.stringify({ issues: [{ id: '1', key: 'QZ-252',
+        fields: { summary: 'Crash', status: { name: 'Done' }, updated: '2026-09-01T10:00:00.000-0300', customfield_10356: '16467' } }] }), { status: 200 }); }) as any;
+    const result = await new JiraClient(testConfig, f).searchByZendeskIds(['16467', '16468']);
+    expect(calls[0]).toContain('cf[10356] ~ "16467" OR cf[10356] ~ "16468"');
+    expect(result[0]).toMatchObject({ issueKey: 'QZ-252', zendeskId: '16467' });
+  });
 });

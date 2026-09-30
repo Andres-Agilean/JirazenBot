@@ -77,6 +77,7 @@ export const JIRA_FIELD_LABELS: Record<string, JiraFieldMeta> = {
 
 export interface JiraComment { id: string; author: string; createdAt: string; body: unknown }
 export interface RawChangelogEntry { at: string; by: string; items: { field: string; fromString: string | null; toString: string | null }[] }
+export interface JiraCardSummary { issueKey: string; summary: string; status: string; updatedAt: string }
 export interface JiraIssue {
   issueId: string;
   issueKey: string;
@@ -84,6 +85,10 @@ export interface JiraIssue {
   comments: JiraComment[];
   changelog: RawChangelogEntry[];
   olderCommentsOmitted?: boolean;
+}
+
+export function sanitizeJqlText(text: string): string {
+  return text.replace(/["\\]/g, '');
 }
 
 export class JiraClient {
@@ -170,5 +175,38 @@ export class JiraClient {
       `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary&maxResults=10`,
     )) as { issues?: { id: string; key: string }[] };
     return (raw.issues ?? []).map((i) => ({ issueId: i.id, issueKey: i.key }));
+  }
+
+  async searchActiveByText(text: string): Promise<JiraCardSummary[]> {
+    const sanitized = sanitizeJqlText(text);
+    const jql = `text ~ "${sanitized}" AND project in (${this.cfg.allowedProjects.join(',')}) AND resolution is EMPTY ORDER BY updated DESC`;
+    const raw = (await this.get(
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated&maxResults=25`,
+    )) as { issues?: { key: string; fields: { summary: string; status?: { name?: string }; updated: string } }[] };
+    return (raw.issues ?? []).map((i) => ({
+      issueKey: i.key,
+      summary: i.fields.summary,
+      status: i.fields.status?.name ?? '',
+      updatedAt: i.fields.updated,
+    }));
+  }
+
+  async searchByZendeskIds(ticketIds: string[]): Promise<Array<JiraCardSummary & { zendeskId: string }>> {
+    if (ticketIds.length === 0) {
+      return [];
+    }
+    const cfNumber = this.cfg.zendeskIdField.replace('customfield_', '');
+    const orClauses = ticketIds.map((id) => `cf[${cfNumber}] ~ "${id}"`).join(' OR ');
+    const jql = `project in (${this.cfg.allowedProjects.join(',')}) AND (${orClauses})`;
+    const raw = (await this.get(
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated,${this.cfg.zendeskIdField}&maxResults=25`,
+    )) as { issues?: { key: string; fields: { summary: string; status?: { name?: string }; updated: string; [key: string]: unknown } }[] };
+    return (raw.issues ?? []).map((i) => ({
+      issueKey: i.key,
+      summary: i.fields.summary,
+      status: i.fields.status?.name ?? '',
+      updatedAt: i.fields.updated,
+      zendeskId: String(i.fields[this.cfg.zendeskIdField] ?? ''),
+    }));
   }
 }
