@@ -91,6 +91,19 @@ a rundown **rendered directly from the search results — no Claude call**:
 - A rundown never binds. Selecting/naming one of its cards afterwards binds it (via §5's typed
   match or a normal reference).
 
+## 6a. Query weight budget (owner requirement, 2026-09-30)
+
+Searches must stay lightweight to avoid bottlenecks and vendor rate limits:
+
+- One search costs **at most 3 HTTP GETs** (org autocomplete → org tickets → one batched
+  Zendesk-id JQL); the text path costs 2. No per-ticket resolver calls, ever.
+- First page only, results capped at the source (5 orgs / 25 tickets/cards), responses
+  field-limited to what the rundown shows.
+- **No client-side retries** in the search path: a 429/5xx becomes the pt-BR unavailable reply
+  immediately (systematic backoff remains Phase 5).
+- The orchestrator memoizes outcomes per normalized name for **60 seconds**, so an identical
+  repeated search (a retry, or a second person in the channel) costs zero vendor calls.
+
 ## 7. Surfaces, budget, failure modes
 
 - **Multiparty-safe:** rundowns and candidate lists contain only subjects, statuses and dates —
