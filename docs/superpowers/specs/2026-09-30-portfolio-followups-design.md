@@ -112,3 +112,19 @@ card-answer prompt and its eval cases; read-only, never-silent, pt-BR, SDK-only-
 Free-form portfolio Q&A while a card is bound (needs its own precedence design); portfolio
 refresh button; cross-portfolio comparisons ("Dallé vs Norte"); persisting portfolio contexts
 beyond the in-memory store.
+
+## 3a. Context switching (owner requirement, 2026-09-30)
+
+Users hop contexts rapidly — company A → project B → follow-up on B → company C. Rules:
+
+- **The detector (and `buscar`) precede Claude-over-portfolio** in the unbound path: a
+  portfolio-shaped question naming an entity ALWAYS runs a new search, replacing the context
+  (one context per shared slot; last search wins). Follow-up history resets with the new
+  context.
+- A follow-up WITHOUT an entity name ("e quantos estão bloqueados?", "resume") never matches
+  the detector (it requires anchor + name) and stays on the current context — that is what
+  makes "follow-up on B" work right after switching to B.
+- Re-asking a recent entity ("e a Dallé de novo?") is just a new search: the 60-second memo
+  makes back-and-forth switches free, and beyond it the §6a budget (≤3 GETs) keeps them cheap.
+  No multi-context store — sequential replacement covers the flow.
+- Bound-card precedence is unaffected: all of this lives in the no-card-bound path.
