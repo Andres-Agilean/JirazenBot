@@ -76,7 +76,7 @@ export const NO_THREAD_TO_REJOIN =
   'Não há um card da conversa para eu voltar. Sua consulta separada continua valendo.';
 
 export const SEARCH_NONE = (name: string) =>
-  `Não encontrei cards ativos para "${name}". Tente outro nome, ou use \`buscar <nome>\`.`;
+  `Não encontrei atividades abertas para "${name}". Tente outro nome, ou use \`buscar <nome>\`.`;
 
 export const SEARCH_UNAVAILABLE = 'Não consegui buscar agora. Tente novamente em instantes.';
 
@@ -96,7 +96,7 @@ export const HELP_TEXT = [
   '**Comandos**',
   '`ajuda` — esta mensagem',
   '`atualizar` — busca os dados mais recentes do card',
-  '`buscar <nome>` — procura cards ativos por empresa, cliente ou obra',
+  '`buscar <nome>` — procura atividades abertas por empresa, cliente ou obra',
   '`voltar` — encerra sua consulta separada e volta para o card da conversa',
 ].join('\n');
 

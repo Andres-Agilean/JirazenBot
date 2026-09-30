@@ -848,6 +848,12 @@ describe('busca de portfólio', () => {
     expect(textOf(replies[0])).toBe(NOTHING_BOUND);
   });
 
+  it('uses "atividades abertas" terminology in SEARCH_NONE and the help text', () => {
+    expect(SEARCH_NONE('norte')).toBe('Não encontrei atividades abertas para "norte". Tente outro nome, ou use `buscar <nome>`.');
+    expect(HELP_TEXT).toContain('`buscar <nome>` — procura atividades abertas por empresa, cliente ou obra');
+    expect(HELP_TEXT).not.toContain('cards ativos');
+  });
+
   it('HELP_TEXT mentions buscar', () => {
     expect(HELP_TEXT).toContain('`buscar <nome>`');
   });
