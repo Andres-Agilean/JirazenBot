@@ -10,10 +10,12 @@ describe('eval portfolio fixture', () => {
   it('has the known, uncapped aggregates the cases assert against', () => {
     expect(a.total).toBe(8);
     expect(a.capped).toBe(false);
-    expect(a.byStatus).toEqual([
+    expect(a.jiraByStatus).toEqual([
       { status: 'Pronto para Delivery', count: 3 },
       { status: 'Done', count: 2 },
       { status: 'Blocked', count: 1 },
+    ]);
+    expect(a.zendeskByStatus).toEqual([
       { status: 'new', count: 1 },
       { status: 'open', count: 1 },
     ]);

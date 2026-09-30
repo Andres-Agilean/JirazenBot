@@ -1,17 +1,20 @@
 import { CARD_FETCH_CAP } from '@/fetch/zendesk.js';
 import { normalizeText } from '@/text/normalize.js';
+import { assigneeBuckets, statusBuckets, type DistributionDimension } from './grouping.js';
 import { collectedAt } from './reply.js';
 import { STALE_AFTER_DAYS, dayMonth } from './rundown.js';
 import type { CardCandidate } from './search.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** Assignee bucket for Jira cards nobody owns and for Zendesk tickets (no assignee lookup). */
-export const NO_ASSIGNEE = 'sem responsável';
+
+export type StatusCount = { status: string; count: number };
 
 export interface PortfolioAggregates {
   total: number; // pre-cap total from the search outcome
   capped: boolean; // total >= CARD_FETCH_CAP
-  byStatus: Array<{ status: string; count: number }>; // desc by count, verbatim status strings
+  // Desc by count, verbatim status strings; split because the two systems' nomenclatures differ.
+  jiraByStatus: StatusCount[];
+  zendeskByStatus: StatusCount[];
   byAssignee: Array<{ assignee: string; count: number }>; // desc; NO_ASSIGNEE for absent
   jiraCount: number;
   zendeskCount: number;
@@ -23,22 +26,17 @@ export interface PortfolioAggregates {
 /** Unparseable timestamps are skipped for ordering (a missing date is not "oldest"). */
 const instant = (c: CardCandidate): number => Date.parse(c.updatedAt);
 
-/** Tally `keys`, count desc then label asc, so equal counts never reorder between renders. */
-function tally(keys: string[]): Array<{ key: string; count: number }> {
-  const counts = new Map<string, number>();
-  for (const k of keys) counts.set(k, (counts.get(k) ?? 0) + 1);
-  return [...counts]
-    .map(([key, count]) => ({ key, count }))
-    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
-}
+const statusCounts = (cards: CardCandidate[], system: CardCandidate['ref']['system']): StatusCount[] =>
+  statusBuckets(cards, system).map(({ key, items }) => ({ status: key, count: items.length }));
 
 export function computeAggregates(cards: CardCandidate[], total: number, nowMs: number): PortfolioAggregates {
   const dated = cards.filter((c) => !Number.isNaN(instant(c))).sort((a, b) => instant(a) - instant(b));
   return {
     total,
     capped: total >= CARD_FETCH_CAP,
-    byStatus: tally(cards.map((c) => c.status)).map(({ key, count }) => ({ status: key, count })),
-    byAssignee: tally(cards.map((c) => c.assignee || NO_ASSIGNEE)).map(({ key, count }) => ({ assignee: key, count })),
+    jiraByStatus: statusCounts(cards, 'jira'),
+    zendeskByStatus: statusCounts(cards, 'zendesk'),
+    byAssignee: assigneeBuckets(cards).map(({ key, items }) => ({ assignee: key, count: items.length })),
     jiraCount: cards.filter((c) => c.ref.system === 'jira').length,
     zendeskCount: cards.filter((c) => c.ref.system === 'zendesk').length,
     stale: dated.filter((c) => nowMs - instant(c) > STALE_AFTER_DAYS * DAY_MS),
@@ -56,8 +54,13 @@ const totalLine = (a: PortfolioAggregates): string =>
   a.capped ? countPhrase(a) : `${countPhrase(a)} (Jira: ${a.jiraCount}, Zendesk: ${a.zendeskCount})`;
 
 const joinCounts = (items: Array<[string, number]>): string => items.map(([k, n]) => `${k}: ${n}`).join('; ');
-const statusLine = (a: PortfolioAggregates): string =>
-  `- por status: ${joinCounts(a.byStatus.map((s) => [s.status, s.count]))}`;
+/** One `- por status (<system>): …` line per system that has items; none for an empty system. */
+const statusLines = (a: PortfolioAggregates): string[] => {
+  const systems: Array<[string, StatusCount[]]> = [['Jira', a.jiraByStatus], ['Zendesk', a.zendeskByStatus]];
+  return systems
+    .filter(([, list]) => list.length > 0)
+    .map(([label, list]) => `- por status (${label}): ${joinCounts(list.map((s) => [s.status, s.count]))}`);
+};
 const assigneeLine = (a: PortfolioAggregates): string =>
   `- por responsável: ${joinCounts(a.byAssignee.map((s) => [s.assignee, s.count]))}`;
 
@@ -80,7 +83,7 @@ export function renderPortfolio(
   collectedAtMs: number,
 ): string {
   const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
-  const stats = [`- total: ${totalLine(aggregates)}`, statusLine(aggregates), assigneeLine(aggregates)];
+  const stats = [`- total: ${totalLine(aggregates)}`, ...statusLines(aggregates), assigneeLine(aggregates)];
   if (aggregates.stale.length > 0) {
     const stale = aggregates.stale.map((c) => `${c.label} (desde ${dayMonth(c.updatedAt)})`).join(', ');
     stats.push(`- paradas há mais de ${STALE_AFTER_DAYS} dias: ${stale}`);
@@ -101,7 +104,8 @@ export function renderPortfolio(
 
 export type Followup =
   | { kind: 'expand'; section: 'jira' | 'zendesk' | 'all' }
-  | { kind: 'counts'; status?: string };
+  | { kind: 'counts'; status?: string }
+  | { kind: 'distribution'; dimension: DistributionDimension };
 
 /**
  * Status words a user may follow `quantos` with -> normalized substrings a card status must
@@ -122,8 +126,21 @@ export const STATUS_FILTER_MARKERS: Record<string, string[]> = {
 };
 
 const EXPAND_SECTIONS = { jira: 'jira', zendesk: 'zendesk' } as const;
-const EXPAND_SECTION_RE = /^(?:todos os|todas as) de (jira|zendesk)$/;
-const EXPAND_ALL_RE = /^mostr(?:a|ar) tudo$/;
+/** Leading words a user puts before a follow-up ("quero ver ...", "me mostra ..."); longest first. */
+const FILLERS = [
+  'quero ver', 'queria ver', 'quero', 'queria', 'me mostra', 'me mostre',
+  'mostrar', 'mostra', 'mostre', 'ver', 'exibe', 'exiba', 'listar', 'lista', 'liste',
+];
+const FILLER = `(?:(?:${FILLERS.join('|')}) )`;
+/** Verbs that introduce a distribution ("divide por status"). */
+const DISTRIBUTION_VERBS = ['divide', 'divida', 'dividir', 'distribui', 'distribuicao', 'quantos', 'quantas'];
+const DISTRIBUTION_DIMENSIONS = { status: 'status', responsaveis: 'assignee', responsavel: 'assignee' } as const;
+
+const EXPAND_SECTION_RE = new RegExp(`^${FILLER}?(?:todos os|todas as) (?:de|do|da) (jira|zendesk)$`);
+const EXPAND_ALL_RE = new RegExp(`^${FILLER}tudo$`);
+const DISTRIBUTION_RE = new RegExp(
+  `^${FILLER}?(?:(?:${DISTRIBUTION_VERBS.join('|')}) )?(?:por|pelos?) (status|responsaveis|responsavel)$`,
+);
 const COUNTS_RE = new RegExp(`^quant(?:os|as)(?: (${Object.keys(STATUS_FILTER_MARKERS).join('|')}))?$`);
 
 /**
@@ -133,6 +150,11 @@ const COUNTS_RE = new RegExp(`^quant(?:os|as)(?: (${Object.keys(STATUS_FILTER_MA
  */
 export function parseFollowup(text: string): Followup | null {
   const t = normalizeText(text).replace(/\s+/g, ' ').trim().replace(/[?!.]+$/, '').trim();
+  // Before counts: "quantos por status" is a distribution, not a count.
+  const distribution = DISTRIBUTION_RE.exec(t);
+  if (distribution) {
+    return { kind: 'distribution', dimension: DISTRIBUTION_DIMENSIONS[distribution[1] as keyof typeof DISTRIBUTION_DIMENSIONS] };
+  }
   const section = EXPAND_SECTION_RE.exec(t);
   if (section) return { kind: 'expand', section: EXPAND_SECTIONS[section[1] as keyof typeof EXPAND_SECTIONS] };
   if (EXPAND_ALL_RE.test(t)) return { kind: 'expand', section: 'all' };
@@ -150,7 +172,7 @@ export function renderCounts(name: string, a: PortfolioAggregates, status?: stri
       // Every listed activity is open: exact when uncapped, a lower bound (same frame as the total) when capped.
       lead = a.capped ? `${name} — ${countPhrase(a).replace(' atividades abertas', ` ${status}`)}` : `${name} — ${a.total} ${status}`;
     } else {
-      const sum = a.byStatus
+      const sum = [...a.jiraByStatus, ...a.zendeskByStatus]
         .filter((s) => markers.some((m) => normalizeText(s.status).includes(m)))
         .reduce((n, s) => n + s.count, 0);
       // Counted over fetched cards only, so a capped total says so instead of implying a global count.
@@ -159,5 +181,5 @@ export function renderCounts(name: string, a: PortfolioAggregates, status?: stri
         : `${name} — ${sum} ${status} (de ${countPhrase(a)})`;
     }
   }
-  return [`**${lead}**`, statusLine(a), assigneeLine(a)].join('\n');
+  return [`**${lead}**`, ...statusLines(a), assigneeLine(a)].join('\n');
 }

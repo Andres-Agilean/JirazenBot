@@ -33,11 +33,9 @@ describe('computeAggregates', () => {
   ];
   const a = computeAggregates(cards, 6, NOW);
 
-  it('counts by status, count desc then label asc, verbatim', () => {
-    expect(a.byStatus).toEqual([
-      { status: 'Done', count: 2 }, { status: 'open', count: 2 },
-      { status: 'Em Teste', count: 1 }, { status: 'new', count: 1 },
-    ]);
+  it('counts by status per system, count desc then label asc, verbatim', () => {
+    expect(a.jiraByStatus).toEqual([{ status: 'Done', count: 2 }, { status: 'Em Teste', count: 1 }]);
+    expect(a.zendeskByStatus).toEqual([{ status: 'open', count: 2 }, { status: 'new', count: 1 }]);
   });
   it('counts by assignee with sem responsável, ordered', () => {
     expect(a.byAssignee).toEqual([
@@ -83,7 +81,8 @@ describe('renderPortfolio', () => {
       '',
       '[estatísticas]',
       '- total: 3 atividades abertas (Jira: 1, Zendesk: 2)',
-      '- por status: new: 2; Done: 1',
+      '- por status (Jira): Done: 1',
+      '- por status (Zendesk): new: 2',
       '- por responsável: sem responsável: 2; Gabriel: 1',
       '- paradas há mais de 14 dias: chamado 16694 (desde 31/08)',
       '- mais recente: QZ-306 (29/09) · mais antiga: chamado 16694 (31/08)',
@@ -93,6 +92,16 @@ describe('renderPortfolio', () => {
       '[chamado 17063] — Assunto 17063 — new — atualizado 29/09',
       '[chamado 16694] — Assunto 16694 — new — atualizado 31/08',
     ]);
+  });
+  it('omits a system status line when that system has no items', () => {
+    const only = [jira('QZ-1')];
+    const t = renderPortfolio('X', only, computeAggregates(only, 1, NOW), NOW);
+    expect(t).toContain('- por status (Jira): Em Teste: 1');
+    expect(t).not.toContain('por status (Zendesk)');
+    const z = [zen('1')];
+    const tz = renderPortfolio('X', z, computeAggregates(z, 1, NOW), NOW);
+    expect(tz).toContain('- por status (Zendesk): new: 1');
+    expect(tz).not.toContain('por status (Jira)');
   });
   it('omits the stale line when nothing is stale', () => {
     const fresh = [jira('QZ-1')];
@@ -129,6 +138,23 @@ describe('parseFollowup', () => {
     ['quantos reprovados', { kind: 'counts', status: 'reprovados' }],
     ['  quantos   bloqueados ? ', { kind: 'counts', status: 'bloqueados' }],
     ['todos  os   de jira', { kind: 'expand', section: 'jira' }],
+    ['quero ver todos os de zendesk', { kind: 'expand', section: 'zendesk' }],
+    ['mostra todas as do jira', { kind: 'expand', section: 'jira' }],
+    ['Queria ver todos os da Zendesk?', { kind: 'expand', section: 'zendesk' }],
+    ['me mostre todos os de jira', { kind: 'expand', section: 'jira' }],
+    ['lista todas as de zendesk', { kind: 'expand', section: 'zendesk' }],
+    ['exibe todos os do jira', { kind: 'expand', section: 'jira' }],
+    ['quero ver tudo', { kind: 'expand', section: 'all' }],
+    ['me mostra tudo', { kind: 'expand', section: 'all' }],
+    ['me mostra por status', { kind: 'distribution', dimension: 'status' }],
+    ['Divide por responsável', { kind: 'distribution', dimension: 'assignee' }],
+    ['divida pelo status', { kind: 'distribution', dimension: 'status' }],
+    ['quantos por status?', { kind: 'distribution', dimension: 'status' }],
+    ['quantas por responsaveis', { kind: 'distribution', dimension: 'assignee' }],
+    ['distribuição por status', { kind: 'distribution', dimension: 'status' }],
+    ['distribui pelos responsáveis', { kind: 'distribution', dimension: 'assignee' }],
+    ['por status', { kind: 'distribution', dimension: 'status' }],
+    ['quero ver por responsável', { kind: 'distribution', dimension: 'assignee' }],
   ])('matches %s', (text, expected) => {
     expect(parseFollowup(text)).toEqual(expected);
   });
@@ -144,6 +170,12 @@ describe('parseFollowup', () => {
     'quantos bloqueados abertos',
     'qual o status?',
     'quantos  casos   de teste passaram?',
+    'quero ver o que está bloqueado',
+    'quero ver todos os de zendesk por favor',
+    'mostra tudo sobre o chamado',
+    'me mostra por status dos chamados antigos',
+    'divide por responsável e depois explica',
+    'qual a distribuição por status do QZ-1?',
     '',
   ])('does not intercept %s', (text) => {
     expect(parseFollowup(text)).toBeNull();
@@ -162,8 +194,9 @@ describe('renderCounts', () => {
   it('without a filter leads with the total and lists breakdowns', () => {
     const lines = renderCounts('Acme', a).split('\n');
     expect(lines[0]).toBe('**Acme — 4 atividades abertas (Jira: 2, Zendesk: 2)**');
-    expect(lines[1]).toBe('- por status: Bloqueado: 1; Done: 1; open: 1; solved: 1');
-    expect(lines[2]).toBe('- por responsável: Ana: 2; sem responsável: 2');
+    expect(lines[1]).toBe('- por status (Jira): Bloqueado: 1; Done: 1');
+    expect(lines[2]).toBe('- por status (Zendesk): open: 1; solved: 1');
+    expect(lines[3]).toBe('- por responsável: Ana: 2; sem responsável: 2');
   });
   it('with a status filter leads with the matching sum', () => {
     expect(renderCounts('Acme', a, 'bloqueados').split('\n')[0])
