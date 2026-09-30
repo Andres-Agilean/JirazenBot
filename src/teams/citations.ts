@@ -46,5 +46,20 @@ export function compressCitations(text: string, bundle?: CardBundle): string {
         ? `[${shown} …${id.slice(-ZENDESK_ELIDED_TAIL_DIGITS)}]`
         : `[${shown} ${id}]`;
     })
-    .replace(/\[campo ([^\]]+)\]/g, '[$1]');
+    .replace(/\[campo ([^\]]+)\]/g, '[$1]')
+    .replace(STATS_PHRASE, '')
+    .replace(STATS_LABEL, (_match, before: string, after: string, punct: string, offset: number, whole: string) => {
+      if (punct) return punct;
+      return before || after ? (offset + _match.length >= whole.length ? '' : ' ') : '';
+    });
 }
+
+/**
+ * The `[estatísticas]` block label is internal (spec §13, amending §5's passthrough): the prompt
+ * and the eval keep it, but it must never reach the user. The phrase form ("..., conforme
+ * [estatísticas]:") disappears whole; a bare remainder is removed with its spacing tidied.
+ * Accepts the unaccented spelling the model sometimes emits.
+ */
+const STATS_LABEL_SOURCE = '\\[estat[íi]sticas\\]';
+const STATS_PHRASE = new RegExp(`,?[ \\t]*\\b(?:conforme|segundo)[ \\t]+(?:o[ \\t]+bloco[ \\t]+)?${STATS_LABEL_SOURCE}`, 'gi');
+const STATS_LABEL = new RegExp(`([ \\t]*)${STATS_LABEL_SOURCE}([ \\t]*)([.,;:!?]?)`, 'gi');

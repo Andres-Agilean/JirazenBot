@@ -1348,11 +1348,12 @@ describe('busca de portfólio', () => {
       const stored = (await deps.candidates.get(shared))!.history;
       expect(stored.at(-1)).toEqual({ role: 'assistant', text: raw });
       expect(reply.fallbackText).toContain('[jira 41713]');
-      expect(reply.fallbackText).toContain('[estatísticas]');
+      // Flipped by spec §13: the display strips [estatísticas]; history (asserted raw above) keeps it.
+      expect(reply.fallbackText).not.toContain('[estatísticas]');
       expect(reply.fallbackText).not.toContain('comentário jira');
       const body = JSON.stringify(reply.card);
       expect(body).toContain('[jira 41713]');
-      expect(body).toContain('[estatísticas]');
+      expect(body).not.toContain('[estatísticas]');
       expect(body).not.toContain('comentário jira');
     });
 

@@ -101,8 +101,28 @@ describe('compressCitations', () => {
     expect(compressCitations(text)).toBe(text);
   });
 
-  describe('portfolio labels pass through untouched', () => {
-    const text = '[QZ-306] e [estatísticas] e [chamado 17063]';
+  // Spec §13 (owner screenshot 11:03): the internal [estatísticas] block label never reaches the user.
+  describe('[estatísticas] is stripped at display time (spec §13)', () => {
+    it.each([
+      ['Distribuição por responsável, conforme [estatísticas]: João 2', 'Distribuição por responsável: João 2'],
+      ['Isso, segundo o bloco [estatísticas], são 5 cards.', 'Isso, são 5 cards.'],
+      ['são 5 [estatísticas].', 'são 5.'],
+      ['são 5 [estatisticas].', 'são 5.'],
+      ['Distribuição, conforme [estatisticas]: ok', 'Distribuição: ok'],
+      ['veja [estatísticas] e [QZ-306]', 'veja e [QZ-306]'],
+    ])('%s', (input, expected) => {
+      expect(compressCitations(input)).toBe(expected);
+    });
+
+    it('a text with only card citations is a no-op', () => {
+      const text = 'Veja [QZ-306] e [chamado 17063].';
+      expect(compressCitations(text)).toBe(text);
+    });
+  });
+
+  describe('candidate labels pass through untouched', () => {
+    // Flipped by spec §13: `[estatísticas]` is no longer a passthrough label (see the strip tests below).
+    const text = '[QZ-306] e [chamado 17063]';
     const collidingBundle = {
       fetchedAt: '2026-08-14T17:32:00.000Z',
       surface: 'dm',
