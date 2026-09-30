@@ -105,7 +105,7 @@ export class ZendeskClient {
 
   async searchOrganizations(name: string): Promise<ZendeskOrg[]> {
     const encoded = encodeURIComponent(name);
-    const response = (await this.get(`/api/v2/organizations/autocomplete.json?name=${encoded}`)) as {
+    const response = (await this.get(`/api/v2/organizations/autocomplete.json?name=${encoded}&per_page=${ORG_RESULT_CAP}`)) as {
       organizations: Array<{ id: number; name: string }>;
     };
     return response.organizations.slice(0, ORG_RESULT_CAP).map((org) => ({

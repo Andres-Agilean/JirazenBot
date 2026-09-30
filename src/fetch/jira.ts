@@ -1,6 +1,7 @@
 import type { Config } from '@/config.js';
 import type { JiraIssueRef } from '@/resolve/types.js';
 import { NotFoundError, httpStatusError } from './errors.js';
+import { CARD_FETCH_CAP } from './zendesk.js';
 
 // Jira comments API page size. Also the threshold above which older comments are omitted
 // (see olderCommentsOmitted below) -- keep the query string and that comparison derived from
@@ -181,7 +182,7 @@ export class JiraClient {
     const sanitized = sanitizeJqlText(text);
     const jql = `text ~ "${sanitized}" AND project in (${this.cfg.allowedProjects.join(',')}) AND resolution is EMPTY ORDER BY updated DESC`;
     const raw = (await this.get(
-      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated&maxResults=25`,
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated&maxResults=${CARD_FETCH_CAP}`,
     )) as { issues?: { key: string; fields: { summary: string; status?: { name?: string }; updated: string } }[] };
     return (raw.issues ?? []).map((i) => ({
       issueKey: i.key,
@@ -201,7 +202,7 @@ export class JiraClient {
     const orClauses = validIds.map((id) => `cf[${cfNumber}] ~ "${id}"`).join(' OR ');
     const jql = `project in (${this.cfg.allowedProjects.join(',')}) AND (${orClauses})`;
     const raw = (await this.get(
-      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated,${this.cfg.zendeskIdField}&maxResults=25`,
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated,${this.cfg.zendeskIdField}&maxResults=${CARD_FETCH_CAP}`,
     )) as { issues?: { key: string; fields: { summary: string; status?: { name?: string }; updated: string; [key: string]: unknown } }[] };
     return (raw.issues ?? []).map((i) => ({
       issueKey: i.key,

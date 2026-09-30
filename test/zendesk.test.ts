@@ -117,6 +117,16 @@ describe('ZendeskClient', () => {
   });
 
   describe('searchOrganizations', () => {
+    it('asks Zendesk for at most ORG_RESULT_CAP organizations (per_page)', async () => {
+      const seen: string[] = [];
+      const spy: typeof fetch = (async (input: any, init?: RequestInit) => {
+        seen.push(String(input));
+        return makeFetch({ '/api/v2/organizations/autocomplete.json': { organizations: [] } })(input, init);
+      }) as typeof fetch;
+      await new ZendeskClient(testConfig, spy).searchOrganizations('org');
+      expect(seen[0]).toContain(`per_page=${ORG_RESULT_CAP}`);
+    });
+
     it('returns id+name capped at ORG_RESULT_CAP', async () => {
       const orgs = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, name: `Org ${i + 1}`, extra: 'x' }));
       const f = makeFetch({ '/api/v2/organizations/autocomplete.json': { organizations: orgs } });

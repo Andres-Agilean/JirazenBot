@@ -5,8 +5,8 @@ import type { Binding } from './bindings.js';
 import { ATUALIZAR_COMMAND } from './commands.js';
 import { cardIdentity, collectedAt, jiraLink, zendeskLink } from './reply.js';
 
-const ADAPTIVE_CARD_SCHEMA = 'http://adaptivecards.io/schemas/adaptive-card.json';
-const ADAPTIVE_CARD_VERSION = '1.5';
+export const ADAPTIVE_CARD_SCHEMA = 'http://adaptivecards.io/schemas/adaptive-card.json';
+export const ADAPTIVE_CARD_VERSION = '1.5';
 
 /** Appended to the header when the answer came from the reader's own split (spec §4/§5). */
 export const PERSONAL_MARKER = '· sua consulta';

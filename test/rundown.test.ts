@@ -3,6 +3,7 @@ import {
   BUTTON_CAP, RUNDOWN_LINE_CAP, SELECT_ACTION, STALE_AFTER_DAYS, buildCandidateCard,
   renderOrgChoices, renderRundown,
 } from '@/teams/rundown.js';
+import { CARD_FETCH_CAP } from '@/fetch/zendesk.js';
 import type { CardCandidate } from '@/teams/search.js';
 
 const NOW = Date.parse('2026-09-29T15:30:00.000Z'); // 12:30 in America/Sao_Paulo
@@ -40,6 +41,15 @@ describe('renderRundown', () => {
     expect(out.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(RUNDOWN_LINE_CAP);
     expect(out).toContain('e mais 4 cards — pergunte por um deles');
     expect(out).toContain('12 cards ativos');
+  });
+
+  it('says "25+" instead of an exact count once the fetch cap is reached', () => {
+    const capped = renderRundown('Norte', many(8), CARD_FETCH_CAP, NOW);
+    expect(capped.split('\n')[0]).toBe(
+      `**Norte — ${CARD_FETCH_CAP}+ cards ativos (mostrando os mais recentes) (coletado às 12:30)**`,
+    );
+    const exact = renderRundown('Norte', many(8), CARD_FETCH_CAP - 1, NOW);
+    expect(exact.split('\n')[0]).toBe(`**Norte — ${CARD_FETCH_CAP - 1} cards ativos (coletado às 12:30)**`);
   });
 
   it('has no overflow line at exactly the cap', () => {
@@ -89,11 +99,18 @@ describe('buildCandidateCard', () => {
   it('caps buttons and notes the overflow', () => {
     const c = card(many(8));
     expect(c.actions).toHaveLength(BUTTON_CAP);
-    expect(JSON.stringify(c.body)).toContain('e mais 2 — refine o nome');
+    expect(JSON.stringify(c.body)).toContain('mais 2 sem botão — digite o nome');
+  });
+
+  it('the card title uses the same capped count wording', () => {
+    expect(card(many(3), CARD_FETCH_CAP).body[0].text).toBe(
+      `Norte — ${CARD_FETCH_CAP}+ cards ativos (mostrando os mais recentes)`,
+    );
+    expect(card(many(3), 3).body[0].text).toBe('Norte — 3 cards ativos');
   });
 
   it('no overflow note at exactly the button cap', () => {
-    expect(JSON.stringify(card(many(BUTTON_CAP)).body)).not.toContain('refine o nome');
+    expect(JSON.stringify(card(many(BUTTON_CAP)).body)).not.toContain('sem botão');
   });
 });
 

@@ -59,6 +59,35 @@ describe('matchCandidate', () => {
   it('text under 3 chars is null', () => {
     expect(matchCandidate('ag', s)).toBeNull();
   });
+  it('the same card listed twice is one hit, not an ambiguity', () => {
+    const dup = set([cand('AGL-7', 'Reforma do telhado'), cand('AGL-7', 'Reforma do telhado'), b]);
+    expect(matchCandidate('reforma', dup)).toBe(dup.candidates[0]);
+  });
+
+  describe('exactOnly (a card is already bound)', () => {
+    const exact = { exactOnly: true };
+    it('selects on an exact label, accent- and case-insensitively', () => {
+      const z = { ...cand('AGL-9', 'z'), ref: { system: 'zendesk' as const, ticketId: '16467', explicit: true }, label: 'chamado 16467' };
+      const withZ = set([a, b, z]);
+      expect(matchCandidate('AGL-2', withZ, exact)).toBe(b);
+      expect(matchCandidate('Chamado 16467', withZ, exact)).toBe(z);
+    });
+    it('a bare ticket number stays a question (bare-number guard), not a selection', () => {
+      const z = { ...cand('AGL-9', 'z'), ref: { system: 'zendesk' as const, ticketId: '16467', explicit: true }, label: 'chamado 16467' };
+      expect(matchCandidate('16467', set([z]), exact)).toBeNull();
+    });
+    it('never matches a substring of a label or anything in the summary', () => {
+      const qz = set([cand('QZ-252', 'Relatório de Conciliação'), cand('QZ-300', 'Sim ou não')]);
+      expect(matchCandidate('252', qz, exact)).toBeNull();
+      expect(matchCandidate('sim', qz, exact)).toBeNull();
+      expect(matchCandidate('conciliacao', qz, exact)).toBeNull();
+      expect(matchCandidate('qz', qz, exact)).toBeNull();
+    });
+    it('never reports ambiguity', () => {
+      expect(matchCandidate('integracao', s, exact)).toBeNull();
+    });
+  });
+
   it('regex-special characters are inert', () => {
     const paren = set([cand('AGL-4', 'Norte (Construtora) obra'), cand('AGL-5', 'Outro')]);
     expect(() => matchCandidate('norte (construtora)', paren)).not.toThrow();

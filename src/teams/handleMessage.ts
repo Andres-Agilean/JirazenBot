@@ -14,7 +14,7 @@ import { matchCandidate, type CandidateStore } from './candidates.js';
 import { parseCommand } from './commands.js';
 import { formatFooter, withFooter, type Reply } from './reply.js';
 import { buildCandidateCard, renderOrgChoices, renderRundown } from './rundown.js';
-import type { SearchOutcome } from './search.js';
+import type { CardCandidate, SearchOutcome } from './search.js';
 import { surfaceFor } from './surface.js';
 
 /**
@@ -320,6 +320,7 @@ async function selectCard(
 async function runSearch(
   name: string,
   mode: PortfolioQuery['mode'],
+  existing: Binding | undefined,
   sharedSlot: Slot,
   personalSlot: Slot,
   surface: Surface,
@@ -335,22 +336,34 @@ async function runSearch(
     case 'orgs':
       return { kind: 'text', text: renderOrgChoices(outcome.name, outcome.orgs) };
     case 'bind':
-      return selectCard(outcome.ref, sharedSlot, personalSlot, surface, deps);
+      // With a card already bound, a search never moves it (spec §3): offer the one match as a
+      // button, exactly like a longer list. Only with nothing bound does a lone match bind.
+      if (existing) return offerCandidates(name, [outcome.candidate], 1, 'candidates', sharedSlot, deps);
+      return selectCard(outcome.candidate.ref, sharedSlot, personalSlot, surface, deps);
     case 'none':
       return { kind: 'text', text: SEARCH_NONE(outcome.name) };
-    case 'cards': {
-      await deps.candidates.set(sharedSlot, {
-        name: outcome.name, candidates: outcome.cards, createdAt: deps.now(),
-      });
-      const rundown = renderRundown(outcome.name, outcome.cards, outcome.total, deps.now());
-      if (mode === 'rundown') return { kind: 'text', text: rundown };
-      return {
-        kind: 'card',
-        card: buildCandidateCard(outcome.name, outcome.cards, outcome.total),
-        fallbackText: rundown,
-      };
-    }
+    case 'cards':
+      return offerCandidates(outcome.name, outcome.cards, outcome.total, mode, sharedSlot, deps);
   }
+}
+
+/**
+ * Stores a candidate set on the shared slot and replies with it: a text rundown, or a card with
+ * one select button per candidate. A rundown never binds -- the stored set keeps typed selection
+ * working.
+ */
+async function offerCandidates(
+  name: string,
+  cards: CardCandidate[],
+  total: number,
+  mode: PortfolioQuery['mode'],
+  sharedSlot: Slot,
+  deps: HandleDeps,
+): Promise<Reply> {
+  await deps.candidates.set(sharedSlot, { name, candidates: cards, createdAt: deps.now() });
+  const rundown = renderRundown(name, cards, total, deps.now());
+  if (mode === 'rundown') return { kind: 'text', text: rundown };
+  return { kind: 'card', card: buildCandidateCard(name, cards, total), fallbackText: rundown };
 }
 
 /**
@@ -393,7 +406,7 @@ export async function handleMessage(
   // 1b. Explicit search: works with or without a binding and never unbinds.
   const buscarName = parseBuscar(text);
   if (buscarName) {
-    return [await runSearch(buscarName, 'candidates', sharedSlot, personalSlot, surface, deps)];
+    return [await runSearch(buscarName, 'candidates', existing, sharedSlot, personalSlot, surface, deps)];
   }
 
   // 2 & 3. A reference in the message, with or without a question.
@@ -427,10 +440,12 @@ export async function handleMessage(
   }
 
   // 3b. Typed selection from a listed candidate set. Only a real match acts; no match falls
-  // through untouched so a bound conversation's question still reaches the card.
+  // through untouched so a bound conversation's question still reaches the card. With a card
+  // bound, only an exact label selects (a loose match would hijack ordinary questions such as
+  // "sim"), and an unclear match is a question, never SELECTION_AMBIGUOUS.
   const candidateSet = await deps.candidates.get(sharedSlot);
   if (candidateSet) {
-    const picked = matchCandidate(text, candidateSet);
+    const picked = matchCandidate(text, candidateSet, { exactOnly: existing !== undefined });
     if (picked === 'ambiguous') return [{ kind: 'text', text: SELECTION_AMBIGUOUS }];
     if (picked) {
       return [await selectCard(picked.ref, sharedSlot, personalSlot, surface, deps)];
@@ -453,9 +468,24 @@ export async function handleMessage(
   // conversation's question can never be diverted into a search.
   const portfolio = detectPortfolioQuery(text);
   if (portfolio) {
-    return [await runSearch(portfolio.name, portfolio.mode, sharedSlot, personalSlot, surface, deps)];
+    return [await runSearch(portfolio.name, portfolio.mode, existing, sharedSlot, personalSlot, surface, deps)];
   }
   return [{ kind: 'text', text: NOTHING_BOUND }];
+}
+
+const NUMERIC_ID = /^\d+$/;
+
+/**
+ * A button payload is client-supplied data that ends up in vendor URL paths, so it is validated
+ * like typed input: a Jira id must parse (through the same project scoping as typed references)
+ * to exactly that issue key, and a Zendesk id must be all digits. Anything else is null.
+ */
+function selectionRef(system: 'jira' | 'zendesk', id: string, allowedProjects: string[]): CardRef | null {
+  if (system === 'zendesk') {
+    return NUMERIC_ID.test(id) ? { system, ticketId: id, explicit: true } : null;
+  }
+  const parsed = parseReference(id, allowedProjects);
+  return parsed?.system === 'jira' && parsed.issueKey === id ? { ...parsed, explicit: true } : null;
 }
 
 /**
@@ -475,9 +505,8 @@ export async function handleSelect(
   if ((system !== 'jira' && system !== 'zendesk') || typeof id !== 'string' || id.trim() === '') {
     return [{ kind: 'text', text: SELECTION_INVALID }];
   }
-  const ref: CardRef = system === 'jira'
-    ? { system, issueKey: id.trim(), explicit: true }
-    : { system, ticketId: id.trim(), explicit: true };
+  const ref = selectionRef(system, id.trim(), deps.cfg.allowedProjects);
+  if (!ref) return [{ kind: 'text', text: SELECTION_INVALID }];
   const { surface, sharedSlot, personalSlot } = await resolveSlots(incoming, deps);
   return [await selectCard(ref, sharedSlot, personalSlot, surface, deps)];
 }

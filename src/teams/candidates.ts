@@ -1,6 +1,6 @@
 import { normalizeText } from '@/text/normalize.js';
 import { BINDING_TTL_MS, slotKey, type Slot } from './bindings.js';
-import type { CardCandidate } from './search.js';
+import { dedupeCandidates, type CardCandidate } from './search.js';
 
 export interface CandidateSet {
   name: string;
@@ -44,15 +44,26 @@ export class InMemoryCandidateStore implements CandidateStore {
 const MIN_MATCH_CHARS = 3;
 
 /**
- * Resolves typed text to one candidate by normalized substring match on label or summary.
- * Plain `includes`, never a RegExp: user text like `norte (construtora)` must stay inert.
+ * Resolves typed text to one candidate. Default: normalized substring match on label or summary
+ * (nothing bound yet, so the text can only be about the list). `exactOnly`: a card is already
+ * bound, so the text is presumably a question about IT -- only a whole label ("QZ-252",
+ * "chamado 16467"; a Jira label IS its key) selects, and an unclear match never reports
+ * ambiguity, it just yields null so the question falls through to the bound card. A bare ticket
+ * number is deliberately NOT a label: with a card bound it is a question (the bare-number guard).
+ * Plain `includes`/`===`, never a RegExp: user text like `norte (construtora)` must stay inert.
+ * Hits are deduped by card, so the same card listed twice is not an ambiguity.
  */
-export function matchCandidate(text: string, set: CandidateSet): CardCandidate | 'ambiguous' | null {
+export function matchCandidate(
+  text: string,
+  set: CandidateSet,
+  opts: { exactOnly?: boolean } = {},
+): CardCandidate | 'ambiguous' | null {
   const needle = normalizeText(text.trim());
   if (needle.length < MIN_MATCH_CHARS) return null;
-  const hits = set.candidates.filter(
-    (c) => normalizeText(c.label).includes(needle) || normalizeText(c.summary).includes(needle),
-  );
+  const matches = opts.exactOnly
+    ? (c: CardCandidate) => normalizeText(c.label) === needle
+    : (c: CardCandidate) => normalizeText(c.label).includes(needle) || normalizeText(c.summary).includes(needle);
+  const hits = dedupeCandidates(set.candidates.filter(matches));
   if (hits.length === 1) return hits[0];
-  return hits.length > 1 ? 'ambiguous' : null;
+  return hits.length > 1 && !opts.exactOnly ? 'ambiguous' : null;
 }

@@ -1,10 +1,8 @@
-import type { ZendeskOrg } from '@/fetch/zendesk.js';
+import { CARD_FETCH_CAP, type ZendeskOrg } from '@/fetch/zendesk.js';
 import { formatDayMonthTime } from '@/text/datetime.js';
+import { ADAPTIVE_CARD_SCHEMA, ADAPTIVE_CARD_VERSION } from './cards.js';
 import { collectedAt } from './reply.js';
-import type { CardCandidate } from './search.js';
-
-const ADAPTIVE_CARD_SCHEMA = 'http://adaptivecards.io/schemas/adaptive-card.json';
-const ADAPTIVE_CARD_VERSION = '1.5';
+import { candidateId, type CardCandidate } from './search.js';
 
 /** Most card lines a text rundown shows before collapsing the rest into an overflow line. */
 export const RUNDOWN_LINE_CAP = 8;
@@ -37,6 +35,15 @@ function staleCard(cards: CardCandidate[], nowMs: number): CardCandidate | undef
   return oldest && nowMs - oldest.ms > STALE_AFTER_DAYS * DAY_MS ? oldest.card : undefined;
 }
 
+/**
+ * "N cards ativos", except once the pre-cap total reaches the fetch cap: then more may exist
+ * that were never fetched, so an exact count would be a false claim.
+ */
+const countLabel = (total: number): string =>
+  total >= CARD_FETCH_CAP
+    ? `${CARD_FETCH_CAP}+ cards ativos (mostrando os mais recentes)`
+    : `${total} cards ativos`;
+
 /** Deterministic text rundown of an organization's active cards. Every value is verbatim. */
 export function renderRundown(
   name: string,
@@ -45,7 +52,7 @@ export function renderRundown(
   collectedAtMs: number,
 ): string {
   const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
-  const lines = [`**${name} — ${total} cards ativos (coletado às ${time})**`];
+  const lines = [`**${name} — ${countLabel(total)} (coletado às ${time})**`];
   for (const c of cards.slice(0, RUNDOWN_LINE_CAP)) lines.push(`- ${cardLine(c)}`);
   const hidden = total - Math.min(cards.length, RUNDOWN_LINE_CAP);
   if (hidden > 0) lines.push(`e mais ${hidden} cards — pergunte por um deles`);
@@ -56,9 +63,6 @@ export function renderRundown(
   return lines.join('\n');
 }
 
-const candidateId = (c: CardCandidate): string =>
-  c.ref.system === 'jira' ? c.ref.issueKey : c.ref.ticketId;
-
 /** Adaptive Card listing candidates with one select button each (plain object, no Teams SDK). */
 export function buildCandidateCard(
   name: string,
@@ -67,12 +71,12 @@ export function buildCandidateCard(
 ): Record<string, unknown> {
   const shown = cards.slice(0, BUTTON_CAP);
   const body: Record<string, unknown>[] = [
-    { type: 'TextBlock', text: `${name} — ${total} cards ativos`, wrap: true, weight: 'Bolder' },
+    { type: 'TextBlock', text: `${name} — ${countLabel(total)}`, wrap: true, weight: 'Bolder' },
     ...cards.map((c) => ({ type: 'TextBlock', text: cardLine(c), wrap: true, spacing: 'Small' })),
   ];
   const hidden = cards.length - shown.length;
   if (hidden > 0) {
-    body.push({ type: 'TextBlock', text: `e mais ${hidden} — refine o nome`, wrap: true, isSubtle: true });
+    body.push({ type: 'TextBlock', text: `mais ${hidden} sem botão — digite o nome`, wrap: true, isSubtle: true });
   }
   return {
     $schema: ADAPTIVE_CARD_SCHEMA,

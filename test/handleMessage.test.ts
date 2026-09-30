@@ -692,6 +692,14 @@ describe('busca de portfólio', () => {
   const cardsOutcome = (cards: CardCandidate[], name = 'norte'): SearchOutcome =>
     ({ kind: 'cards', name, cards, total: cards.length });
   const two = [jiraCard('AGL-11', 'Reforma do telhado'), jiraCard('AGL-12', 'Pintura externa')];
+  const bindOutcome: SearchOutcome = {
+    kind: 'bind',
+    candidate: {
+      ref: { system: 'zendesk', ticketId: '16467', explicit: true },
+      label: 'chamado 16467', summary: 'Aplicativo travando', status: 'open',
+      updatedAt: '2026-09-28T10:00:00.000Z',
+    },
+  };
   const req = { conversationId: CONV, conversationType: 'personal', userId: 'u' };
 
   function withSearch(outcome: SearchOutcome | Error) {
@@ -711,7 +719,7 @@ describe('busca de portfólio', () => {
     const { deps, answered, searched } = withSearch(cardsOutcome(two));
     await handleMessage(dm('QZ-252'), deps);
     const replies = await handleMessage(dm('buscar Norte'), deps);
-    expect(searched).toEqual(['norte']);
+    expect(searched).toEqual(['Norte']);
     expect(replies[0].kind).toBe('card');
     await handleMessage(dm('e o prazo?'), deps);
     expect(answered.at(-1)).toBe('e o prazo?');
@@ -720,7 +728,7 @@ describe('busca de portfólio', () => {
   it('detector fires only when nothing is bound and nothing parses', async () => {
     const { deps, searched } = withSearch(cardsOutcome(two));
     const replies = await handleMessage(dm('como está a empresa Norte?'), deps);
-    expect(searched).toEqual(['norte']);
+    expect(searched).toEqual(['Norte']);
     expect(replies).toHaveLength(1);
     expect(replies[0].kind).toBe('text');
     expect(textOf(replies[0])).toContain('cards ativos');
@@ -808,7 +816,7 @@ describe('busca de portfólio', () => {
   });
 
   it('search bind outcome binds and answers the summary', async () => {
-    const { deps, loaded, answered } = withSearch({ kind: 'bind', ref: { system: 'zendesk', ticketId: '16467', explicit: true } });
+    const { deps, loaded, answered } = withSearch(bindOutcome);
     const replies = await handleMessage(dm('buscar norte'), deps);
     expect(loaded).toHaveLength(1);
     expect(answered).toHaveLength(1);
@@ -863,5 +871,133 @@ describe('busca de portfólio', () => {
       expect(textOf(replies[0])).toBe(SELECTION_INVALID);
     }
     expect(loaded).toHaveLength(0);
+  });
+
+  it('handleSelect rejects ids outside the allowed projects or shaped like paths/JQL, before any fetch', async () => {
+    const { deps, loaded } = makeDeps();
+    const bad = [
+      { system: 'jira', id: 'ZZ-1' },                 // project not in allowedProjects
+      { system: 'jira', id: '../AGL-11' },            // path traversal around a valid key
+      { system: 'jira', id: 'AGL-11/../../x' },
+      { system: 'jira', id: 'AGL-11 OR project=SEC' },
+      { system: 'jira', id: 'https://x.atlassian.net/browse/AGL-11' },
+      { system: 'zendesk', id: 'abc' },
+      { system: 'zendesk', id: '123/../users' },
+      { system: 'zendesk', id: '16467?x=1' },
+    ];
+    for (const data of bad) {
+      const replies = await handleSelect(req, data, deps);
+      expect(replies).toHaveLength(1);
+      expect(textOf(replies[0])).toBe(SELECTION_INVALID);
+    }
+    expect(loaded).toHaveLength(0);
+  });
+
+  it('handleSelect still trims and accepts a valid key and a numeric ticket id', async () => {
+    const { deps, loaded } = makeDeps();
+    await handleSelect(req, { system: 'jira', id: ' AGL-11 ' }, deps);
+    await handleSelect(req, { system: 'zendesk', id: ' 16467 ' }, deps);
+    expect(loaded).toEqual([
+      { system: 'jira', issueKey: 'AGL-11', explicit: true },
+      { system: 'zendesk', ticketId: '16467', explicit: true },
+    ]);
+  });
+
+  it('buscar passes the name to search verbatim, accents and case intact', async () => {
+    const { deps, searched } = withSearch(cardsOutcome(two));
+    await handleMessage(dm('buscar São Bento'), deps);
+    await handleMessage(dm('como está a empresa São Bento?'), deps);
+    expect(searched).toEqual(['São Bento', 'São Bento']);
+  });
+
+  describe('typed selection while a card is bound (no hijack of the conversation)', () => {
+    const list = [jiraCard('AGL-11', 'Sim ou não? Reforma'), jiraCard('QZ-300', 'Pintura'), jiraCard('agl-12', 'Fachada')];
+
+    it('a substring of a summary falls through to the bound card question', async () => {
+      const { deps, answered, loaded } = withSearch(cardsOutcome(list));
+      await handleMessage(dm('QZ-252'), deps);
+      await handleMessage(dm('buscar norte'), deps);
+      const replies = await handleMessage(dm('sim'), deps);
+      expect(answered.at(-1)).toBe('sim');
+      expect(textOf(replies[0])).toContain('resposta para: sim');
+      expect(loaded).toEqual([{ system: 'jira', issueKey: 'QZ-252', explicit: true }]);
+    });
+
+    it('an ambiguous substring falls through instead of replying SELECTION_AMBIGUOUS', async () => {
+      const amb = [jiraCard('AGL-11', 'Obra norte fase 1'), jiraCard('AGL-12', 'Obra norte fase 2')];
+      const { deps, answered } = withSearch(cardsOutcome(amb));
+      await handleMessage(dm('QZ-252'), deps);
+      await handleMessage(dm('buscar norte'), deps);
+      const replies = await handleMessage(dm('obra norte'), deps);
+      expect(answered.at(-1)).toBe('obra norte');
+      expect(textOf(replies[0])).not.toBe(SELECTION_AMBIGUOUS);
+    });
+
+    it('a bare number that is a substring of a key stays a question', async () => {
+      const { deps, answered, loaded } = withSearch(cardsOutcome([jiraCard('QZ-252', 'Relatório'), jiraCard('QZ-300', 'Outro')]));
+      await handleMessage(dm('QZ-300'), deps);
+      await handleMessage(dm('buscar norte'), deps);
+      await handleMessage(dm('252'), deps);
+      expect(answered.at(-1)).toBe('252');
+      expect(loaded).toEqual([{ system: 'jira', issueKey: 'QZ-300', explicit: true }]);
+    });
+
+    it('an exact label still selects', async () => {
+      const { deps, loaded } = withSearch(cardsOutcome(list));
+      await handleMessage(dm('QZ-252'), deps);
+      await handleMessage(dm('buscar norte'), deps);
+      await handleMessage(dm('agl-12'), deps);   // lower-case: not parsed as a reference, matches the label exactly
+      expect(loaded.at(-1)).toEqual({ system: 'jira', issueKey: 'agl-12', explicit: true });
+    });
+
+    it('with nothing bound, substring selection and SELECTION_AMBIGUOUS are unchanged', async () => {
+      const amb = [jiraCard('AGL-11', 'Obra norte fase 1'), jiraCard('AGL-12', 'Obra norte fase 2')];
+      const { deps } = withSearch(cardsOutcome(amb));
+      await handleMessage(dm('buscar norte'), deps);
+      expect(textOf((await handleMessage(dm('obra norte'), deps))[0])).toBe(SELECTION_AMBIGUOUS);
+    });
+  });
+
+  describe('a single search match with a card already bound', () => {
+    it('offers a one-candidate card instead of rebinding', async () => {
+      const { deps, loaded, answered } = withSearch(bindOutcome);
+      await handleMessage(dm('QZ-252'), deps);
+      const replies = await handleMessage(dm('buscar norte'), deps);
+      expect(replies).toHaveLength(1);
+      const reply = replies[0];
+      expect(reply.kind).toBe('card');
+      if (reply.kind !== 'card') throw new Error('unreachable');
+      const actions = (reply.card as { actions: Array<{ data: Record<string, string> }> }).actions;
+      expect(actions).toHaveLength(1);
+      expect(actions[0].data).toMatchObject({ system: 'zendesk', id: '16467' });
+      expect(loaded).toEqual([{ system: 'jira', issueKey: 'QZ-252', explicit: true }]);   // no rebind
+      expect(answered).toHaveLength(1);                                                     // only QZ-252's summary
+      expect((await deps.candidates.get(shared))?.candidates).toHaveLength(1);
+      expect(((await deps.store.get(shared))?.ref as { issueKey: string }).issueKey).toBe('QZ-252');
+    });
+
+    it('with nothing bound it still binds directly', async () => {
+      const { deps, loaded } = withSearch(bindOutcome);
+      const replies = await handleMessage(dm('buscar norte'), deps);
+      expect(replies[0].kind).toBe('card');   // the answer card, not a candidate card
+      expect(loaded).toEqual([{ system: 'zendesk', ticketId: '16467', explicit: true }]);
+    });
+  });
+
+  it('a button selection in a multiparty room clears the clicker\'s personal split only', async () => {
+    const { deps } = makeDeps();
+    await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+    await handleMessage({ ...ana, text: 'AGL-900 qual o status?' }, deps);
+    await handleMessage({ ...bruno, text: 'SC-10 qual o status?' }, deps);
+    const anaSplit = { scope: 'personal' as const, conversationId: 'thread', userId: 'ana' };
+    const brunoSplit = { scope: 'personal' as const, conversationId: 'thread', userId: 'bruno' };
+    expect(await deps.store.get(anaSplit)).toBeDefined();
+
+    await handleSelect(ana, { system: 'jira', id: 'AGL-11' }, deps);
+
+    expect(await deps.store.get(anaSplit)).toBeUndefined();
+    expect(await deps.store.get(brunoSplit)).toBeDefined();
+    const sharedBinding = await deps.store.get({ scope: 'shared', conversationId: 'thread' });
+    expect((sharedBinding?.ref as { issueKey: string }).issueKey).toBe('AGL-11');
   });
 });

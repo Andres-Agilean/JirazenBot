@@ -16,7 +16,8 @@ function deps(over: Partial<SearchDeps> = {}): SearchDeps {
 
 it('multiple orgs → orgs outcome', async () => {
   const d = deps({ searchOrganizations: async () => [{ id: 1, name: 'A' }, { id: 2, name: 'B' }] });
-  expect(await searchPortfolio('a', d)).toMatchObject({ kind: 'orgs', orgs: [{ id: 1 }, { id: 2 }] });
+  // query 'x' equals neither org name (the exact-name rule would otherwise pick org 'A' for 'a')
+  expect(await searchPortfolio('x', d)).toMatchObject({ kind: 'orgs', orgs: [{ id: 1 }, { id: 2 }] });
 });
 
 it('single org + single ticket → bind (structured single match may bind; spec §4)', async () => {
@@ -25,7 +26,7 @@ it('single org + single ticket → bind (structured single match may bind; spec 
     openTicketsForOrganization: async () => [ticket(16467, '2026-09-28T10:00:00Z')],
   });
   const out = await searchPortfolio('norte', d);
-  expect(out).toMatchObject({ kind: 'bind', ref: { system: 'zendesk', ticketId: '16467', explicit: true } });
+  expect(out).toMatchObject({ kind: 'bind', candidate: { ref: { system: 'zendesk', ticketId: '16467', explicit: true } } });
 });
 
 it('single org + several tickets → cards: jira ref when mapped, zendesk ref when not, newest first', async () => {
@@ -139,4 +140,39 @@ it('labels and refs: jira AGL-1 / zendesk chamado N, explicit', async () => {
   if (out.kind !== 'cards') throw new Error('expected cards');
   expect(out.cards[0]).toMatchObject({ label: 'AGL-1', ref: { system: 'jira', issueKey: 'AGL-1', explicit: true } });
   expect(out.cards[1]).toMatchObject({ label: 'chamado 200', ref: { system: 'zendesk', ticketId: '200', explicit: true } });
+});
+
+it('an exact org name wins over longer names that share its prefix (no unselectable org)', async () => {
+  const d = deps({
+    searchOrganizations: async () => [
+      { id: 1, name: 'Construtora Norte' }, { id: 2, name: 'Construtora Norte Engenharia' },
+    ],
+    openTicketsForOrganization: async (id) => id === 1 ? [ticket(7, '2026-09-28T10:00:00Z')] : [],
+  });
+  expect(await searchPortfolio('construtora norte', d))
+    .toMatchObject({ kind: 'bind', candidate: { ref: { system: 'zendesk', ticketId: '7' } } });
+  // accent- and case-insensitive
+  expect((await searchPortfolio('CONSTRUTORA NORTÉ', d)).kind).toBe('bind');
+});
+
+it('two orgs with the very same name stay a choice', async () => {
+  const d = deps({ searchOrganizations: async () => [{ id: 1, name: 'Norte' }, { id: 2, name: 'norte' }] });
+  expect((await searchPortfolio('norte', d)).kind).toBe('orgs');
+});
+
+it('several tickets mapping to one Jira card yield ONE candidate (newest kept); total counts deduped refs', async () => {
+  const d = deps({
+    searchOrganizations: async () => [{ id: 1, name: 'Norte' }],
+    openTicketsForOrganization: async () =>
+      [ticket(100, '2026-09-01T00:00:00Z'), ticket(200, '2026-09-20T00:00:00Z'), ticket(300, '2026-09-10T00:00:00Z')],
+    searchByZendeskIds: async () => [
+      { issueKey: 'AGL-1', summary: 'Velho', status: 'Em Teste', updatedAt: '2026-09-05T00:00:00Z', zendeskId: '100' },
+      { issueKey: 'AGL-1', summary: 'Novo', status: 'Em Teste', updatedAt: '2026-09-25T00:00:00Z', zendeskId: '200' },
+    ],
+  });
+  const out = await searchPortfolio('norte', d);
+  if (out.kind !== 'cards') throw new Error('expected cards');
+  expect(out.cards.map((c) => c.label)).toEqual(['AGL-1', 'chamado 300']);
+  expect(out.cards[0].summary).toBe('Novo');
+  expect(out.total).toBe(2);
 });
