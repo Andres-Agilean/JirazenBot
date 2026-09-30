@@ -21,7 +21,11 @@ const CONNECTIVE = /^(?:d[aeo]s?\s+)?/;
 /** Names that are almost certainly a verb/stray word, not an entity (false-positive guard). */
 const STOP_NAMES = new Set(['atrasou', 'atrasada', 'parou', 'parada', 'anda', 'esta', 'estao']);
 
-const NAME_AFTER_KIND = new RegExp(`${KIND.source}\\s+(.+)$`);
+/** Plural subject words (normalized): also anchors, but always a rundown (spec §10.1). */
+const PLURAL_KIND = /\b(?:cards|atividades|chamados|tickets|pendencias|demandas)\b/;
+
+const NAME_AFTER_PLURAL = new RegExp(`${PLURAL_KIND.source}\\s+(.+)$`);
+const NAME_AFTER_KIND =new RegExp(`${KIND.source}\\s+(.+)$`);
 const BUSCAR_PATTERN = new RegExp(`^${BUSCAR_COMMAND}\\s+(.+)$`);
 
 /**
@@ -59,7 +63,9 @@ export function detectPortfolioQuery(text: string): PortfolioQuery | null {
   const fold = foldWithOffsets(text.normalize('NFC').trim().replace(/[?!.]+$/, '').trim());
   if (fold.folded === '') return null;
 
-  const m = NAME_AFTER_KIND.exec(fold.folded);
+  // Singular anchors win: "os cards da obra X" is about the obra.
+  const singular = NAME_AFTER_KIND.exec(fold.folded);
+  const m = singular ?? NAME_AFTER_PLURAL.exec(fold.folded);
   if (!m) return null;
   const tail = m[1];
   const nameStart = m.index + m[0].length - tail.length + CONNECTIVE.exec(tail)![0].length;
@@ -70,7 +76,7 @@ export function detectPortfolioQuery(text: string): PortfolioQuery | null {
   const firstWord = normalizeText(name).split(/\s+/)[0];
   if (STOP_NAMES.has(firstWord)) return null;
 
-  return { name, mode: CARD_SHAPE.test(fold.folded) ? 'candidates' : 'rundown' };
+  return { name, mode: singular && CARD_SHAPE.test(fold.folded) ? 'candidates' : 'rundown' };
 }
 
 /** `buscar <nome>` → the name as typed; anything else → null. */

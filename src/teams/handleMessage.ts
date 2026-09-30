@@ -13,7 +13,7 @@ import { compressCitations } from './citations.js';
 import { matchCandidate, type CandidateStore } from './candidates.js';
 import { parseCommand } from './commands.js';
 import { formatFooter, withFooter, type Reply } from './reply.js';
-import { buildCandidateCard, renderOrgChoices, renderRundown } from './rundown.js';
+import { buildCandidateCard, buildRundownCard, renderOrgChoices, renderRundown } from './rundown.js';
 import type { CardCandidate, SearchOutcome } from './search.js';
 import { surfaceFor } from './surface.js';
 
@@ -362,8 +362,10 @@ async function offerCandidates(
 ): Promise<Reply> {
   await deps.candidates.set(sharedSlot, { name, candidates: cards, createdAt: deps.now() });
   const rundown = renderRundown(name, cards, total, deps.now());
-  if (mode === 'rundown') return { kind: 'text', text: rundown };
-  return { kind: 'card', card: buildCandidateCard(name, cards, total), fallbackText: rundown };
+  const card = mode === 'rundown'
+    ? buildRundownCard(name, cards, total, deps.now())
+    : buildCandidateCard(name, cards, total);
+  return { kind: 'card', card, fallbackText: rundown };
 }
 
 /**

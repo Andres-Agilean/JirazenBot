@@ -5,6 +5,7 @@ import {
   type HandleDeps, type Incoming,
 } from '@/teams/handleMessage.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
+import { renderRundown } from '@/teams/rundown.js';
 import type { CardCandidate, SearchOutcome } from '@/teams/search.js';
 import { InMemoryBindingStore, BUNDLE_TTL_MS } from '@/teams/bindings.js';
 import { PERSONAL_MARKER } from '@/teams/cards.js';
@@ -730,7 +731,7 @@ describe('busca de portfólio', () => {
     const replies = await handleMessage(dm('como está a empresa Norte?'), deps);
     expect(searched).toEqual(['Norte']);
     expect(replies).toHaveLength(1);
-    expect(replies[0].kind).toBe('text');
+    expect(replies[0].kind).toBe('card');
     expect(textOf(replies[0])).toContain('cards ativos');
   });
 
@@ -764,11 +765,15 @@ describe('busca de portfólio', () => {
     expect(set?.candidates).toHaveLength(2);
   });
 
-  it('rundown mode replies with rundown text and still stores the set', async () => {
+  it('rundown mode replies with a rundown card (fallbackText = the text rundown) and still stores the set', async () => {
     const { deps, loaded } = withSearch(cardsOutcome(two));
     const replies = await handleMessage(dm('como estão os projetos da empresa Norte'), deps);
-    expect(replies[0].kind).toBe('text');
+    expect(replies[0].kind).toBe('card');
     expect(textOf(replies[0])).toContain('2 cards ativos');
+    const reply = replies[0];
+    if (reply.kind !== 'card') throw new Error('unreachable');
+    expect(reply.fallbackText).toBe(renderRundown('norte', two, 2, T0));
+    expect((reply.card as { actions?: unknown }).actions).toBeUndefined();   // a rundown never offers buttons
     expect(loaded).toHaveLength(0);
     expect((await deps.candidates.get(shared))?.candidates).toHaveLength(2);
   });

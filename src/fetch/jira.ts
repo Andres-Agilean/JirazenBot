@@ -78,7 +78,21 @@ export const JIRA_FIELD_LABELS: Record<string, JiraFieldMeta> = {
 
 export interface JiraComment { id: string; author: string; createdAt: string; body: unknown }
 export interface RawChangelogEntry { at: string; by: string; items: { field: string; fromString: string | null; toString: string | null }[] }
-export interface JiraCardSummary { issueKey: string; summary: string; status: string; updatedAt: string }
+export interface JiraCardSummary { issueKey: string; summary: string; status: string; updatedAt: string; assignee?: string }
+
+interface RawSearchIssue {
+  key: string;
+  fields: { summary: string; status?: { name?: string }; updated: string; assignee?: { displayName?: string } | null; [key: string]: unknown };
+}
+
+/** Search-row mapping shared by both card searches; an unassigned or absent assignee is undefined. */
+const toCardSummary = (i: RawSearchIssue): JiraCardSummary => ({
+  issueKey: i.key,
+  summary: i.fields.summary,
+  status: i.fields.status?.name ?? '',
+  updatedAt: i.fields.updated,
+  assignee: i.fields.assignee?.displayName ?? undefined,
+});
 export interface JiraIssue {
   issueId: string;
   issueKey: string;
@@ -182,14 +196,9 @@ export class JiraClient {
     const sanitized = sanitizeJqlText(text);
     const jql = `text ~ "${sanitized}" AND project in (${this.cfg.allowedProjects.join(',')}) AND resolution is EMPTY ORDER BY updated DESC`;
     const raw = (await this.get(
-      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated&maxResults=${CARD_FETCH_CAP}`,
-    )) as { issues?: { key: string; fields: { summary: string; status?: { name?: string }; updated: string } }[] };
-    return (raw.issues ?? []).map((i) => ({
-      issueKey: i.key,
-      summary: i.fields.summary,
-      status: i.fields.status?.name ?? '',
-      updatedAt: i.fields.updated,
-    }));
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated,assignee&maxResults=${CARD_FETCH_CAP}`,
+    )) as { issues?: RawSearchIssue[] };
+    return (raw.issues ?? []).map(toCardSummary);
   }
 
   async searchByZendeskIds(ticketIds: string[]): Promise<Array<JiraCardSummary & { zendeskId: string }>> {
@@ -202,13 +211,10 @@ export class JiraClient {
     const orClauses = validIds.map((id) => `cf[${cfNumber}] ~ "${id}"`).join(' OR ');
     const jql = `project in (${this.cfg.allowedProjects.join(',')}) AND (${orClauses})`;
     const raw = (await this.get(
-      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated,${this.cfg.zendeskIdField}&maxResults=${CARD_FETCH_CAP}`,
-    )) as { issues?: { key: string; fields: { summary: string; status?: { name?: string }; updated: string; [key: string]: unknown } }[] };
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated,assignee,${this.cfg.zendeskIdField}&maxResults=${CARD_FETCH_CAP}`,
+    )) as { issues?: RawSearchIssue[] };
     return (raw.issues ?? []).map((i) => ({
-      issueKey: i.key,
-      summary: i.fields.summary,
-      status: i.fields.status?.name ?? '',
-      updatedAt: i.fields.updated,
+      ...toCardSummary(i),
       zendeskId: String(i.fields[this.cfg.zendeskIdField] ?? ''),
     }));
   }

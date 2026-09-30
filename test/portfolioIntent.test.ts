@@ -15,6 +15,29 @@ describe('detectPortfolioQuery', () => {
     expect(detectPortfolioQuery(text)).toEqual({ name, mode });
   });
 
+  it.each([
+    ['como estao os cards da Dalle?', 'Dalle'],                 // live miss, verbatim
+    ['como estao as atividades da dalle?', 'dalle'],           // live miss, verbatim
+    ['quais os chamados da Norte Construtora', 'Norte Construtora'],
+    ['tickets da Vale Verde', 'Vale Verde'],
+    ['pendências da São Bento?', 'São Bento'],
+    ['demandas do Jaguaribe', 'Jaguaribe'],
+  ])('plural subject words anchor a rundown: %s', (text, name) => {
+    expect(detectPortfolioQuery(text)).toEqual({ name, mode: 'rundown' });
+  });
+
+  it('plural anchors never flip to candidates (chamados/tickets are not CARD_SHAPE)', () => {
+    expect(detectPortfolioQuery('erro nos chamados da Dalle')?.mode).toBe('rundown');
+  });
+
+  it('singular defect words still flip to candidates', () => {
+    expect(detectPortfolioQuery('qual o status do chamado da obra X')).toEqual({ name: 'X', mode: 'candidates' });
+  });
+
+  it('a plural word with no name after it is not a query', () => {
+    expect(detectPortfolioQuery('quantos cards?')).toBeNull();
+  });
+
   it('detects card shape when a defect word precedes the name', () => {
     expect(detectPortfolioQuery('qual o status do problema da obra Jaguaribe?'))
       .toEqual({ name: 'Jaguaribe', mode: 'candidates' });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BUTTON_CAP, RUNDOWN_LINE_CAP, SELECT_ACTION, STALE_AFTER_DAYS, buildCandidateCard,
-  renderOrgChoices, renderRundown,
+  buildRundownCard, renderOrgChoices, renderRundown, statusColor,
 } from '@/teams/rundown.js';
 import { CARD_FETCH_CAP } from '@/fetch/zendesk.js';
 import type { CardCandidate } from '@/teams/search.js';
@@ -125,5 +125,65 @@ describe('renderOrgChoices', () => {
   it('ends with the buscar instruction that round-trips', () => {
     const out = renderOrgChoices('norte', [{ id: 1, name: 'Norte A' }, { id: 2, name: 'Norte B' }]);
     expect(out.split('\n').at(-1)).toBe('Responda `buscar <nome da organização>` para escolher.');
+  });
+});
+
+describe('statusColor', () => {
+  it.each([
+    ['Done', 'good'], ['Pronto para Produção', 'good'], ['Resolvido', 'good'], ['closed', 'good'], ['SOLVED', 'good'],
+    ['Bloqueado', 'attention'], ['Blocked by vendor', 'attention'], ['Reprovado no teste', 'attention'],
+    ['Em Teste', 'default'], ['open', 'default'], ['', 'default'],
+  ])('%s -> %s', (status, color) => {
+    expect(statusColor(status)).toBe(color);
+  });
+});
+
+describe('buildRundownCard', () => {
+  const build = (cs: CardCandidate[], total = cs.length) => buildRundownCard('Dalle', cs, total, NOW) as any;
+  const texts = (c: any) => c.body.map((b: any) => b.text);
+
+  it('is a plain Adaptive Card with a bold count title and no buttons', () => {
+    const c = build([jira(1)]);
+    expect(c.type).toBe('AdaptiveCard');
+    expect(c.version).toBe('1.5');
+    expect(c.actions).toBeUndefined();
+    expect(c.body[0]).toMatchObject({ type: 'TextBlock', weight: 'Bolder', text: 'Dalle — 1 cards ativos' });
+  });
+
+  it('renders per card a bold-key line and a subtle colored status line with assignee when present', () => {
+    const withAssignee = { ...jira(1, '2026-09-27T12:00:00.000Z'), status: 'Done', assignee: 'Ana Souza' };
+    const c = build([withAssignee, { ...zen('16467'), status: 'Bloqueado' }]);
+    expect(c.body[1]).toMatchObject({ text: '**AGL-1** — Resumo 1', wrap: true });
+    expect(c.body[2]).toMatchObject({ text: 'Done · Ana Souza · atualizado 27/09', isSubtle: true, color: 'good' });
+    expect(c.body[3].text).toBe('**chamado 16467** — Assunto');
+    expect(c.body[4]).toMatchObject({ isSubtle: true, color: 'attention' });
+    expect(c.body[4].text).not.toContain('undefined');
+    expect(c.body[4].text.split(' · ')).toHaveLength(2);   // no assignee segment
+  });
+
+  it('caps cards at RUNDOWN_LINE_CAP and adds the overflow and stale lines as subtle blocks', () => {
+    const old = jira(99, iso(NOW - 30 * DAY));
+    const c = build([...many(RUNDOWN_LINE_CAP), old], RUNDOWN_LINE_CAP + 1);
+    expect(texts(c).filter((t: string) => t.startsWith('**AGL-'))).toHaveLength(RUNDOWN_LINE_CAP);
+    const overflow = c.body.find((b: any) => b.text?.startsWith('e mais'));
+    expect(overflow).toMatchObject({ text: 'e mais 1 cards — pergunte por um deles', isSubtle: true });
+    const stale = c.body.find((b: any) => b.text?.startsWith('parado há'));
+    expect(stale).toMatchObject({ text: 'parado há mais tempo: AGL-99, sem atualização desde 30/08', isSubtle: true });
+  });
+
+  it('uses the capped count wording at the fetch cap', () => {
+    expect(build(many(2), CARD_FETCH_CAP).body[0].text).toBe(
+      `Dalle — ${CARD_FETCH_CAP}+ cards ativos (mostrando os mais recentes)`,
+    );
+  });
+});
+
+describe('buildCandidateCard line style', () => {
+  it('uses the bold-key line and a colored status line, buttons unchanged', () => {
+    const c = buildCandidateCard('Norte', [{ ...jira(1), status: 'Resolvido', assignee: 'Beto' }], 1) as any;
+    expect(c.body[1].text).toBe('**AGL-1** — Resumo 1');
+    expect(c.body[2]).toMatchObject({ isSubtle: true, color: 'good' });
+    expect(c.body[2].text).toContain('Resolvido · Beto · atualizado');
+    expect(c.actions).toHaveLength(1);
   });
 });

@@ -1,5 +1,6 @@
 import { CARD_FETCH_CAP, type ZendeskOrg } from '@/fetch/zendesk.js';
 import { formatDayMonthTime } from '@/text/datetime.js';
+import { normalizeText } from '@/text/normalize.js';
 import { ADAPTIVE_CARD_SCHEMA, ADAPTIVE_CARD_VERSION } from './cards.js';
 import { collectedAt } from './reply.js';
 import { candidateId, type CardCandidate } from './search.js';
@@ -23,6 +24,39 @@ const dayMonth = (iso: string): string => formatDayMonthTime(iso).split(' ')[0];
 
 const cardLine = (c: CardCandidate): string =>
   `${c.label} — ${c.summary} — ${c.status}, atualizado ${dayMonth(c.updatedAt)}`;
+
+/** Statuses (normalized) that read as finished. Tenant-tunable. */
+const GOOD_STATUSES = new Set(['done', 'pronto para producao', 'resolvido', 'closed', 'solved']);
+/** Substrings (normalized) that mark a status as needing attention. Tenant-tunable. */
+const ATTENTION_MARKERS = ['bloqueado', 'blocked', 'reprovado'];
+
+export type StatusColor = 'good' | 'attention' | 'default';
+
+/** Adaptive Card TextBlock color for a Jira/Zendesk status (spec §10.2). */
+export function statusColor(status: string): StatusColor {
+  const s = normalizeText(status).trim();
+  if (GOOD_STATUSES.has(s)) return 'good';
+  if (ATTENTION_MARKERS.some((m) => s.includes(m))) return 'attention';
+  return 'default';
+}
+
+/** The two TextBlocks of one card line: bold key + summary, then a subtle colored status line. */
+function cardBlocks(c: CardCandidate): Record<string, unknown>[] {
+  const detail = [c.status, c.assignee, `atualizado ${dayMonth(c.updatedAt)}`].filter(Boolean).join(' · ');
+  return [
+    { type: 'TextBlock', text: `**${c.label}** — ${c.summary}`, wrap: true, spacing: 'Small' },
+    { type: 'TextBlock', text: detail, wrap: true, isSubtle: true, color: statusColor(c.status), spacing: 'None' },
+  ];
+}
+
+const subtle = (text: string): Record<string, unknown> => ({ type: 'TextBlock', text, wrap: true, isSubtle: true });
+
+const adaptiveCard = (body: Record<string, unknown>[]): Record<string, unknown> => ({
+  $schema: ADAPTIVE_CARD_SCHEMA,
+  type: 'AdaptiveCard',
+  version: ADAPTIVE_CARD_VERSION,
+  body,
+});
 
 /** The candidate with the oldest parseable `updatedAt`, if it is past the stale threshold. */
 function staleCard(cards: CardCandidate[], nowMs: number): CardCandidate | undefined {
@@ -54,13 +88,36 @@ export function renderRundown(
   const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
   const lines = [`**${name} — ${countLabel(total)} (coletado às ${time})**`];
   for (const c of cards.slice(0, RUNDOWN_LINE_CAP)) lines.push(`- ${cardLine(c)}`);
+  lines.push(...footerLines(cards, total, collectedAtMs));
+  return lines.join('\n');
+}
+
+/** The overflow and stale lines shared by the text rundown and the rundown card. */
+function footerLines(cards: CardCandidate[], total: number, nowMs: number): string[] {
+  const lines: string[] = [];
   const hidden = total - Math.min(cards.length, RUNDOWN_LINE_CAP);
   if (hidden > 0) lines.push(`e mais ${hidden} cards — pergunte por um deles`);
-  const stale = staleCard(cards, collectedAtMs);
+  const stale = staleCard(cards, nowMs);
   if (stale) {
     lines.push(`parado há mais tempo: ${stale.label}, sem atualização desde ${dayMonth(stale.updatedAt)}`);
   }
-  return lines.join('\n');
+  return lines;
+}
+
+/** The rundown as an Adaptive Card: same content as `renderRundown`, no buttons (it never binds). */
+export function buildRundownCard(
+  name: string,
+  cards: CardCandidate[],
+  total: number,
+  collectedAtMs: number,
+): Record<string, unknown> {
+  const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
+  return adaptiveCard([
+    { type: 'TextBlock', text: `${name} — ${countLabel(total)}`, wrap: true, weight: 'Bolder' },
+    ...cards.slice(0, RUNDOWN_LINE_CAP).flatMap(cardBlocks),
+    ...footerLines(cards, total, collectedAtMs).map(subtle),
+    subtle(`coletado às ${time}`),
+  ]);
 }
 
 /** Adaptive Card listing candidates with one select button each (plain object, no Teams SDK). */
@@ -72,17 +129,12 @@ export function buildCandidateCard(
   const shown = cards.slice(0, BUTTON_CAP);
   const body: Record<string, unknown>[] = [
     { type: 'TextBlock', text: `${name} — ${countLabel(total)}`, wrap: true, weight: 'Bolder' },
-    ...cards.map((c) => ({ type: 'TextBlock', text: cardLine(c), wrap: true, spacing: 'Small' })),
+    ...cards.flatMap(cardBlocks),
   ];
   const hidden = cards.length - shown.length;
-  if (hidden > 0) {
-    body.push({ type: 'TextBlock', text: `mais ${hidden} sem botão — digite o nome`, wrap: true, isSubtle: true });
-  }
+  if (hidden > 0) body.push(subtle(`mais ${hidden} sem botão — digite o nome`));
   return {
-    $schema: ADAPTIVE_CARD_SCHEMA,
-    type: 'AdaptiveCard',
-    version: ADAPTIVE_CARD_VERSION,
-    body,
+    ...adaptiveCard(body),
     actions: shown.map((c) => ({
       type: 'Action.Execute',
       title: c.label,

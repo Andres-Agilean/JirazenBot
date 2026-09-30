@@ -10,6 +10,8 @@ export interface CardCandidate {
   summary: string;
   status: string;
   updatedAt: string;
+  /** Jira assignee displayName; Jira-derived candidates only (a Zendesk lookup would cost requests). */
+  assignee?: string;
 }
 
 export type SearchOutcome =
@@ -52,6 +54,7 @@ const jiraCandidate = (c: JiraCardSummary): CardCandidate => ({
   summary: c.summary,
   status: c.status,
   updatedAt: c.updatedAt,
+  assignee: c.assignee,
 });
 
 const zendeskCandidate = (t: ZendeskTicketSummary): CardCandidate => ({
