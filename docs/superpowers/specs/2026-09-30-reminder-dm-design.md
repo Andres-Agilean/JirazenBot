@@ -47,6 +47,11 @@ Jira↔Zendesk resolver); that is a documented upgrade path, not v1.
   (`/users` filtered/searched by display name, tenant of the Jirazen Entra app). Tenant scoping
   is structural: Graph app credentials can only see the organization's own directory, so the
   org-only constraint cannot be violated by construction.
+- **Members only (owner question, 2026-09-30):** Graph's `/users` covers the whole Entra
+  directory — more than Teams users. The search filters to `userType eq 'Member'` and
+  `accountEnabled eq true`, so guests (invited externals) and disabled/service accounts never
+  appear as candidates. A member without a Teams license surfaces at delivery time instead: the
+  send fails and the receipt says so (§7's honesty rule) — no license lookup in v1.
 - Outcomes:
   - **Exactly one match** → confirmation card (§5).
   - **Multiple matches** → clarification card: one button per candidate (display name + email,
