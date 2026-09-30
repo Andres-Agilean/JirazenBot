@@ -6,8 +6,8 @@ import { ADAPTIVE_CARD_SCHEMA, ADAPTIVE_CARD_VERSION } from './cards.js';
 import { collectedAt, jiraLink, zendeskLink } from './reply.js';
 import { candidateId, type CardCandidate } from './search.js';
 
-/** Most card lines a rundown shows, counted across all sections; the rest collapse into per-section overflow lines. */
-export const RUNDOWN_LINE_CAP = 8;
+/** Most card lines a rundown shows PER SECTION (a two-section card is bounded at twice this); the rest collapse into that section's overflow line. */
+export const SECTION_LINE_CAP = 5;
 /** Most selection buttons a candidate card shows; the rest are reachable by typing a name. */
 export const BUTTON_CAP = 6;
 /** A card untouched for longer than this is called out as the stalest one. */
@@ -51,21 +51,15 @@ interface RenderedSection {
 }
 
 /**
- * Splits into the non-empty sections (incoming newest-first order kept inside each) and spends
- * `cap` lines across them in section order, Jira first. The cap is on the card's TOTAL lines, not
- * per section, so the message stays bounded whatever the Jira/Zendesk mix; what does not fit is
- * that section's `hidden` list. No cap shows everything.
+ * Splits into the non-empty sections (incoming newest-first order kept inside each) and shows
+ * at most `cap` lines PER SECTION, so a two-section card is bounded at twice the cap; what does
+ * not fit is that section's `hidden` list. No cap shows everything.
  */
 function sectioned(cards: CardCandidate[], cap = Infinity): RenderedSection[] {
-  let room = cap;
   return SECTIONS
     .map((s) => ({ title: s.title, all: cards.filter((c) => c.ref.system === s.system) }))
     .filter((s) => s.all.length > 0)
-    .map((s) => {
-      const shown = s.all.slice(0, room);
-      room -= shown.length;
-      return { title: s.title, shown, hidden: s.all.slice(shown.length) };
-    });
+    .map((s) => ({ title: s.title, shown: s.all.slice(0, cap), hidden: s.all.slice(cap) }));
 }
 
 /** `e mais N: [A](url), [B](url), …` -- names a section's hidden items so each is reachable by typing. */
@@ -101,16 +95,16 @@ function cardBlocks(c: CardCandidate, cfg: Config): Record<string, unknown>[] {
   ];
 }
 
-/** Card body blocks per section: bold separated header, its lines, then its own overflow line. */
-const sectionBlocks = (sections: RenderedSection[], cfg: Config): Record<string, unknown>[] =>
-  sections.flatMap((s) => {
-    const overflow = overflowLine(s.hidden, cfg);
-    return [
-      { type: 'TextBlock', text: s.title, wrap: true, weight: 'Bolder', separator: true, spacing: 'Medium' },
-      ...s.shown.flatMap((c) => cardBlocks(c, cfg)),
-      ...(overflow ? [subtle(overflow)] : []),
-    ];
-  });
+/**
+ * Card body blocks per section: bold separated header, its lines, then its footer (overflow, then
+ * stale). `nowMs` undefined leaves the stale line out (the candidate card never had one).
+ */
+const sectionBlocks = (sections: RenderedSection[], cfg: Config, nowMs?: number): Record<string, unknown>[] =>
+  sections.flatMap((s) => [
+    { type: 'TextBlock', text: s.title, wrap: true, weight: 'Bolder', separator: true, spacing: 'Medium' },
+    ...s.shown.flatMap((c) => cardBlocks(c, cfg)),
+    ...sectionFooter(s, cfg, nowMs).map(subtle),
+  ]);
 
 /** The card title: the matched name and count, prominent (never subtle). */
 const titleBlock = (name: string, total: number): Record<string, unknown> => (
@@ -135,12 +129,19 @@ function staleCard(cards: CardCandidate[], nowMs: number): CardCandidate | undef
   return oldest && nowMs - oldest.ms > STALE_AFTER_DAYS * DAY_MS ? oldest.card : undefined;
 }
 
-/** The card-global stale line (over ALL candidates, shown or not), shared by the text and the card. */
-function staleLine(cards: CardCandidate[], nowMs: number, cfg: Config): string | undefined {
-  const stale = staleCard(cards, nowMs);
-  return stale
-    ? `parado há mais tempo: ${keyLink(stale, cfg)}, sem atualização desde ${dayMonth(stale.updatedAt)}`
-    : undefined;
+/**
+ * A section's foot lines, shared by the text and the card: its overflow line, then its stale line.
+ * The stale item is picked over the section's FULL list (shown + hidden). No `nowMs`: no stale line.
+ */
+function sectionFooter(s: RenderedSection, cfg: Config, nowMs?: number): string[] {
+  const lines: string[] = [];
+  const overflow = overflowLine(s.hidden, cfg);
+  if (overflow) lines.push(overflow);
+  const stale = nowMs === undefined ? undefined : staleCard([...s.shown, ...s.hidden], nowMs);
+  if (stale) {
+    lines.push(`parado há mais tempo: ${keyLink(stale, cfg)}, sem atualização desde ${dayMonth(stale.updatedAt)}`);
+  }
+  return lines;
 }
 
 /**
@@ -162,12 +163,9 @@ export function renderRundown(
 ): string {
   const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
   const lines = [`**${name} — ${countLabel(total)} (coletado às ${time})**`];
-  for (const s of sectioned(cards, RUNDOWN_LINE_CAP)) {
-    const overflow = overflowLine(s.hidden, cfg);
-    lines.push(s.title, ...s.shown.map((c) => `- ${cardLine(c, cfg)}`), ...(overflow ? [overflow] : []));
+  for (const s of sectioned(cards, SECTION_LINE_CAP)) {
+    lines.push(s.title, ...s.shown.map((c) => `- ${cardLine(c, cfg)}`), ...sectionFooter(s, cfg, collectedAtMs));
   }
-  const stale = staleLine(cards, collectedAtMs, cfg);
-  if (stale) lines.push(stale);
   return lines.join('\n');
 }
 
@@ -180,11 +178,9 @@ export function buildRundownCard(
   cfg: Config,
 ): Record<string, unknown> {
   const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
-  const stale = staleLine(cards, collectedAtMs, cfg);
   return adaptiveCard([
     titleBlock(name, total),
-    ...sectionBlocks(sectioned(cards, RUNDOWN_LINE_CAP), cfg),
-    ...(stale ? [subtle(stale)] : []),
+    ...sectionBlocks(sectioned(cards, SECTION_LINE_CAP), cfg, collectedAtMs),
     subtle(`coletado às ${time}`),
   ]);
 }

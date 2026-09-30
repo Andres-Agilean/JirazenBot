@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BUTTON_CAP, RUNDOWN_LINE_CAP, SELECT_ACTION, STALE_AFTER_DAYS, buildCandidateCard,
+  BUTTON_CAP, SECTION_LINE_CAP, SELECT_ACTION, STALE_AFTER_DAYS, buildCandidateCard,
   buildRundownCard, renderOrgChoices, renderRundown, statusColor,
 } from '@/teams/rundown.js';
 import { CARD_FETCH_CAP } from '@/fetch/zendesk.js';
@@ -35,7 +35,7 @@ const run = (name: string, cards: CardCandidate[], total = cards.length) =>
 
 describe('caps', () => {
   it('are the specified values', () => {
-    expect([RUNDOWN_LINE_CAP, BUTTON_CAP, STALE_AFTER_DAYS, SELECT_ACTION]).toEqual([8, 6, 14, 'selecionar']);
+    expect([SECTION_LINE_CAP, BUTTON_CAP, STALE_AFTER_DAYS, SELECT_ACTION]).toEqual([5, 6, 14, 'selecionar']);
   });
 });
 
@@ -47,10 +47,10 @@ describe('renderRundown', () => {
     expect(lines[2]).toBe(`- ${J('AGL-1')} — Resumo 1 — Em Teste, atualizado 27/09`);
   });
 
-  it('caps lines at RUNDOWN_LINE_CAP and names the hidden ones in the section', () => {
+  it('caps a section at SECTION_LINE_CAP and names the hidden ones in that section', () => {
     const out = run('Norte', many(12));
-    expect(out.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(RUNDOWN_LINE_CAP);
-    expect(out).toContain(`e mais 4: ${['AGL-9', 'AGL-10', 'AGL-11', 'AGL-12'].map(J).join(', ')}`);
+    expect(out.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(SECTION_LINE_CAP);
+    expect(out).toContain(`e mais 7: ${['AGL-6', 'AGL-7', 'AGL-8', 'AGL-9', 'AGL-10', 'AGL-11', 'AGL-12'].map(J).join(', ')}`);
     expect(out).toContain('12 atividades abertas');
   });
 
@@ -63,11 +63,12 @@ describe('renderRundown', () => {
     );
   });
 
-  it('has no overflow line at exactly the cap', () => {
-    expect(run('N', many(RUNDOWN_LINE_CAP))).not.toContain('e mais');
+  it('has no overflow line at exactly the section cap, and one at cap + 1', () => {
+    expect(run('N', many(SECTION_LINE_CAP))).not.toContain('e mais');
+    expect(run('N', many(SECTION_LINE_CAP + 1))).toContain(`e mais 1: ${J(`AGL-${SECTION_LINE_CAP + 1}`)}`);
   });
 
-  it('adds a linked stale line at the card foot when the oldest card is past the threshold', () => {
+  it('adds a linked stale line at the section foot when its oldest card is past the threshold', () => {
     const old = jira(9, iso(NOW - (STALE_AFTER_DAYS + 1) * DAY));
     expect(run('N', [jira(1), old]).split('\n').at(-1)).toBe(
       `parado há mais tempo: ${J('AGL-9')}, sem atualização desde 14/09`,
@@ -78,7 +79,7 @@ describe('renderRundown', () => {
     expect(run('N', [jira(1), jira(9, iso(NOW - STALE_AFTER_DAYS * DAY))])).not.toContain('parado há');
   });
 
-  it('finds the stale card even beyond the line cap', () => {
+  it('finds the stale card even beyond the section line cap', () => {
     const cards = [...many(9), jira(99, iso(NOW - 30 * DAY))];
     expect(run('N', cards)).toContain(`parado há mais tempo: ${J('AGL-99')}`);
   });
@@ -182,8 +183,8 @@ describe('buildRundownCard', () => {
     );
   });
 
-  it('keeps the stale line global, as a subtle block at the card foot', () => {
-    const cards = [...many(RUNDOWN_LINE_CAP), jira(99, iso(NOW - 30 * DAY))];
+  it('renders the stale line as a subtle block at its section foot', () => {
+    const cards = [...many(SECTION_LINE_CAP), jira(99, iso(NOW - 30 * DAY))];
     const c = build(cards);
     expect(c.body.at(-2)).toMatchObject({
       text: `parado há mais tempo: ${J('AGL-99')}, sem atualização desde 30/08`, isSubtle: true,
@@ -272,48 +273,68 @@ describe('per-section overflow (spec §10.6)', () => {
   const card = (cards: CardCandidate[]) => buildRundownCard('Dalle', cards, cards.length, NOW, testConfig) as any;
   const linked = (labels: string[]) => labels.map((l) => (l.startsWith('chamado') ? Z(l.slice(8)) : J(l))).join(', ');
 
-  it('dalle-like: 7 Jira + 3 Zendesk under the global cap of 8 -> 7 Jira, 1 Zendesk, Zendesk overflows by 2', () => {
-    const cards = [zen('101'), zen('102'), zen('103'), ...many(7)];   // Zendesk newer/first in input
+  const stales = (c: any): string[] => c.body.map((b: any) => b.text).filter((t: string) => t.startsWith('parado há'));
+  const old = (n: number) => jira(n, iso(NOW - 30 * DAY));   // 30 days untouched -> stale
+
+  it('dalle-like: 7 Jira + 3 Zendesk -> 5 Jira + its overflow and stale, then 3 Zendesk with neither', () => {
+    const cards = [zen('101'), zen('102'), zen('103'), ...many(6), old(7)];
     const c = card(cards);
-    expect(keyLines(c)).toHaveLength(RUNDOWN_LINE_CAP);
-    expect(keyLines(c).filter((t) => t.includes('/browse/'))).toHaveLength(7);
-    expect(keyLines(c).filter((t) => t.includes('/agent/tickets/'))).toHaveLength(1);
-    expect(overflows(c)).toEqual([`e mais 2: ${linked(['chamado 102', 'chamado 103'])}`]);
-    // the overflow line sits right after its own section's lines, before nothing else
+    expect(keyLines(c)).toHaveLength(SECTION_LINE_CAP + 3);
+    expect(keyLines(c).filter((t) => t.includes('/browse/'))).toHaveLength(SECTION_LINE_CAP);
+    expect(keyLines(c).filter((t) => t.includes('/agent/tickets/'))).toHaveLength(3);
+    expect(overflows(c)).toEqual([`e mais 2: ${linked(['AGL-6', 'AGL-7'])}`]);
+    expect(stales(c)).toEqual([`parado há mais tempo: ${J('AGL-7')}, sem atualização desde 30/08`]);   // hidden items count
+    // order: Jira lines, Jira overflow, Jira stale, then the Zendesk header
     const texts: string[] = c.body.map((b: any) => b.text);
-    expect(texts.indexOf(overflows(c)[0])).toBeGreaterThan(texts.indexOf('Chamados (Zendesk)'));
+    expect(texts.indexOf(overflows(c)[0])).toBeGreaterThan(texts.indexOf(keyLines(c)[SECTION_LINE_CAP - 1]));
+    expect(texts.indexOf(stales(c)[0])).toBe(texts.indexOf(overflows(c)[0]) + 1);
+    expect(texts.indexOf('Chamados (Zendesk)')).toBeGreaterThan(texts.indexOf(stales(c)[0]));
 
     const lines = renderRundown('Dalle', cards, cards.length, NOW, testConfig).split('\n');
-    expect(lines.filter((l) => l.startsWith('- '))).toHaveLength(RUNDOWN_LINE_CAP);
+    expect(lines.filter((l) => l.startsWith('- '))).toHaveLength(SECTION_LINE_CAP + 3);
     expect(lines.filter((l) => l.startsWith('e mais'))).toEqual(overflows(c));
-    expect(lines.at(-1)).toBe(overflows(c)[0]);
+    expect(lines.filter((l) => l.startsWith('parado há'))).toEqual(stales(c));
+    expect(lines.indexOf(stales(c)[0])).toBe(lines.indexOf(overflows(c)[0]) + 1);
   });
 
-  it('a Jira overflow: 10 Jira + 2 Zendesk -> Jira shows 8 and overflows by 2; Zendesk section shows only its overflow', () => {
-    const c = card([...many(10), zen('1'), zen('2')]);
-    expect(keyLines(c)).toHaveLength(RUNDOWN_LINE_CAP);
-    expect(overflows(c)).toEqual([
-      `e mais 2: ${linked(['AGL-9', 'AGL-10'])}`,
-      `e mais 2: ${linked(['chamado 1', 'chamado 2'])}`,
+  it('each section gets its own stale line, from its own oldest item', () => {
+    const oldZ = { ...zen('55'), updatedAt: iso(NOW - 20 * DAY) };
+    const c = card([...many(2), old(3), oldZ, zen('56')]);
+    expect(stales(c)).toEqual([
+      `parado há mais tempo: ${J('AGL-3')}, sem atualização desde 30/08`,
+      `parado há mais tempo: ${Z('55')}, sem atualização desde 09/09`,
     ]);
-    const texts: string[] = c.body.map((b: any) => b.text);
-    expect(texts.indexOf('Chamados (Zendesk)')).toBeGreaterThan(texts.indexOf(overflows(c)[0]));
-    expect(c.body.filter((b: any) => b.text?.startsWith('e mais')).every((b: any) => b.isSubtle)).toBe(true);
+    const lines = renderRundown('N', [...many(2), old(3), oldZ, zen('56')], 5, NOW, testConfig).split('\n');
+    expect(lines.filter((l) => l.startsWith('parado há'))).toEqual(stales(c));
+    // no card-global stale line at the foot: the last line is the Zendesk section's own
+    expect(lines.at(-1)).toBe(stales(c)[1]);
   });
 
-  it('no mixed card-foot overflow: nothing hidden means no overflow line at all', () => {
-    expect(overflows(card([...many(5), zen('1')]))).toEqual([]);
+  it('a section under the cap with fresh items has neither overflow nor stale', () => {
+    const c = card([...many(SECTION_LINE_CAP - 1), zen('1')]);
+    expect(overflows(c)).toEqual([]);
+    expect(stales(c)).toEqual([]);
+  });
+
+  it('boundary: exactly SECTION_LINE_CAP has no overflow, one more names it; each section caps independently', () => {
+    expect(overflows(card(many(SECTION_LINE_CAP)))).toEqual([]);
+    expect(overflows(card(many(SECTION_LINE_CAP + 1)))).toEqual([`e mais 1: ${J(`AGL-${SECTION_LINE_CAP + 1}`)}`]);
+    const both = card([...many(SECTION_LINE_CAP + 1), ...Array.from({ length: SECTION_LINE_CAP + 2 }, (_, i) => zen(`${i + 1}`))]);
+    expect(keyLines(both)).toHaveLength(SECTION_LINE_CAP * 2);
+    expect(overflows(both)).toHaveLength(2);
+    expect(overflows(both)[1]).toBe(`e mais 2: ${linked(['chamado 6', 'chamado 7'])}`);
+    expect(both.body.filter((b: any) => b.text?.startsWith('e mais')).every((b: any) => b.isSubtle)).toBe(true);
   });
 
   it('lists at most 10 labels per section, then an ellipsis', () => {
-    const c = card(many(RUNDOWN_LINE_CAP + 12));
-    const expected = linked(many(RUNDOWN_LINE_CAP + 12).slice(RUNDOWN_LINE_CAP, RUNDOWN_LINE_CAP + 10).map((x) => x.label));
-    expect(overflows(c)).toEqual([`e mais 12: ${expected}, …`]);
-    expect(run('N', many(RUNDOWN_LINE_CAP + 12))).toContain(`e mais 12: ${expected}, …`);
+    const n = SECTION_LINE_CAP + 12;
+    const expected = linked(many(n).slice(SECTION_LINE_CAP, SECTION_LINE_CAP + 10).map((x) => x.label));
+    expect(overflows(card(many(n)))).toEqual([`e mais 12: ${expected}, …`]);
+    expect(run('N', many(n))).toContain(`e mais 12: ${expected}, …`);
   });
 
   it('exactly 10 hidden has no ellipsis, and the old wording is gone', () => {
-    expect(overflows(card(many(RUNDOWN_LINE_CAP + 10)))[0]).not.toContain('…');
-    expect(run('N', many(RUNDOWN_LINE_CAP + 3))).not.toContain('pergunte');
+    expect(overflows(card(many(SECTION_LINE_CAP + 10)))[0]).not.toContain('…');
+    expect(run('N', many(SECTION_LINE_CAP + 3))).not.toContain('pergunte');
   });
 });
