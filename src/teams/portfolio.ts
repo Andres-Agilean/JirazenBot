@@ -141,7 +141,8 @@ const EXPAND_ALL_RE = new RegExp(`^${FILLER}tudo$`);
 const DISTRIBUTION_RE = new RegExp(
   `^${FILLER}?(?:(?:${DISTRIBUTION_VERBS.join('|')}) )?(?:por|pelos?) (status|responsaveis|responsavel)$`,
 );
-const COUNTS_RE = new RegExp(`^quant(?:os|as)(?: (${Object.keys(STATUS_FILTER_MARKERS).join('|')}))?$`);
+/** `quantos`, or `quantos [estão] <status word>`; the verb (normalized `esta`/`estao`) only precedes a status. */
+const COUNTS_RE = new RegExp(`^quant(?:os|as)(?:(?: est(?:a|ao))? (${Object.keys(STATUS_FILTER_MARKERS).join('|')}))?$`);
 
 /**
  * Whole-message follow-ups on a portfolio. Anchored on purpose: a sentence that merely contains

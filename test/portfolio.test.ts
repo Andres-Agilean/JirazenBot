@@ -136,6 +136,9 @@ describe('parseFollowup', () => {
     ['quantos bloqueados?', { kind: 'counts', status: 'bloqueados' }],
     ['Quantas concluídas?', { kind: 'counts', status: 'concluidas' }],
     ['quantos reprovados', { kind: 'counts', status: 'reprovados' }],
+    ['quantos estão bloqueados?', { kind: 'counts', status: 'bloqueados' }],   // spec §3a's own example
+    ['quantas estao pendentes?', { kind: 'counts', status: 'pendentes' }],
+    ['Quantos está abertos', { kind: 'counts', status: 'abertos' }],
     ['  quantos   bloqueados ? ', { kind: 'counts', status: 'bloqueados' }],
     ['todos  os   de jira', { kind: 'expand', section: 'jira' }],
     ['quero ver todos os de zendesk', { kind: 'expand', section: 'zendesk' }],
@@ -168,6 +171,10 @@ describe('parseFollowup', () => {
     'quero ver todos os de jira por favor',
     'e todos os de jira têm responsável?',
     'quantos bloqueados abertos',
+    'quantos estão?',                 // the verb is only accepted in front of a status word
+    'quantos são bloqueados?',        // only est(a|ao) -- keep it tight
+    'quantos há bloqueados?',
+    'quantos estão bloqueados no card?',
     'qual o status?',
     'quantos  casos   de teste passaram?',
     'quero ver o que está bloqueado',
