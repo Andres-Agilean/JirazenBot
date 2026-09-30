@@ -44,9 +44,14 @@ const zendeskCandidate = (t: ZendeskTicketSummary): CardCandidate => ({
   updatedAt: t.updatedAt,
 });
 
-// ISO-8601 UTC strings sort lexicographically; newest first.
+// Jira returns local-offset timestamps (-0300), Zendesk returns Z; string order is wrong across
+// the two, so compare instants. Unparseable values count as 0 (oldest). Newest first.
+const instant = (s: string): number => {
+  const ms = Date.parse(s);
+  return Number.isNaN(ms) ? 0 : ms;
+};
 const newestFirst = (a: CardCandidate, b: CardCandidate): number =>
-  a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0;
+  instant(b.updatedAt) - instant(a.updatedAt);
 
 function cardsOutcome(name: string, candidates: CardCandidate[]): SearchOutcome {
   if (candidates.length === 0) return { kind: 'none', name };
@@ -76,6 +81,9 @@ export async function searchPortfolio(name: string, deps: SearchDeps): Promise<S
 
   if (orgs.length === 1) {
     const tickets = await deps.openTicketsForOrganization(orgs[0].id);
+    // Deliberate: a single ticket binds with the ZENDESK ref and skips searchByZendeskIds.
+    // loadCardBundle resolves the Jira counterpart at bind time anyway, and skipping the
+    // mapping keeps this path at 2 GETs.
     if (tickets.length === 1) return { kind: 'bind', ref: zendeskCandidate(tickets[0]).ref };
     if (tickets.length > 1) return cardsOutcome(query, await candidatesForTickets(tickets, deps));
     // zero open tickets: fall through to Jira text search

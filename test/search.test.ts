@@ -102,6 +102,31 @@ it('caps ids sent to searchByZendeskIds and cards at CARD_FETCH_CAP; total is pr
   if (out.kind === 'cards') expect(out.cards).toHaveLength(25);
 });
 
+it('orders mixed Jira-offset and Zendesk-Z timestamps chronologically, not lexically', async () => {
+  const d = deps({
+    searchOrganizations: async () => [{ id: 1, name: 'Norte' }],
+    openTicketsForOrganization: async () =>
+      [ticket(100, '2026-09-28T12:00:00Z'), ticket(200, '2026-09-01T00:00:00Z')],
+    // 10:00-03:00 = 13:00Z: newer than the Zendesk 12:00Z, though it sorts lower as a string
+    searchByZendeskIds: async () => [{ issueKey: 'AGL-1', summary: 'S', status: 'Em Teste',
+      updatedAt: '2026-09-28T10:00:00.000-0300', zendeskId: '200' }],
+  });
+  const out = await searchPortfolio('norte', d);
+  if (out.kind !== 'cards') throw new Error('expected cards');
+  expect(out.cards.map((c) => c.label)).toEqual(['AGL-1', 'chamado 100']);
+});
+
+it('single-ticket bind does not call searchByZendeskIds (2-GET path)', async () => {
+  let mapCalls = 0;
+  const d = deps({
+    searchOrganizations: async () => [{ id: 1, name: 'Norte' }],
+    openTicketsForOrganization: async () => [ticket(1, '2026-09-28T10:00:00Z')],
+    searchByZendeskIds: async () => { mapCalls++; return []; },
+  });
+  expect((await searchPortfolio('norte', d)).kind).toBe('bind');
+  expect(mapCalls).toBe(0);
+});
+
 it('labels and refs: jira AGL-1 / zendesk chamado N, explicit', async () => {
   const d = deps({
     searchOrganizations: async () => [{ id: 1, name: 'Norte' }],
