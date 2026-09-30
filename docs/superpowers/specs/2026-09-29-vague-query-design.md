@@ -130,3 +130,19 @@ Searches must stay lightweight to avoid bottlenecks and vendor rate limits:
 LLM-based intent classification, cross-card Claude answers ("summarize these 6 cards"), resolved-
 card history search, Zendesk organization creation/edits of any kind (writes stay forbidden), and
 persisting candidate sets beyond the binding store's lifetime.
+
+## 10. Addendum — live-session findings (2026-09-30, owner screenshots)
+
+1. **Detector anchors widened.** "como estão os cards da Dalle?" / "as atividades da dalle?"
+   missed the detector (no empresa/cliente/obra/projeto anchor). Plural subject words become
+   portfolio anchors — cards, atividades, chamados, tickets, pendências, demandas — always
+   mode 'rundown'. The singular defect words keep flipping mode to 'candidates' as before.
+2. **Rundown renders as an Adaptive Card** (fallbackText keeps the plain-text render): bold
+   count title; per card a line `**KEY** — summary` plus a subtle line
+   `status · responsável · atualizado DD/MM` with the status TextBlock colored — `good` for
+   concluded states (done, pronto para produção, resolvido), `attention` for blocked/reprovado,
+   default otherwise (small exported mapping, tenant-tunable). Rundowns still never bind and
+   carry no buttons; typed selection keeps working via the stored set.
+3. **Assignee joins the search results** where it costs nothing extra: `assignee` added to the
+   fields of both Jira search queries (same single requests); `CardCandidate.assignee?: string`;
+   shown when present, omitted for Zendesk-only lines (a users lookup would break the §6a budget).
