@@ -888,6 +888,10 @@ describe('busca de portfólio', () => {
     expect(HELP_TEXT).toContain('`todos os de jira`');
   });
 
+  it('HELP_TEXT mentions lembrar responsável', () => {
+    expect(HELP_TEXT).toContain('`lembrar responsável`');
+  });
+
   it('handleSelect binds with no candidate set present', async () => {
     const { deps, loaded } = makeDeps();
     const replies = await handleSelect(req, { system: 'jira', id: 'AGL-11' }, deps);

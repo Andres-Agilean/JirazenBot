@@ -128,6 +128,8 @@ export const HELP_TEXT = [
   '`quantos?` / `todos os de jira` — depois de uma busca ou resumo, contagens e lista completa',
   '',
   '`voltar` — encerra sua consulta separada e volta para o card da conversa',
+  '',
+  '`lembrar responsável` — envia um lembrete no Teams para o responsável do card (com confirmação); aceita nota após dois-pontos',
 ].join('\n');
 
 export const JIRA_UNAVAILABLE =

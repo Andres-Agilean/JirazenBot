@@ -93,6 +93,19 @@ Esperado: `Modo autenticado: validação de token do Bot Framework ativa.` segui
 `Bot ouvindo em ...`. Se aparecer o erro pt-BR de credenciais, alguma das três variáveis BOT_*
 está faltando ou com espaço — o bot se recusa a iniciar de propósito.
 
+### Pré-requisitos para Lembrar DM
+
+O comando `lembrar responsável` envia mensagens diretas no Teams. Requer:
+
+- **Recurso Azure Bot Service** (passo 2) com canal Teams
+- **App instalado** (passo 5) para usuários-alvo ou com política de instalação proativa
+- **Permissão Graph `User.Read.All`** na app Jirazen (`74ca1161-1764-4572-842b-368705913b95`)
+  com consentimento do admin
+
+**Verificação ao vivo:** confirme que Teams aceita o id Microsoft Graph como membro da conversa 1:1.
+Se o método SDK falhar, pode exigir o id prefixado `29:` (Teams id); nesse caso, adicione um
+lookup Graph → Teams-id no sender (`src/teams/app.ts`).
+
 ## 5. Instalar no Teams
 
 1. Siga `appPackage/README.md`: coloque o `<appId>` nos dois campos do manifest e gere o zip.

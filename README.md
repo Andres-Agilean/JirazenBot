@@ -145,6 +145,11 @@ exact counts (optionally filtered by status, e.g. `quantos bloqueados?`); `todos
 "quem é responsável pela maioria?" are answered grounded in that portfolio's data. Asking about
 another company switches context; follow-ups stay on the current one.
 
+You can send the card's assignee a Teams reminder with `lembrar responsável`
+(optionally followed by a colon and note). The bot asks for the assignee by name,
+clarifies matches, confirms the message, and sends it—delivery is dark until the
+Azure deployment.
+
 In a channel every message must @mention the bot — that is a Teams constraint, not a choice. A
 bare number mid-conversation is treated as a question, never as a card switch, so "vimos 12 casos
 desses" cannot silently move you to ticket 12.
