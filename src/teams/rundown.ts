@@ -3,6 +3,7 @@ import { CARD_FETCH_CAP, type ZendeskOrg } from '@/fetch/zendesk.js';
 import { formatDayMonthTime } from '@/text/datetime.js';
 import { normalizeText } from '@/text/normalize.js';
 import { ADAPTIVE_CARD_SCHEMA, ADAPTIVE_CARD_VERSION, styleCitations } from './cards.js';
+import { assigneeBuckets, statusBuckets, type Bucket, type DistributionDimension } from './grouping.js';
 import { collectedAt, jiraLink, zendeskLink } from './reply.js';
 import { candidateId, type CardCandidate } from './search.js';
 
@@ -101,13 +102,18 @@ function cardBlocks(c: CardCandidate, cfg: Config): Record<string, unknown>[] {
   ];
 }
 
+/** A section's bold, separated header block. */
+const sectionHeader = (title: string): Record<string, unknown> => (
+  { type: 'TextBlock', text: title, wrap: true, weight: 'Bolder', separator: true, spacing: 'Medium' }
+);
+
 /**
  * Card body blocks per section: bold separated header, its lines, then its footer (overflow, then
  * stale). `nowMs` undefined leaves the stale line out (the candidate card never had one).
  */
 const sectionBlocks = (sections: RenderedSection[], cfg: Config, nowMs?: number): Record<string, unknown>[] =>
   sections.flatMap((s) => [
-    { type: 'TextBlock', text: s.title, wrap: true, weight: 'Bolder', separator: true, spacing: 'Medium' },
+    sectionHeader(s.title),
     ...s.shown.flatMap((c) => cardBlocks(c, cfg)),
     ...sectionFooter(s, cfg, nowMs).map(subtle),
   ]);
@@ -159,6 +165,25 @@ const countLabel = (total: number): string =>
     ? `${CARD_FETCH_CAP}+ atividades abertas (mostrando as mais recentes)`
     : `${total} atividades abertas`;
 
+const collectedTime = (collectedAtMs: number): string =>
+  collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
+
+/** The plain-text header of a rundown-family answer: bold name, count and collection time. */
+const headerLine = (name: string, total: number, collectedAtMs: number): string =>
+  `**${name} — ${countLabel(total)} (coletado às ${collectedTime(collectedAtMs)})**`;
+
+/** The card header pair shared by every rundown-family card: prominent title, subtle collection time. */
+const cardFrame = (
+  name: string,
+  total: number,
+  collectedAtMs: number,
+  content: Record<string, unknown>[],
+): Record<string, unknown> => adaptiveCard([
+  titleBlock(name, total),
+  ...content,
+  subtle(`coletado às ${collectedTime(collectedAtMs)}`),
+]);
+
 /** Deterministic text rundown of an organization's active cards. Every value is verbatim. */
 export function renderRundown(
   name: string,
@@ -168,8 +193,7 @@ export function renderRundown(
   cfg: Config,
   uncap?: ExpandSection,
 ): string {
-  const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
-  const lines = [`**${name} — ${countLabel(total)} (coletado às ${time})**`];
+  const lines = [headerLine(name, total, collectedAtMs)];
   for (const s of sectioned(cards, SECTION_LINE_CAP, uncap)) {
     lines.push(s.title, ...s.shown.map((c) => `- ${cardLine(c, cfg)}`), ...sectionFooter(s, cfg, collectedAtMs));
   }
@@ -185,12 +209,70 @@ export function buildRundownCard(
   cfg: Config,
   uncap?: ExpandSection,
 ): Record<string, unknown> {
-  const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
-  return adaptiveCard([
-    titleBlock(name, total),
-    ...sectionBlocks(sectioned(cards, SECTION_LINE_CAP, uncap), cfg, collectedAtMs),
-    subtle(`coletado às ${time}`),
+  return cardFrame(name, total, collectedAtMs, sectionBlocks(sectioned(cards, SECTION_LINE_CAP, uncap), cfg, collectedAtMs));
+}
+
+/** One distribution line: `**<bucket> — N:**` then up to SECTION_LINE_CAP bold key links, then a plain `e mais N`. */
+function bucketLine(bucket: Bucket, cfg: Config): string {
+  const shown = bucket.items.slice(0, SECTION_LINE_CAP).map((c) => `**${keyLink(c, cfg)}**`).join(', ');
+  const hidden = bucket.items.length - SECTION_LINE_CAP;
+  return `**${bucket.key} — ${bucket.items.length}:** ${shown}${hidden > 0 ? ` e mais ${hidden}` : ''}`;
+}
+
+/** A distribution's parts: status gives titled per-system bucket lists, assignee one untitled list. */
+interface DistributionPart {
+  title?: string;
+  buckets: Bucket[];
+}
+
+function distributionParts(cards: CardCandidate[], dimension: DistributionDimension): DistributionPart[] {
+  if (dimension === 'assignee') return [{ buckets: assigneeBuckets(cards) }];
+  return SECTIONS
+    .map((s) => ({ title: s.title, buckets: statusBuckets(cards, s.system) }))
+    .filter((p) => p.buckets.length > 0);
+}
+
+/** Plain-text mirror of `buildDistributionCard`. */
+export function renderDistribution(
+  name: string,
+  cards: CardCandidate[],
+  dimension: DistributionDimension,
+  total: number,
+  collectedAtMs: number,
+  cfg: Config,
+): string {
+  const lines = [headerLine(name, total, collectedAtMs)];
+  for (const p of distributionParts(cards, dimension)) {
+    if (p.title) lines.push(p.title);
+    lines.push(...p.buckets.map((b) => `- ${bucketLine(b, cfg)}`));
+  }
+  return lines.join('\n');
+}
+
+/**
+ * The portfolio distributed by status or assignee, as a rundown-family card. Status buckets are
+ * colored like the rundown's status lines; assignee buckets stay default. Counts come from the
+ * same grouping the `[estatísticas]` aggregates use, so they cannot drift.
+ */
+export function buildDistributionCard(
+  name: string,
+  cards: CardCandidate[],
+  dimension: DistributionDimension,
+  total: number,
+  collectedAtMs: number,
+  cfg: Config,
+): Record<string, unknown> {
+  const body = distributionParts(cards, dimension).flatMap((p) => [
+    ...(p.title ? [sectionHeader(p.title)] : []),
+    ...p.buckets.map((b) => ({
+      type: 'TextBlock',
+      text: bucketLine(b, cfg),
+      wrap: true,
+      spacing: 'Small',
+      ...(dimension === 'status' ? { color: statusColor(b.key) } : {}),
+    })),
   ]);
+  return cardFrame(name, total, collectedAtMs, body);
 }
 
 /** The line under a portfolio answer: which set it speaks about and how fresh the data is. */

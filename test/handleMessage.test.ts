@@ -1090,7 +1090,7 @@ describe('busca de portfólio', () => {
       expect(replies).toHaveLength(1);
       expect(replies[0].kind).toBe('text');
       expect(textOf(replies[0])).toContain('2 atividades abertas');
-      expect(textOf(replies[0])).toContain('por status: Em Teste: 2');
+      expect(textOf(replies[0])).toContain('por status (Jira): Em Teste: 2');
       expect(answered).toHaveLength(asked);
       expect(calls).toHaveLength(0);
     });
@@ -1250,6 +1250,28 @@ describe('busca de portfólio', () => {
       const all = (await handleMessage(dm('mostra tudo'), deps))[0];
       for (const c of [...jira, ...zen]) expect(textOf(all)).toContain(c.label);
       expect(textOf(all)).not.toContain('e mais');
+    });
+
+    it('filler-prefixed "quero ver todos os de zendesk" expands deterministically, no Claude', async () => {
+      const { deps, calls } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      const r = (await handleMessage(dm('quero ver todos os de zendesk'), deps))[0];
+      expect(r.kind).toBe('card');
+      expect(calls).toHaveLength(0);
+    });
+
+    it('distribution follow-ups reply with one card (status sections / assignee lines), no Claude', async () => {
+      const { deps, calls } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      const s = (await handleMessage(dm('me mostra por status'), deps))[0];
+      if (s.kind !== 'card') throw new Error('unreachable');
+      expect(JSON.stringify(s.card)).toContain('**Em Teste — 2:**');
+      expect(JSON.stringify(s.card)).toContain('Cards (Jira)');
+      expect(s.fallbackText).toContain('**Em Teste — 2:**');
+      const a = (await handleMessage(dm('divide por responsável'), deps))[0];
+      if (a.kind !== 'card') throw new Error('unreachable');
+      expect(JSON.stringify(a.card)).toContain('**sem responsável — 2:**');
+      expect(calls).toHaveLength(0);
     });
 
     it('unbound + no portfolio + free-form is still NOTHING_BOUND, and never calls Claude', async () => {

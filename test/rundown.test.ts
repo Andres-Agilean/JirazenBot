@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   BUTTON_CAP, SECTION_LINE_CAP, SELECT_ACTION, STALE_AFTER_DAYS, buildCandidateCard,
-  buildRundownCard, renderOrgChoices, renderRundown, statusColor,
+  buildDistributionCard, buildRundownCard, renderDistribution, renderOrgChoices, renderRundown, statusColor,
 } from '@/teams/rundown.js';
+import { computeAggregates } from '@/teams/portfolio.js';
 import { CARD_FETCH_CAP } from '@/fetch/zendesk.js';
 import type { CardCandidate } from '@/teams/search.js';
 import { testConfig } from './helpers.js';
@@ -336,5 +337,84 @@ describe('per-section overflow (spec §10.6)', () => {
   it('exactly 10 hidden has no ellipsis, and the old wording is gone', () => {
     expect(overflows(card(many(SECTION_LINE_CAP + 10)))[0]).not.toContain('…');
     expect(run('N', many(SECTION_LINE_CAP + 3))).not.toContain('pergunte');
+  });
+});
+
+describe('distribution card', () => {
+  const card = (id: number, status: string, assignee?: string): CardCandidate => ({
+    ...jira(id), status, ...(assignee ? { assignee } : {}),
+  });
+  const cards: CardCandidate[] = [
+    card(1, 'Done', 'Ana'), card(2, 'Done'), card(3, 'Blocked', 'Ana'), card(4, 'Em Teste', 'Bia'),
+    zen('10'), { ...zen('11'), status: 'new' },
+  ];
+  const texts = (c: any): string[] => c.body.map((b: any) => b.text);
+  const build = (dim: 'status' | 'assignee', cs = cards) =>
+    buildDistributionCard('Acme', cs, dim, cs.length, NOW, testConfig) as any;
+
+  it('status: prominent header, sections, one colored bucket line each, coletado as subtle footer', () => {
+    const c = build('status');
+    expect(c.body[0]).toMatchObject({ text: 'Acme — 6 atividades abertas', weight: 'Bolder', size: 'Large' });
+    expect(texts(c)).toEqual([
+      'Acme — 6 atividades abertas',
+      'Cards (Jira)',
+      `**Done — 2:** **${J('AGL-1')}**, **${J('AGL-2')}**`,
+      `**Blocked — 1:** **${J('AGL-3')}**`,
+      `**Em Teste — 1:** **${J('AGL-4')}**`,
+      'Chamados (Zendesk)',
+      `**new — 1:** **${Z('11')}**`,
+      `**open — 1:** **${Z('10')}**`,
+      'coletado às 12:30',
+    ]);
+    expect(c.body[1]).toMatchObject({ weight: 'Bolder', separator: true });
+    expect(c.body[2].color).toBe('good');
+    expect(c.body[3].color).toBe('attention');
+    expect(c.body[4].color).toBe('default');
+    expect(c.body.at(-1)).toMatchObject({ isSubtle: true });
+  });
+  it('status: omits an empty section', () => {
+    const c = build('status', [card(1, 'Done')]);
+    expect(texts(c)).not.toContain('Chamados (Zendesk)');
+    expect(texts(c)).toContain('Cards (Jira)');
+  });
+  it('status: caps keys per bucket with a plain "e mais N" tail and no links in it', () => {
+    const big = Array.from({ length: SECTION_LINE_CAP + 3 }, (_, i) => card(i + 1, 'Done'));
+    const line = texts(build('status', big))[2];
+    expect(line.startsWith(`**Done — ${SECTION_LINE_CAP + 3}:** `)).toBe(true);
+    expect(line.endsWith(' e mais 3')).toBe(true);
+    expect(line).toContain(J(`AGL-${SECTION_LINE_CAP}`));
+    expect(line).not.toContain(`AGL-${SECTION_LINE_CAP + 1}`);
+  });
+  it('assignee: sectionless, one default-colored line per bucket, sem responsável in tally order', () => {
+    const c = build('assignee');
+    expect(texts(c)).toEqual([
+      'Acme — 6 atividades abertas',
+      `**sem responsável — 3:** **${J('AGL-2')}**, **${Z('10')}**, **${Z('11')}**`,
+      `**Ana — 2:** **${J('AGL-1')}**, **${J('AGL-3')}**`,
+      `**Bia — 1:** **${J('AGL-4')}**`,
+      'coletado às 12:30',
+    ]);
+    expect(c.body.slice(1, -1).every((b: any) => b.color === undefined)).toBe(true);
+  });
+  it('bucket counts equal computeAggregates counts', () => {
+    const a = computeAggregates(cards, cards.length, NOW);
+    const c = build('status');
+    for (const s of [...a.jiraByStatus, ...a.zendeskByStatus]) {
+      expect(texts(c).some((t) => t?.startsWith(`**${s.status} — ${s.count}:**`))).toBe(true);
+    }
+    const ca = build('assignee');
+    for (const s of a.byAssignee) {
+      expect(texts(ca).some((t) => t?.startsWith(`**${s.assignee} — ${s.count}:**`))).toBe(true);
+    }
+  });
+  it('renderDistribution mirrors the card as plain text', () => {
+    const t = renderDistribution('Acme', cards, 'status', cards.length, NOW, testConfig).split('\n');
+    expect(t[0]).toBe('**Acme — 6 atividades abertas (coletado às 12:30)**');
+    expect(t).toContain('Cards (Jira)');
+    expect(t).toContain(`- **Done — 2:** **${J('AGL-1')}**, **${J('AGL-2')}**`);
+    expect(t).toContain('Chamados (Zendesk)');
+    const ta = renderDistribution('Acme', cards, 'assignee', cards.length, NOW, testConfig).split('\n');
+    expect(ta).toContain(`- **Ana — 2:** **${J('AGL-1')}**, **${J('AGL-3')}**`);
+    expect(ta).not.toContain('Cards (Jira)');
   });
 });

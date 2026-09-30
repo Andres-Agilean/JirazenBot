@@ -15,7 +15,8 @@ import { computeAggregates, parseFollowup, renderCounts, renderPortfolio, type F
 import { parseCommand } from './commands.js';
 import { formatFooter, withFooter, type Reply } from './reply.js';
 import {
-  buildCandidateCard, buildPortfolioAnswerCard, buildRundownCard, portfolioFooter, renderOrgChoices, renderRundown,
+  buildCandidateCard, buildDistributionCard, buildPortfolioAnswerCard, buildRundownCard, portfolioFooter,
+  renderDistribution, renderOrgChoices, renderRundown,
 } from './rundown.js';
 import type { CardCandidate, SearchOutcome } from './search.js';
 import { surfaceFor } from './surface.js';
@@ -383,6 +384,10 @@ function answerFollowup(followup: Followup, set: CandidateSet, deps: HandleDeps)
   if (followup.kind === 'counts') {
     const aggregates = computeAggregates(set.candidates, set.total, deps.now());
     return { kind: 'text', text: renderCounts(set.name, aggregates, followup.status) };
+  }
+  if (followup.kind === 'distribution') {
+    const args = [set.name, set.candidates, followup.dimension, set.total, set.collectedAtMs, deps.cfg] as const;
+    return { kind: 'card', card: buildDistributionCard(...args), fallbackText: renderDistribution(...args) };
   }
   return {
     kind: 'card',
