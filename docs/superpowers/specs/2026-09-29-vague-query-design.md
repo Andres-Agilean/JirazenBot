@@ -159,3 +159,10 @@ persisting candidate sets beyond the binding store's lifetime.
    pair: `**QZ-306 ↔ chamado 17044** — summary`. The overflow line names the remaining
    candidates' labels (`e mais 2: QZ-298, chamado 16694`) so every card is reachable by typing —
    never an unanchored "pergunte por um deles".
+6. **Round 4 (owner, 2026-09-30):** name extraction also strips na/no/nas/nos/em connectives
+   ("atividades no Jardins…"). Headers count "atividades abertas", not "cards ativos"
+   ("25+ atividades abertas (mostrando as mais recentes)" at the cap). Every key and chamado —
+   section lines, pair halves, overflow labels — renders as a bold markdown LINK via the existing
+   jiraLink/zendeskLink helpers (renderers gain cfg). Overflow moves INTO each section: a
+   per-section "e mais N: <links>" line naming that section's hidden items (global display cap
+   unchanged; the stale line stays card-global). The plain-text fallback mirrors all of it.
