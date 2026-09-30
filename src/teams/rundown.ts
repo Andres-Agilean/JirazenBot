@@ -92,5 +92,7 @@ export function buildCandidateCard(
 export function renderOrgChoices(name: string, orgs: ZendeskOrg[]): string {
   const lines = [`Encontrei mais de uma organização para "${name}". Qual delas?`];
   for (const o of orgs) lines.push(`- ${o.name}`);
+  // Must round-trip: a bare org name matches neither the detector nor parseBuscar.
+  lines.push('Responda `buscar <nome da organização>` para escolher.');
   return lines.join('\n');
 }

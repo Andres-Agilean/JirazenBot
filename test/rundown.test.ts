@@ -104,4 +104,9 @@ describe('renderOrgChoices', () => {
     expect(out).toContain('Norte A');
     expect(out).toContain('Norte B');
   });
+
+  it('ends with the buscar instruction that round-trips', () => {
+    const out = renderOrgChoices('norte', [{ id: 1, name: 'Norte A' }, { id: 2, name: 'Norte B' }]);
+    expect(out.split('\n').at(-1)).toBe('Responda `buscar <nome da organização>` para escolher.');
+  });
 });
