@@ -214,6 +214,38 @@ stealing the question. The interstitial changes the cost of a false positive to 
   pendencia, demanda, tudo, isso, ele, ela, eles, elas. Multi-word names are exempt (the guard
   applies to single-token names only: "obra flora" is a name, "obra" is not).
 
+### 11.2 Move-on semantics and vocabulary-aware switching (owner screenshots 10:43–10:45)
+
+Three connected findings from the live session:
+
+- **The confirm card's `Buscar <nome>` button UNBINDS the current card.** The bot asked "switch
+  or stay?" and the user chose switch; keeping the binding made every later question re-raise
+  the interstitial. Typed `buscar` keeps its §3 semantics (no unbind) — the click differs
+  because it answers an explicit question.
+- **The confirm card's search preserves the detected mode.** The §10.4/§11.1 shapes are overview
+  questions (mode `rundown`); forcing `candidates` mode gave the owner an unexpected
+  button-heavy card. The button payload carries the mode; typed `buscar` stays `candidates`.
+- **Loose shapes switch on real names even with a portfolio stored** — superseding the §10.4
+  cold-start-only gate. After moving on, "como esta jardins de potengi?" must search jardins,
+  not ask Claude about Flora. The §3a protection ("como estão os bloqueados?" stays on context)
+  is preserved by a **portfolio-vocabulary filter** instead of the blanket gate: a loose-shape
+  name is a follow-up, not a switch, when it normalizes to portfolio vocabulary — any
+  `STATUS_FILTER_MARKERS` key, any status string present in the stored set, any stored assignee
+  (full name or first token), or `GENERIC_TAILS` (global). Vocabulary matches keep today's
+  outcome (Claude-over-portfolio unbound; the bound card while bound — no interstitial for
+  vocabulary tails there either). Non-vocabulary loose names: unbound → new search (context
+  switch); bound → the §11 confirm card. `PortfolioQuery` gains a `loose` flag so the caller
+  can apply the filter; the detector stays pure.
+
+## 13. Addendum — candidate-card affordances and distribution verbs (same session)
+
+- **Candidates overflow names its items:** "mais 4 sem botão — digite o nome" says nothing.
+  Replace with the §10.5 pattern: `e mais 4 — digite o nome: <label links>`, listing the
+  candidates that did not fit a button.
+- **Distribution verbs widened:** organiza/organizar/organize, agrupa/agrupar/agrupe,
+  separa/separar/separe join the §10.3 verb set — "organize por status" is a distribution
+  request, not free-form text ("organize" reached the bound card's Claude live).
+
 ## 12. Addendum — help-text rendering fixes (owner screenshots, 2026-09-30)
 
 `buscar <nome>` rendered as literal `&lt;nome&gt;` in Teams, and the **Comandos** lines collapse
