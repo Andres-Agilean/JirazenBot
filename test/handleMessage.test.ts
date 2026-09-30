@@ -1485,13 +1485,44 @@ describe('confirm-to-switch while bound (spec §11)', () => {
     expect(actions(replies[0]).map((a) => a.verb)).toEqual([BUSCAR_ACTION, CONTINUAR_ACTION]);
   });
 
-  it('loose-only shapes never fire while bound (allowLoose:false pin)', async () => {
+  // Flipped by spec §11.1: the round-1 pin ("loose shapes never fire while bound") is superseded;
+  // loose shapes now raise the confirm card, and generic tails stay on the bound card.
+  it.each(['Qual o status da Flora?', 'quero saber sobre a Flora', 'como está a dalle?'])(
+    'loose shape while bound raises the confirm card (§11.1): %s',
+    async (q) => {
+      const { deps, answered, searched } = bound();
+      await handleMessage(dm('QZ-252'), deps);
+      const before = answered.length;
+      const replies = await handleMessage(dm(q), deps);
+      expect(answered.length).toBe(before);
+      expect(searched).toEqual([]);
+      expect(actions(replies[0]).map((a) => a.verb)).toEqual([BUSCAR_ACTION, CONTINUAR_ACTION]);
+      expect(actions(replies[0])[1].data).toEqual({ action: CONTINUAR_ACTION, text: q });
+    },
+  );
+
+  it.each([
+    'qual o status do chamado?', 'como está a obra?', 'qual o prazo de entrega?', 'não quero saber sobre a Flora',
+  ])('no interstitial while bound (§11.1 guards): %s', async (q) => {
     const { deps, answered, searched } = bound();
     await handleMessage(dm('QZ-252'), deps);
-    const replies = await handleMessage(dm('qual o status da dalle?'), deps);
-    expect(answered.at(-1)).toBe('qual o status da dalle?');
+    const replies = await handleMessage(dm(q), deps);
+    expect(answered.at(-1)).toBe(q);
     expect(searched).toEqual([]);
     expect(textOf(replies[0])).toContain('resposta para:');
+  });
+
+  it('unbound cold start: a generic tail ("qual o status do card?") no longer searches (§11.1)', async () => {
+    const { deps, searched } = bound();
+    const replies = await handleMessage(dm('qual o status do card?'), deps);
+    expect(searched).toEqual([]);
+    expect(textOf(replies[0])).toBe(NOTHING_BOUND);
+  });
+
+  it('unbound cold start: a real name still searches', async () => {
+    const { deps, searched } = bound();
+    await handleMessage(dm('qual o status da dalle?'), deps);
+    expect(searched).toEqual(['dalle']);
   });
 
   it('precedence: typed buscar still wins over the confirm card while bound', async () => {

@@ -572,11 +572,12 @@ export async function handleMessage(
   }
 
   // 4. A question about the bound card -- unless it is shaped like a portfolio question (spec §11):
-  // then a confirm card lets one click pick the search or the bound card. ANCHORED shapes only:
-  // the loose bare-name shapes stay cold-start-only. Mid-sentence anchors ("o problema da obra
-  // Flora persiste?") also raise the card -- accepted by §11, it costs one click.
+  // then a confirm card lets one click pick the search or the bound card. Loose bare-name shapes
+  // count too (spec §11.1: the card makes a false positive one click; the detector's generic-tail
+  // guard keeps "qual o status do chamado" on the card). Mid-sentence anchors ("o problema da obra
+  // Flora persiste?") also raise the card -- accepted by §11.
   if (existing) {
-    const switchQuery = detectPortfolioQuery(text, { allowLoose: false });
+    const switchQuery = detectPortfolioQuery(text);
     if (switchQuery) {
       const boundLabel = cardLabel(existing.bundle);
       return [{

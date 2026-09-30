@@ -36,7 +36,22 @@ const NAME_AFTER_KIND = new RegExp(`${KIND.source}\\s+(.+)$`);
 const LOOSE_SHAPES: readonly RegExp[] = [
   /^qual\s+(?:(?:e|eh)\s+)?(?:o|a)\s+(?:status|andamento|situacao)\s+(?:atual\s+)?d[aeo]s?\s+(.+)$/,
   /^como\s+(?:esta|estao|anda|andam)\s+(?:(?:o|a|os|as)\s+)?(.+)$/,
+  // Anchored at ^quero so a leading negation ("nao quero saber sobre X") never matches (spec §11.1).
+  /^quero\s+(?:saber|ver)\s+(?:mais\s+)?(?:sobre|d[aeo]s?)\s+(?:(?:o|a|os|as)\s+)?(.+)$/,
 ];
+/**
+ * Bare generic nouns (normalized; tenant-tunable, spec §11.1): a loose-shape name that is exactly
+ * one of these asks about the current work item or is underspecified, never a switch. Applies to
+ * single-token names only -- "obra flora" is a name, "obra" is not.
+ */
+export const GENERIC_TAILS: ReadonlySet<string> = new Set([
+  'card', 'cards', 'chamado', 'chamados', 'ticket', 'tickets', 'atividade', 'atividades',
+  'projeto', 'projetos', 'obra', 'obras', 'empresa', 'empresas', 'cliente', 'clientes',
+  'organizacao', 'organizacoes', 'incidente', 'incidentes', 'problema', 'problemas',
+  'erro', 'erros', 'bug', 'bugs', 'prazo', 'prazos', 'status', 'andamento', 'situacao',
+  'historico', 'responsavel', 'descricao', 'resumo', 'resto', 'resultado', 'resultados',
+  'pendencia', 'pendencias', 'demanda', 'demandas', 'tudo', 'isso', 'ele', 'ela', 'eles', 'elas',
+]);
 /** Normalized tails that point at one specific card, so the loose shapes must leave them alone. */
 const REFERENCE_SHAPED: readonly RegExp[] = [
   /^[a-z][a-z0-9]*-\d+$/, // Jira key
@@ -107,6 +122,8 @@ export function detectPortfolioQuery(
   if (loose && REFERENCE_SHAPED.some((shape) => shape.test(normalizedName))) return null;
   // ...nor trigger a vendor search for a stray article ("como está a").
   if (loose && normalizedName.length < MIN_NAME_LENGTH) return null;
+  // ...nor a bare generic noun ("qual o status do chamado", "como está a obra"): spec §11.1.
+  if (loose && GENERIC_TAILS.has(normalizedName)) return null;
 
   return { name, mode: singular && CARD_SHAPE.test(fold.folded) ? 'candidates' : 'rundown' };
 }

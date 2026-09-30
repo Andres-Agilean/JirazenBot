@@ -122,6 +122,34 @@ describe('detectPortfolioQuery loose bare-name shapes (spec §10.4)', () => {
     expect(detectPortfolioQuery(text)).toBeNull();
   });
 
+  // Spec §11.1: "quero saber sobre ..." loose shape and the generic-tail guard.
+  it.each([
+    ['quero saber sobre a Flora', 'Flora'],
+    ['quero saber mais sobre a Flora?', 'Flora'],
+    ['quero ver a Dalle', null],
+    ['quero ver da Dalle', 'Dalle'],
+    ['quero saber do Jardins de Potengi', 'Jardins de Potengi'],
+  ])('§11.1 shape %s -> %s', (text, name) => {
+    expect(detectPortfolioQuery(text)).toEqual(name ? { name, mode: 'rundown' } : null);
+  });
+
+  it.each([
+    'não quero saber sobre a Flora',
+    'quero saber sobre a obra',
+    'quero saber sobre isso',
+    'qual o status do card?',
+    'qual o status do chamado?',
+    'como está a obra?',
+    'como estão os problemas?',
+    'quero saber sobre o QZ-252',
+  ])('§11.1 returns null for %s', (text) => {
+    expect(detectPortfolioQuery(text)).toBeNull();
+  });
+
+  it('§11.1 generic guard is single-token only: a multi-word name starting with a generic noun passes', () => {
+    expect(detectPortfolioQuery('como está a atividade flora?')).toEqual({ name: 'atividade flora', mode: 'rundown' });
+  });
+
   it('anchored patterns still win over the loose shapes', () => {
     expect(detectPortfolioQuery('qual o status da empresa dalle?')).toEqual({ name: 'dalle', mode: 'rundown' });
   });
