@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   CLAUDE_UNAVAILABLE, handleMessage, handleRefresh, handleSelect, JIRA_UNAVAILABLE, NOT_SPLIT, NO_THREAD_TO_REJOIN, NOTHING_BOUND,
   SEARCH_NONE, SEARCH_UNAVAILABLE, SELECTION_INVALID, HELP_TEXT, handleSwitchBuscar, handleSwitchContinuar,
-  handleReminderPick,
+  handleReminderPick, handleReminderSend, handleReminderCancel,
   type HandleDeps, type Incoming,
 } from '@/teams/handleMessage.js';
 import {
   NOT_IN_ORG, NOTE_TOO_LONG, NOTE_MAX_CHARS, NO_ASSIGNEE_REPLY, REMINDER_NEEDS_CARD, REMIND_PICK_ACTION,
-  REMIND_SEND_ACTION, REMINDER_EXPIRED, UNCONFIGURED_DIRECTORY,
+  REMIND_SEND_ACTION, REMINDER_EXPIRED, UNCONFIGURED_DIRECTORY, REMINDER_SENT, REMINDER_SEND_FAILED, REMINDER_CANCELLED,
+  REMINDER_REASSIGNED, UNCONFIGURED_SEND, UNKNOWN_REQUESTER, type ReminderSenderLike,
 } from '@/teams/reminder.js';
 import { DIRECTORY_UNAVAILABLE, type DirectoryUser } from '@/msgraph/directory.js';
 import { BUSCAR_ACTION, CONTINUAR_ACTION } from '@/teams/rundown.js';
@@ -1950,6 +1951,144 @@ describe('lembrar responsável (reminder spec §3-§5)', () => {
       const b = await bound(joaoAssignee, [joao]);
       const other = { ...pick, cardKey: 'QZ-999' };
       expect(await handleReminderPick(conv, other, b.deps)).toEqual([{ kind: 'text', text: REMINDER_EXPIRED }]);
+    });
+  });
+
+  describe('handleReminderSend / handleReminderCancel', () => {
+    const conv = { conversationId: CONV, conversationType: 'personal', userId: 'u' };
+    const sendData = {
+      action: REMIND_SEND_ACTION, userId: 'g1', userName: 'João Silva', userMail: 'joao@org.com', cardKey: 'QZ-252', note: 'reunião às 10h',
+    };
+    const STATUS = 'Em Teste';
+
+    function statusBundle(assignee: unknown, status: string = STATUS): CardBundle {
+      const base = assigneeBundle(assignee);
+      return { ...base, jira: { ...base.jira!, fields: { ...base.jira!.fields, status: { name: status } } } } as CardBundle;
+    }
+
+    /** A bound DM with a recording sender; `bundles` is what each successive vendor load returns. */
+    async function sendWorld(bundles: CardBundle[], sender?: ReminderSenderLike | null) {
+      const sent: Array<{ userId: string; text: string }> = [];
+      const fake: ReminderSenderLike = sender ?? { sendDm: async (userId, text) => { sent.push({ userId, text }); } };
+      let loads = 0;
+      const made = makeDeps({
+        loadBundle: async () => ({ status: 'ok', bundle: bundles[Math.min(loads++, bundles.length - 1)] } as AssembleResult),
+        ...(sender === null ? {} : { sendReminder: fake }),
+      });
+      await handleMessage(dm('QZ-252'), made.deps);
+      return { ...made, sent, loadCount: () => loads };
+    }
+
+    const asker = { ...conv, userName: 'Andres' };
+
+    it('Enviar sends ONE dm with the template text, replies REMINDER_SENT, logs one audit line without the text', async () => {
+      const { deps, sent } = await sendWorld([statusBundle(joaoAssignee)]);
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const replies = await handleReminderSend(asker, sendData, deps);
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      log.mockRestore();
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.userId).toBe('g1');
+      for (const s of ['**Andres**', '[QZ-252](', 'Erro no relatório', STATUS, '> reunião às 10h']) expect(sent[0]!.text).toContain(s);
+      expect(replies).toEqual([{ kind: 'text', text: REMINDER_SENT('João Silva') }]);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('Andres');
+      expect(lines[0]).toContain('g1');
+      expect(lines[0]).toContain('QZ-252');
+      expect(lines[0]).toContain('sent');
+      expect(lines[0]).not.toContain('reunião às 10h');
+    });
+
+    it('a fresh bundle is not refetched on Enviar (no vendor call)', async () => {
+      const { deps, loadCount } = await sendWorld([statusBundle(joaoAssignee)]);
+      const before = loadCount();
+      await handleReminderSend(asker, sendData, deps);
+      expect(loadCount()).toBe(before);
+    });
+
+    it('a stale bundle with the same assignee is refreshed: the DM carries the refreshed status', async () => {
+      const w = await sendWorld([statusBundle(joaoAssignee, 'Em Teste'), statusBundle(joaoAssignee, 'Concluído')]);
+      w.setNow(T0 + BUNDLE_TTL_MS + 1);
+      const replies = await handleReminderSend(asker, sendData, w.deps);
+      expect(w.sent).toHaveLength(1);
+      expect(w.sent[0]!.text).toContain('Concluído');
+      expect(w.sent[0]!.text).not.toContain('Em Teste');
+      expect(replies).toEqual([{ kind: 'text', text: REMINDER_SENT('João Silva') }]);
+    });
+
+    it('a stale bundle whose assignee changed -> REMINDER_REASSIGNED, nothing sent', async () => {
+      const w = await sendWorld([statusBundle(joaoAssignee), statusBundle({ displayName: 'Maria Souza' })]);
+      w.setNow(T0 + BUNDLE_TTL_MS + 1);
+      const replies = await handleReminderSend(asker, sendData, w.deps);
+      expect(w.sent).toHaveLength(0);
+      expect(replies).toEqual([{ kind: 'text', text: REMINDER_REASSIGNED }]);
+    });
+
+    it('a stale bundle whose refreshed card lost its assignee -> REMINDER_REASSIGNED, nothing sent', async () => {
+      const w = await sendWorld([statusBundle(joaoAssignee), statusBundle(null)]);
+      w.setNow(T0 + BUNDLE_TTL_MS + 1);
+      expect(await handleReminderSend(asker, sendData, w.deps)).toEqual([{ kind: 'text', text: REMINDER_REASSIGNED }]);
+      expect(w.sent).toHaveLength(0);
+    });
+
+    it('a stale bundle whose refresh fails -> the refresh error, nothing sent', async () => {
+      const w = await sendWorld([statusBundle(joaoAssignee)]);
+      w.deps.loadBundle = async () => { throw new Error('boom'); };
+      w.setNow(T0 + BUNDLE_TTL_MS + 1);
+      expect(await handleReminderSend(asker, sendData, w.deps)).toEqual([{ kind: 'text', text: JIRA_UNAVAILABLE }]);
+      expect(w.sent).toHaveLength(0);
+    });
+
+    it('a fresh bundle whose assignee no longer matches the confirmed person -> REMINDER_REASSIGNED', async () => {
+      const { deps, sent } = await sendWorld([statusBundle({ displayName: 'Maria Souza' })]);
+      expect(await handleReminderSend(asker, sendData, deps)).toEqual([{ kind: 'text', text: REMINDER_REASSIGNED }]);
+      expect(sent).toHaveLength(0);
+    });
+
+    it('sender failure -> REMINDER_SEND_FAILED (never success), audit logs failed, no error text leaks', async () => {
+      const { deps } = await sendWorld([statusBundle(joaoAssignee)], { sendDm: async () => { throw new Error('boom 403 secret'); } });
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const replies = await handleReminderSend(asker, sendData, deps);
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      log.mockRestore();
+      expect(replies).toEqual([{ kind: 'text', text: REMINDER_SEND_FAILED }]);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('failed');
+      expect(lines[0]).not.toContain('secret');
+    });
+
+    it('a different card bound than the payload card -> REMINDER_EXPIRED, nothing sent', async () => {
+      const { deps, sent } = await sendWorld([statusBundle(joaoAssignee)]);
+      expect(await handleReminderSend(asker, { ...sendData, cardKey: 'QZ-999' }, deps))
+        .toEqual([{ kind: 'text', text: REMINDER_EXPIRED }]);
+      expect(sent).toHaveLength(0);
+    });
+
+    it('binding gone -> REMINDER_EXPIRED', async () => {
+      const { deps } = makeDeps({ sendReminder: { sendDm: async () => {} } });
+      expect(await handleReminderSend(asker, sendData, deps)).toEqual([{ kind: 'text', text: REMINDER_EXPIRED }]);
+    });
+
+    it('deps.sendReminder undefined -> UNCONFIGURED_SEND', async () => {
+      const { deps } = await sendWorld([statusBundle(joaoAssignee)], null);
+      expect(await handleReminderSend(asker, sendData, deps)).toEqual([{ kind: 'text', text: UNCONFIGURED_SEND }]);
+    });
+
+    it.each([['a non-object', 'x'], ['a blank userId', { ...sendData, userId: ' ' }], ['a numeric note', { ...sendData, note: 5 }]])(
+      'malformed payload (%s) -> SELECTION_INVALID, nothing sent', async (_n, data) => {
+        const { deps, sent } = await sendWorld([statusBundle(joaoAssignee)]);
+        expect(await handleReminderSend(asker, data, deps)).toEqual([{ kind: 'text', text: SELECTION_INVALID }]);
+        expect(sent).toHaveLength(0);
+      });
+
+    it('the DM requester is the clicking user, falling back to UNKNOWN_REQUESTER without a name', async () => {
+      const { deps, sent } = await sendWorld([statusBundle(joaoAssignee)]);
+      await handleReminderSend(conv, sendData, deps);
+      expect(sent[0]!.text).toContain(`**${UNKNOWN_REQUESTER}**`);
+    });
+
+    it('Cancelar -> REMINDER_CANCELLED', () => {
+      expect(handleReminderCancel()).toEqual([{ kind: 'text', text: REMINDER_CANCELLED }]);
     });
   });
 });

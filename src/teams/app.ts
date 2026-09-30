@@ -1,13 +1,15 @@
 import { App, type AppOptions, type IPlugin } from '@microsoft/teams.apps';
 import { REFRESH_ACTION } from './cards.js';
 import {
-  handleMessage, handleRefresh, handleSelect, handleSwitchBuscar, handleSwitchContinuar, NO_TEXT_RECEIVED, type HandleDeps,
+  handleMessage, handleRefresh, handleReminderCancel, handleReminderPick, handleReminderSend, handleSelect,
+  handleSwitchBuscar, handleSwitchContinuar, NO_TEXT_RECEIVED, type HandleDeps,
 } from './handleMessage.js';
 import { appOptionsForAuthMode, type AuthMode, type TeamsAppAuthOptions } from './authMode.js';
 import { botMentions, stripMentions, type MentionLike } from './mentions.js';
 import { runExclusive } from './serialize.js';
 import { BUSCAR_ACTION, CONTINUAR_ACTION, SELECT_ACTION } from './rundown.js';
 import type { Reply } from './reply.js';
+import { REMIND_CANCEL_ACTION, REMIND_PICK_ACTION, REMIND_SEND_ACTION, type ReminderSenderLike } from './reminder.js';
 
 export const UNEXPECTED_ERROR_REPLY = 'Algo deu errado do meu lado. Tente novamente em instantes.';
 
@@ -87,6 +89,7 @@ export async function handleActivity(
   conversationType: string | undefined,
   userId: string,
   deps: HandleDeps,
+  userName?: string,
 ): Promise<void> {
   const text = stripMentions(rawText ?? '', mentions).trim();
   if (text === '') {
@@ -116,7 +119,7 @@ export async function handleActivity(
     // correctness, which is the right trade inside a single thread. `handleMessage` itself stays
     // free of this mechanism so it remains a pure pipeline (see serialize.ts).
     replies = await runExclusive(conversationId, () =>
-      handleMessage({ text, conversationId, conversationType, userId }, deps));
+      handleMessage({ text, conversationId, conversationType, userId, userName }, deps));
   } catch (err) {
     // handleMessage already converts expected failures into pt-BR replies; reaching here means
     // an unexpected bug. The user gets an apology, the detail goes to the server log.
@@ -179,6 +182,7 @@ export async function handleCardAction(
   conversationType: string | undefined,
   userId: string,
   deps: HandleDeps,
+  userName?: string,
 ): Promise<void> {
   if (verb === REFRESH_ACTION) {
     await runCardReplies(send, conversationId, () =>
@@ -201,6 +205,23 @@ export async function handleCardAction(
   if (verb === CONTINUAR_ACTION) {
     await runCardReplies(send, conversationId, () =>
       handleSwitchContinuar({ conversationId, conversationType, userId }, data, deps));
+    return;
+  }
+
+  if (verb === REMIND_PICK_ACTION) {
+    await runCardReplies(send, conversationId, () =>
+      handleReminderPick({ conversationId, conversationType, userId }, data, deps));
+    return;
+  }
+
+  if (verb === REMIND_SEND_ACTION) {
+    await runCardReplies(send, conversationId, () =>
+      handleReminderSend({ conversationId, conversationType, userId, userName }, data, deps));
+    return;
+  }
+
+  if (verb === REMIND_CANCEL_ACTION) {
+    await runCardReplies(send, conversationId, async () => handleReminderCancel());
     return;
   }
 
@@ -236,6 +257,45 @@ function toSdkAppOptions(authMode: AuthMode): AppOptions<IPlugin> {
 }
 
 /**
+ * The slice of the SDK `App` the proactive sender uses. Structural, so the factory is testable
+ * with a fake and never needs a live bot (the real `App` satisfies it: `app.api.conversations`).
+ */
+interface ProactiveApp {
+  api: {
+    conversations: {
+      create(params: {
+        tenantId: string;
+        members: Array<{ id: string; role: 'user' }>;
+        activity: { type: 'message'; text: string };
+      }): Promise<unknown>;
+    };
+  };
+}
+
+/**
+ * The reminder DM sender (reminder spec §7): creates the 1:1 conversation with the target user under
+ * the bot's own credentials, with the DM as its first activity. `undefined` in unauthenticated
+ * (Playground) mode -- there are no bot credentials to create a conversation with, and the handler
+ * then answers "envio indisponível neste ambiente". Delivery also needs the Teams app installed for
+ * the target user (spec §8); a failure here propagates so the receipt never claims success.
+ * The Graph user id is handed over as the member id; whether Teams accepts it in place of its own
+ * `29:` id is verified live once the deployment gates open.
+ */
+export function proactiveReminderSender(app: ProactiveApp, authMode: AuthMode): ReminderSenderLike | undefined {
+  if (authMode.mode !== 'authenticated') return undefined;
+  const { tenantId } = authMode;
+  return {
+    async sendDm(userId, text) {
+      await app.api.conversations.create({
+        tenantId,
+        members: [{ id: userId, role: 'user' }],
+        activity: { type: 'message', text },
+      });
+    },
+  };
+}
+
+/**
  * The ONLY file that imports the Teams SDK. Everything it does is: pull the conversation key and
  * text off the activity and delegate to handleActivity. Keeping it this thin is what lets the
  * whole pipeline be tested with no SDK and no network.
@@ -268,6 +328,7 @@ export function createTeamsApp(deps: HandleDeps, authMode: AuthMode): App {
       activity.conversation.conversationType as string,
       activity.from?.id ?? '',
       deps,
+      activity.from?.name,
     );
   });
 
@@ -291,6 +352,7 @@ export function createTeamsApp(deps: HandleDeps, authMode: AuthMode): App {
       activity.conversation.conversationType as string,
       activity.from?.id ?? '',
       deps,
+      activity.from?.name,
     );
 
     return { statusCode: 200, type: ACTIVITY_MESSAGE_RESPONSE_TYPE, value: '' };

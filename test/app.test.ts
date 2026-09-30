@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleActivity, handleCardAction, UNEXPECTED_ERROR_REPLY, UNKNOWN_INVOKE_ACTION_REPLY } from '@/teams/app.js';
+import {
+  handleActivity, handleCardAction, proactiveReminderSender, UNEXPECTED_ERROR_REPLY, UNKNOWN_INVOKE_ACTION_REPLY,
+} from '@/teams/app.js';
+import type { AuthMode } from '@/teams/authMode.js';
+import {
+  REMIND_CANCEL_ACTION, REMIND_PICK_ACTION, REMIND_SEND_ACTION, REMINDER_CANCELLED, REMINDER_SENT,
+} from '@/teams/reminder.js';
 import { NO_TEXT_RECEIVED, SELECTION_INVALID, handleSelect, type HandleDeps } from '@/teams/handleMessage.js';
 import { InMemoryBindingStore, type Binding, type BindingStore, type Slot } from '@/teams/bindings.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
@@ -487,5 +493,76 @@ describe('handleActivity: per-conversation serialization (review findings: Impor
     releaseSlow?.();
     await p1;
     expect(order).toEqual(['fast-conv-sent', 'slow-conv-sent']);
+  });
+});
+
+describe('handleCardAction: reminder verbs (reminder spec §5-§7)', () => {
+  const card = (verb: string, data: unknown, userName?: string, deps: HandleDeps = makeDeps()) => {
+    const sent: unknown[] = [];
+    return handleCardAction(
+      async (a) => { sent.push(a); return undefined; }, verb, data, 'c', 'personal', 'u', deps, userName,
+    ).then(() => sent);
+  };
+
+  it('routes send and pick: a garbage payload gets SELECTION_INVALID, not UNKNOWN_INVOKE', async () => {
+    for (const verb of [REMIND_SEND_ACTION, REMIND_PICK_ACTION]) expect(await card(verb, {})).toEqual([SELECTION_INVALID]);
+  });
+
+  it('routes cancel to REMINDER_CANCELLED', async () => {
+    expect(await card(REMIND_CANCEL_ACTION, undefined)).toEqual([REMINDER_CANCELLED]);
+  });
+
+  it('Enviar click carries the clicking user name into the DM and sends the receipt', async () => {
+    const dms: Array<{ userId: string; text: string }> = [];
+    const store = new InMemoryBindingStore(() => 0);
+    const deps = cardDeps({
+      store,
+      sendReminder: { sendDm: async (userId, text) => { dms.push({ userId, text }); } },
+      loadBundle: async () => ({
+        status: 'ok',
+        bundle: {
+          fetchedAt: '2026-08-13T17:32:00.000Z', surface: 'dm',
+          jira: { issueId: '1', issueKey: 'QZ-252', fields: { summary: 'Erro', assignee: { displayName: 'João Silva' } }, comments: [], statusHistory: [] },
+          resolution: { via: 'direct_only', ambiguous: false }, truncationNotes: [],
+        },
+      }),
+    });
+    await handleActivity(async () => undefined, 'QZ-252', [], 'c', 'personal', 'u', deps);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const sent = await card(
+      REMIND_SEND_ACTION,
+      { action: REMIND_SEND_ACTION, userId: 'g1', userName: 'João Silva', userMail: null, cardKey: 'QZ-252' },
+      'Andres', deps,
+    );
+    log.mockRestore();
+    expect(dms).toHaveLength(1);
+    expect(dms[0]!.text).toContain('**Andres**');
+    expect(sent).toEqual([REMINDER_SENT('João Silva')]);
+  });
+});
+
+describe('proactiveReminderSender (reminder spec §7)', () => {
+  const authed: AuthMode = { mode: 'authenticated', clientId: 'id', clientSecret: 's', tenantId: 'tenant-1' };
+  const fakeApp = (create: (params: unknown) => Promise<unknown>) => ({ api: { conversations: { create } } });
+
+  it('is undefined without bot credentials (Playground mode)', () => {
+    expect(proactiveReminderSender(fakeApp(async () => ({})), { mode: 'unauthenticated' })).toBeUndefined();
+  });
+
+  it('creates the 1:1 conversation with the DM as its first activity, in the bot tenant', async () => {
+    const create = vi.fn(async (_params: unknown) => ({ id: 'conv-1' }));
+    const sender = proactiveReminderSender(fakeApp(create), authed);
+    await sender!.sendDm('g1', 'olá');
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0]![0]).toMatchObject({
+      tenantId: 'tenant-1',
+      members: [{ id: 'g1', role: 'user' }],
+      activity: { type: 'message', text: 'olá' },
+    });
+  });
+
+  it('propagates a delivery failure so the handler can report it', async () => {
+    const sender = proactiveReminderSender(fakeApp(async () => { throw new Error('403'); }), authed);
+    await expect(sender!.sendDm('g1', 'x')).rejects.toThrow('403');
   });
 });

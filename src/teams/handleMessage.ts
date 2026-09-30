@@ -8,7 +8,7 @@ import { detectPortfolioQuery, parseBuscar, type PortfolioQuery } from '@/resolv
 import { DEFAULT_SUMMARY_QUESTION, MAX_HISTORY_TURNS } from '@/claude/prompt.js';
 import { splitReferenceAndQuestion, isWholeMessageReference } from '../../scripts/splitReference.js';
 import { isBundleStale, type Binding, type BindingStore, type Slot } from './bindings.js';
-import { buildAnswerCard } from './cards.js';
+import { buildAnswerCard, cardStatus } from './cards.js';
 import { compressCitations, stylePortfolioAnswer } from './citations.js';
 import { matchCandidate, type CandidateSet, type CandidateStore } from './candidates.js';
 import {
@@ -16,7 +16,7 @@ import {
 } from './portfolio.js';
 import { normalizeText } from '@/text/normalize.js';
 import { parseCommand } from './commands.js';
-import { cardLabel, formatFooter, withFooter, type Reply } from './reply.js';
+import { cardLabel, formatFooter, jiraLink, withFooter, type Reply } from './reply.js';
 import {
   buildCandidateCard, buildDistributionCard, buildPortfolioAnswerCard, buildRundownCard, buildSwitchConfirmCard,
   portfolioFooter, renderDistribution, renderOrgChoices, renderRundown, renderSwitchConfirm,
@@ -24,9 +24,11 @@ import {
 import type { CardCandidate, SearchOutcome } from './search.js';
 import { surfaceFor } from './surface.js';
 import {
-  bundleAssignee, bundleSummary, buildReminderConfirmCard, buildReminderPickCard, NO_ASSIGNEE_REPLY, NOT_IN_ORG,
-  NOTE_TOO_LONG, parseLembrar, parseReminderPayload, REMINDER_EXPIRED, REMINDER_NEEDS_CARD, renderReminderConfirm,
-  renderReminderPick, resolveAssignee, UNCONFIGURED_DIRECTORY,
+  assigneeMatches, buildReminderConfirmCard, buildReminderDm, buildReminderPickCard, bundleAssignee, bundleSummary,
+  NO_ASSIGNEE_REPLY, NOT_IN_ORG, NOTE_TOO_LONG, parseLembrar, parseReminderPayload, REMINDER_CANCELLED,
+  REMINDER_EXPIRED, REMINDER_NEEDS_CARD, REMINDER_REASSIGNED, REMINDER_SEND_FAILED, REMINDER_SENT, renderReminderConfirm,
+  renderReminderPick, resolveAssignee, UNCONFIGURED_DIRECTORY, UNCONFIGURED_SEND, UNKNOWN_REQUESTER,
+  type ReminderSenderLike,
 } from './reminder.js';
 import { DIRECTORY_UNAVAILABLE, type DirectoryClientLike, type DirectoryUser } from '@/msgraph/directory.js';
 
@@ -41,6 +43,8 @@ export interface Incoming {
   conversationId: string;
   conversationType: string | undefined;
   userId: string;
+  /** The sender's Teams display name; the reminder DM names its requester with it (reminder spec §6). */
+  userName?: string;
 }
 
 export interface HandleDeps {
@@ -57,6 +61,8 @@ export interface HandleDeps {
   search: (name: string) => Promise<SearchOutcome>;
   /** Org directory for `lembrar responsável`; absent when Graph is not configured (spec §7). */
   directory?: DirectoryClientLike;
+  /** Proactive-DM sender for `lembrar responsável`; absent when the bot has no credentials (spec §7). */
+  sendReminder?: ReminderSenderLike;
   /**
    * Overridable for tests only (e.g. to exercise the "card builder throws" fallback path,
    * spec §7). Production code always falls through to `buildAnswerCard`.
@@ -74,6 +80,9 @@ export interface HandleDeps {
  * key `resolveSlots` uses, minus `text`: the button invoke carries no message text (spec §6).
  */
 export type RefreshRequest = Pick<Incoming, 'conversationId' | 'conversationType' | 'userId'>;
+
+/** A reminder button click: the conversation key plus the clicking user's display name. */
+export type ReminderClick = RefreshRequest & Pick<Incoming, 'userName'>;
 
 export const NOTHING_BOUND =
   'Não sei de qual card estamos falando. Envie uma referência — por exemplo `QZ-252`, `chamado 16467` ou o link do card.';
@@ -424,13 +433,20 @@ async function askBound(
   surface: Surface,
   deps: HandleDeps,
 ): Promise<Reply> {
-  let binding = existing;
-  if (isBundleStale(binding, deps.now())) {
-    const refreshed = await refresh(binding, activeSlot, surface, deps);
-    if ('error' in refreshed) return { kind: 'text', text: refreshed.error };
-    binding = refreshed.binding;
-  }
-  return ask(binding, question, activeSlot, surface, deps);
+  const fresh = await freshBinding(existing, activeSlot, surface, deps);
+  if ('error' in fresh) return { kind: 'text', text: fresh.error };
+  return ask(fresh.binding, question, activeSlot, surface, deps);
+}
+
+/** The binding with a bundle inside its TTL: refetched (and stored) when stale, untouched otherwise -- no vendor call. */
+async function freshBinding(
+  binding: Binding,
+  slot: Slot,
+  surface: Surface,
+  deps: HandleDeps,
+): Promise<{ binding: Binding } | { error: string }> {
+  if (!isBundleStale(binding, deps.now())) return { binding };
+  return refresh(binding, slot, surface, deps);
 }
 
 /**
@@ -581,6 +597,55 @@ export async function handleReminderPick(
   if (!existing || cardLabel(existing.bundle) !== payload.cardKey) return [{ kind: 'text', text: REMINDER_EXPIRED }];
   const user: DirectoryUser = { id: payload.userId, displayName: payload.userName, mail: payload.userMail };
   return [confirmReply(user, existing, payload.note)];
+}
+
+/**
+ * The confirmation card's Enviar lembrete button (reminder spec §5-§7): the only place anything is
+ * sent to a human. The payload's card must still be the bound one; a stale bundle is refetched
+ * first and the DM is refused if the card's assignee no longer matches the person the user
+ * confirmed -- an extra refusal always beats DMing the wrong person (spec §1). One click, at most
+ * one DM, one audit line per attempt (never the DM text or the note).
+ */
+export async function handleReminderSend(
+  incoming: ReminderClick,
+  data: unknown,
+  deps: HandleDeps,
+): Promise<Reply[]> {
+  const text = (t: string): Reply[] => [{ kind: 'text', text: t }];
+  const payload = parseReminderPayload(data);
+  if (!payload) return text(SELECTION_INVALID);
+  const { existing, activeSlot, surface } = await resolveSlots(incoming, deps);
+  if (!existing || cardLabel(existing.bundle) !== payload.cardKey) return text(REMINDER_EXPIRED);
+  if (!deps.sendReminder) return text(UNCONFIGURED_SEND);
+  const fresh = await freshBinding(existing, activeSlot, surface, deps);
+  if ('error' in fresh) return text(fresh.error);
+  const { bundle } = fresh.binding;
+  const assignee = bundleAssignee(bundle);
+  if (!assignee || !assigneeMatches(assignee, payload.userName)) return text(REMINDER_REASSIGNED);
+
+  const requester = incoming.userName?.trim() || UNKNOWN_REQUESTER;
+  const dm = buildReminderDm({
+    requester,
+    cardKey: payload.cardKey,
+    summary: bundleSummary(bundle),
+    status: cardStatus(bundle) ?? undefined,
+    url: jiraLink(payload.cardKey, deps.cfg),
+    ...(payload.note ? { note: payload.note } : {}),
+  });
+  let delivered = true;
+  try {
+    await deps.sendReminder.sendDm(payload.userId, dm);
+  } catch (err) {
+    delivered = false;
+    console.error('Falha ao enviar o lembrete:', err instanceof Error ? err.message : 'erro desconhecido');
+  }
+  console.log(`[lembrete] solicitante="${requester}" destino=${payload.userId} card=${payload.cardKey} resultado=${delivered ? 'sent' : 'failed'}`);
+  return text(delivered ? REMINDER_SENT(payload.userName) : REMINDER_SEND_FAILED);
+}
+
+/** The confirmation card's Cancelar button: nothing was sent, and it says so (never silent). */
+export function handleReminderCancel(): Reply[] {
+  return [{ kind: 'text', text: REMINDER_CANCELLED }];
 }
 
 /**

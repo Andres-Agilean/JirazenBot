@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { loadConfig } from '@/config.js';
-import { createTeamsApp } from '@/teams/app.js';
+import { createTeamsApp, proactiveReminderSender } from '@/teams/app.js';
+import { GraphDirectoryClient } from '@/msgraph/directory.js';
 import { resolveAuthMode, type AuthMode } from '@/teams/authMode.js';
 import { InMemoryBindingStore } from '@/teams/bindings.js';
 import { loadCardBundleWithClients } from '@/bundle/load.js';
@@ -62,10 +63,20 @@ const deps: HandleDeps = {
   now: Date.now,
   candidates: new InMemoryCandidateStore(),
   search: (name) => searchCache.run(name, searchClients),
+  // Reminder directory search reuses the bot's own Entra app (same BOT_* credentials as authMode);
+  // absent in Playground mode, where `lembrar responsável` answers "indisponível neste ambiente".
+  directory: authMode.mode === 'authenticated'
+    ? new GraphDirectoryClient({
+        tenantId: authMode.tenantId, clientId: authMode.clientId, clientSecret: authMode.clientSecret,
+      })
+    : undefined,
 };
 
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
-await createTeamsApp(deps, authMode).start(port);
+const app = createTeamsApp(deps, authMode);
+// The proactive sender needs the constructed app; handlers read deps.sendReminder at call time.
+deps.sendReminder = proactiveReminderSender(app, authMode);
+await app.start(port);
 console.log(
   authMode.mode === 'authenticated'
     ? 'Modo autenticado: validação de token do Bot Framework ativa.'

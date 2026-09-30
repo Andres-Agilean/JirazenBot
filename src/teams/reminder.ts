@@ -50,11 +50,37 @@ export const UNCONFIGURED_DIRECTORY = 'Consulta ao diretório indisponível nest
 /** A pick/send click whose card is no longer the bound one (binding expired or moved on; spec §5). */
 export const REMINDER_EXPIRED = 'Este lembrete expirou. Peça novamente com `lembrar responsável`.';
 
+export const REMINDER_SENT = (name: string): string => `Lembrete enviado para **${name}**.`;
+export const REMINDER_SEND_FAILED =
+  'Não consegui enviar o lembrete agora. Nada foi entregue — tente novamente em instantes.';
+export const REMINDER_CANCELLED = 'Ok, nada foi enviado.';
+export const UNCONFIGURED_SEND = 'Envio indisponível neste ambiente.';
+/** The refreshed Jira assignee no longer matches the confirmed recipient: refuse rather than DM the wrong person (spec §1). */
+export const REMINDER_REASSIGNED = 'O responsável deste card mudou desde a confirmação. Peça o lembrete novamente.';
+/** Used when the Teams display name of the requester is unavailable. */
+export const UNKNOWN_REQUESTER = 'Um colega';
+
+/** The proactive-DM seam (spec §7): SDK-free here, implemented in src/teams/app.ts. */
+export interface ReminderSenderLike { sendDm(userId: string, text: string): Promise<void> }
+
+/** Fixed template (spec §6): user text appears ONLY inside the quoted note block. */
+export function buildReminderDm(args: {
+  requester: string; cardKey: string; summary: string; status: string | undefined; url: string; note?: string;
+}): string {
+  const lines = [
+    `**${args.requester}** pediu um lembrete sobre o card [${args.cardKey}](${args.url}) — ${args.summary}.`,
+    args.status ? `Status atual: ${args.status}.` : undefined,
+    args.note ? `> ${args.note.replace(/\r?\n/g, ' ')}` : undefined,
+    `Para tratar do assunto, responda diretamente a ${args.requester} — eu não encaminho respostas.`,
+  ];
+  return lines.filter(Boolean).join('\n\n');
+}
+
 const NO_MAIL = 'sem e-mail';
 
 /** Every token of the shorter name appears among the longer name's tokens (middle names differ
  * between Jira and Entra — "João Silva" must match "João Carlos Silva" and vice versa). */
-function tokensMatch(a: string, b: string): boolean {
+export function assigneeMatches(a: string, b: string): boolean {
   const ta = normalizeText(a).split(/\s+/).filter(Boolean);
   const tb = normalizeText(b).split(/\s+/).filter(Boolean);
   const [small, big] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
@@ -67,7 +93,7 @@ export async function resolveAssignee(name: string, directory: DirectoryClientLi
   const seen = new Map<string, DirectoryUser>();
   const collect = (users: DirectoryUser[]) => {
     for (const u of users) {
-      if (tokensMatch(name, u.displayName) && !seen.has(u.id)) seen.set(u.id, u);
+      if (assigneeMatches(name, u.displayName) && !seen.has(u.id)) seen.set(u.id, u);
     }
   };
   collect(await directory.searchByName(name));

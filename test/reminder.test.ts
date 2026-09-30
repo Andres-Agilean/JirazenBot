@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   bundleAssignee, parseLembrar, NOTE_MAX_CHARS, resolveAssignee, buildReminderConfirmCard, buildReminderPickCard,
   renderReminderConfirm, renderReminderPick, REMIND_SEND_ACTION, REMIND_CANCEL_ACTION, REMIND_PICK_ACTION,
-  REMINDER_CANDIDATE_CAP,
+  REMINDER_CANDIDATE_CAP, buildReminderDm, assigneeMatches,
 } from '@/teams/reminder.js';
 import type { CardBundle } from '@/bundle/types.js';
 
@@ -104,4 +104,34 @@ describe('reminder cards', () => {
       action: REMIND_PICK_ACTION, userId: '1', userName: 'João Silva', userMail: 'joao@org.com', cardKey: 'QZ-1', note: 'n',
     });
   });
+});
+
+describe('buildReminderDm', () => {
+  const args = { requester: 'Andres', cardKey: 'QZ-1', summary: 'Erro no relatório', status: 'Em Teste',
+    url: 'https://site/browse/QZ-1', note: 'reunião às 10h' };
+  it('contains requester, linked card, status, quoted note and the reply-to-requester line', () => {
+    const dm = buildReminderDm(args);
+    for (const s of ['**Andres**', '[QZ-1](https://site/browse/QZ-1)', 'Erro no relatório', 'Em Teste',
+      '> reunião às 10h', 'responda diretamente a Andres']) expect(dm).toContain(s);
+  });
+  it('omits the note block when absent', () =>
+    expect(buildReminderDm({ ...args, note: undefined })).not.toContain('>'));
+  it('omits the status line when there is no status', () =>
+    expect(buildReminderDm({ ...args, status: undefined })).not.toContain('Status atual'));
+  it('a markdown-laden note stays inside the quote block', () => {
+    const dm = buildReminderDm({ ...args, note: 'urgente ** veja ] isto' });
+    expect(dm).toContain('> urgente ** veja ] isto');
+  });
+  it('a multi-line note is flattened so it cannot escape the quote block', () =>
+    expect(buildReminderDm({ ...args, note: 'a\nb' })).toContain('> a b'));
+  it('never contains internal-note markers (multiparty safety, spec §6)', () =>
+    expect(buildReminderDm(args)).not.toMatch(/nota interna|interno/i));
+});
+
+describe('assigneeMatches', () => {
+  it('tolerates middle names either way', () => {
+    expect(assigneeMatches('João Silva', 'João Carlos Silva')).toBe(true);
+    expect(assigneeMatches('João Carlos Silva', 'João Silva')).toBe(true);
+  });
+  it('rejects a different person', () => expect(assigneeMatches('Maria Souza', 'João Silva')).toBe(false));
 });
