@@ -2,7 +2,7 @@ import type { Config } from '@/config.js';
 import { CARD_FETCH_CAP, type ZendeskOrg } from '@/fetch/zendesk.js';
 import { formatDayMonthTime } from '@/text/datetime.js';
 import { normalizeText } from '@/text/normalize.js';
-import { ADAPTIVE_CARD_SCHEMA, ADAPTIVE_CARD_VERSION } from './cards.js';
+import { ADAPTIVE_CARD_SCHEMA, ADAPTIVE_CARD_VERSION, styleCitations } from './cards.js';
 import { collectedAt, jiraLink, zendeskLink } from './reply.js';
 import { candidateId, type CardCandidate } from './search.js';
 
@@ -44,6 +44,9 @@ const SECTIONS = [
   { title: 'Chamados (Zendesk)', system: 'zendesk' },
 ] as const;
 
+/** Which section(s) a follow-up expansion shows in full: one system, or both. */
+export type ExpandSection = 'jira' | 'zendesk' | 'all';
+
 interface RenderedSection {
   title: string;
   shown: CardCandidate[];
@@ -55,11 +58,14 @@ interface RenderedSection {
  * at most `cap` lines PER SECTION, so a two-section card is bounded at twice the cap; what does
  * not fit is that section's `hidden` list. No cap shows everything.
  */
-function sectioned(cards: CardCandidate[], cap = Infinity): RenderedSection[] {
+function sectioned(cards: CardCandidate[], cap = Infinity, uncap?: ExpandSection): RenderedSection[] {
   return SECTIONS
-    .map((s) => ({ title: s.title, all: cards.filter((c) => c.ref.system === s.system) }))
+    .map((s) => ({ title: s.title, system: s.system, all: cards.filter((c) => c.ref.system === s.system) }))
     .filter((s) => s.all.length > 0)
-    .map((s) => ({ title: s.title, shown: s.all.slice(0, cap), hidden: s.all.slice(cap) }));
+    .map((s) => {
+      const limit = uncap === 'all' || uncap === s.system ? Infinity : cap;
+      return { title: s.title, shown: s.all.slice(0, limit), hidden: s.all.slice(limit) };
+    });
 }
 
 /** `e mais N: [A](url), [B](url), …` -- names a section's hidden items so each is reachable by typing. */
@@ -160,10 +166,11 @@ export function renderRundown(
   total: number,
   collectedAtMs: number,
   cfg: Config,
+  uncap?: ExpandSection,
 ): string {
   const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
   const lines = [`**${name} — ${countLabel(total)} (coletado às ${time})**`];
-  for (const s of sectioned(cards, SECTION_LINE_CAP)) {
+  for (const s of sectioned(cards, SECTION_LINE_CAP, uncap)) {
     lines.push(s.title, ...s.shown.map((c) => `- ${cardLine(c, cfg)}`), ...sectionFooter(s, cfg, collectedAtMs));
   }
   return lines.join('\n');
@@ -176,12 +183,32 @@ export function buildRundownCard(
   total: number,
   collectedAtMs: number,
   cfg: Config,
+  uncap?: ExpandSection,
 ): Record<string, unknown> {
   const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
   return adaptiveCard([
     titleBlock(name, total),
-    ...sectionBlocks(sectioned(cards, SECTION_LINE_CAP), cfg, collectedAtMs),
+    ...sectionBlocks(sectioned(cards, SECTION_LINE_CAP, uncap), cfg, collectedAtMs),
     subtle(`coletado às ${time}`),
+  ]);
+}
+
+/** The line under a portfolio answer: which set it speaks about and how fresh the data is. */
+export function portfolioFooter(name: string, collectedAtMs: number): string {
+  return `— ${name} · coletado às ${collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() })}`;
+}
+
+/** A portfolio answer as a card: bold set name, `coletado às` subtitle, then the styled answer body. */
+export function buildPortfolioAnswerCard(
+  name: string,
+  answerText: string,
+  collectedAtMs: number,
+): Record<string, unknown> {
+  const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
+  return adaptiveCard([
+    { type: 'TextBlock', text: name, wrap: true, weight: 'Bolder' },
+    { ...subtle(`coletado às ${time}`), spacing: 'None' },
+    { type: 'TextBlock', text: styleCitations(answerText), wrap: true, separator: true },
   ]);
 }
 

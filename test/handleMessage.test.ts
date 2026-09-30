@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  handleMessage, handleRefresh, handleSelect, JIRA_UNAVAILABLE, NOT_SPLIT, NO_THREAD_TO_REJOIN, NOTHING_BOUND,
+  CLAUDE_UNAVAILABLE, handleMessage, handleRefresh, handleSelect, JIRA_UNAVAILABLE, NOT_SPLIT, NO_THREAD_TO_REJOIN, NOTHING_BOUND,
   SEARCH_NONE, SEARCH_UNAVAILABLE, SELECTION_INVALID, HELP_TEXT,
   type HandleDeps, type Incoming,
 } from '@/teams/handleMessage.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
-import { renderRundown } from '@/teams/rundown.js';
+import { renderRundown, SECTION_LINE_CAP } from '@/teams/rundown.js';
+import { MAX_HISTORY_TURNS } from '@/claude/prompt.js';
 import type { CardCandidate, SearchOutcome } from '@/teams/search.js';
 import { InMemoryBindingStore, BUNDLE_TTL_MS } from '@/teams/bindings.js';
 import { PERSONAL_MARKER } from '@/teams/cards.js';
@@ -64,6 +65,9 @@ function makeDeps(over: Partial<HandleDeps> = {}) {
     answerFn: async (_b, question) => {
       answered.push(question);
       return { text: `resposta para: ${question}`, model: 'm', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+    },
+    answerPortfolioFn: async () => {
+      throw new Error('answerPortfolioFn should not be called in these tests');
     },
     cfg: testConfig,
     now: () => now,
@@ -993,15 +997,22 @@ describe('busca de portfólio', () => {
       expect(loaded.at(-1)).toEqual({ system: 'jira', issueKey: 'agl-12', explicit: true });
     });
 
-    it('unbound substring no longer triggers selection; falls through (spec §5a)', async () => {
+    it('unbound substring no longer triggers selection; with a portfolio it goes to Claude-over-portfolio (spec §3.2, rerouted from NOTHING_BOUND)', async () => {
       // List: AGL-11 with summary containing "Pintura", AGL-12 with different summary
       const list = [jiraCard('AGL-11', 'Pintura do prédio'), jiraCard('AGL-12', 'Outro projeto')];
-      const { deps } = withSearch(cardsOutcome(list));
+      const { deps, loaded } = withSearch(cardsOutcome(list));
+      const asked: string[] = [];
+      deps.answerPortfolioFn = async (_r, question) => {
+        asked.push(question);
+        return { text: 'sobre a pintura', model: 'm', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+      };
       await handleMessage(dm('buscar norte'), deps);
-      // "pintura" is a substring of the summary but not an exact label match
-      // It's also not a portfolio query pattern, so it falls through to NOTHING_BOUND
+      // "pintura" is a substring of the summary but not an exact label match (no selection), and
+      // not a portfolio query pattern, so with a set stored it is a question about the portfolio.
       const replies = await handleMessage(dm('pintura'), deps);
-      expect(textOf(replies[0])).toBe(NOTHING_BOUND);
+      expect(asked).toEqual(['pintura']);
+      expect(loaded).toHaveLength(0);
+      expect(textOf(replies[0])).toContain('sobre a pintura');
     });
   });
 
@@ -1046,5 +1057,153 @@ describe('busca de portfólio', () => {
     expect(await deps.store.get(brunoSplit)).toBeDefined();
     const sharedBinding = await deps.store.get({ scope: 'shared', conversationId: 'thread' });
     expect((sharedBinding?.ref as { issueKey: string }).issueKey).toBe('AGL-11');
+  });
+
+  describe('portfolio follow-ups and switch-then-ask (spec §3/§3a/§4)', () => {
+    const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const turn = (i: number) => [
+      { role: 'user' as const, text: `p${i}` },
+      { role: 'assistant' as const, text: `r${i}` },
+    ];
+    /** withSearch + an answerPortfolioFn that records what it was handed. */
+    function portfolioDeps(outcome: SearchOutcome = cardsOutcome(two)) {
+      const made = withSearch(outcome);
+      const calls: Array<{ rendered: string; question: string; history: unknown[] }> = [];
+      made.deps.answerPortfolioFn = async (rendered, question, history) => {
+        calls.push({ rendered, question, history: [...history] });
+        return { text: `portfólio: ${question}`, model: 'm', usage };
+      };
+      return { ...made, calls };
+    }
+
+    it('counts follow-up with a card bound answers from aggregates, without Claude', async () => {
+      const { deps, answered, calls } = portfolioDeps();
+      await handleMessage(dm('QZ-252'), deps);
+      await handleMessage(dm('buscar norte'), deps);
+      const asked = answered.length;
+      const replies = await handleMessage(dm('quantos?'), deps);
+      expect(replies).toHaveLength(1);
+      expect(replies[0].kind).toBe('text');
+      expect(textOf(replies[0])).toContain('2 atividades abertas');
+      expect(textOf(replies[0])).toContain('por status: Em Teste: 2');
+      expect(answered).toHaveLength(asked);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('counts follow-up with a status word leads with that status', async () => {
+      const { deps } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      expect(textOf((await handleMessage(dm('quantos abertos'), deps))[0])).toContain('2 abertos');
+    });
+
+    it('a normal question with a card bound reaches answerFn even though a portfolio exists', async () => {
+      const { deps, answered, calls } = portfolioDeps();
+      await handleMessage(dm('QZ-252'), deps);
+      await handleMessage(dm('buscar norte'), deps);
+      const replies = await handleMessage(dm('qual o status atual?'), deps);
+      expect(answered.at(-1)).toBe('qual o status atual?');
+      expect(textOf(replies[0])).toContain('resposta para: qual o status atual?');
+      expect(calls).toHaveLength(0);
+    });
+
+    it('a long "quantos ..." question with a card bound reaches answerFn, not the counts follow-up', async () => {
+      const { deps, answered, calls } = portfolioDeps();
+      await handleMessage(dm('QZ-252'), deps);
+      await handleMessage(dm('buscar norte'), deps);
+      const q = 'quantos casos de teste passaram?';
+      const replies = await handleMessage(dm(q), deps);
+      expect(answered.at(-1)).toBe(q);
+      expect(textOf(replies[0])).toContain(`resposta para: ${q}`);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('unbound + portfolio + named entity searches (context switch) and the NEW set has empty history', async () => {
+      const { deps, searched, calls } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      const seeded = await deps.candidates.get(shared);
+      await deps.candidates.set(shared, { ...seeded!, history: turn(1) });
+      expect((await deps.candidates.get(shared))?.history).toHaveLength(2); // seed took
+
+      const replies = await handleMessage(dm('status da empresa Norte'), deps);
+      expect(searched).toEqual(['norte', 'Norte']);
+      expect(calls).toHaveLength(0);
+      expect(replies[0].kind).toBe('card');
+      expect((await deps.candidates.get(shared))?.history).toEqual([]);
+    });
+
+    it('unbound + portfolio + free-form calls answerPortfolioFn with [estatísticas] and [atividades] context', async () => {
+      const { deps, calls } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      const replies = await handleMessage(dm('qual é a mais antiga?'), deps);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].question).toBe('qual é a mais antiga?');
+      expect(calls[0].rendered).toContain('[estatísticas]');
+      expect(calls[0].rendered).toContain('[atividades]');
+      expect(calls[0].rendered).toContain('AGL-11');
+      const reply = replies[0];
+      if (reply.kind !== 'card') throw new Error('unreachable');
+      expect(reply.fallbackText).toContain('portfólio: qual é a mais antiga?');
+      expect(reply.fallbackText).toContain('coletado às');
+      expect(JSON.stringify(reply.card)).toContain('norte');
+    });
+
+    it('persists portfolio history onto the set, sliced to MAX_HISTORY_TURNS', async () => {
+      const { deps, calls } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      const seeded = (await deps.candidates.get(shared))!;
+      const old = Array.from({ length: MAX_HISTORY_TURNS + 2 }, (_, i) => turn(i)).flat().slice(0, MAX_HISTORY_TURNS + 2);
+      await deps.candidates.set(shared, { ...seeded, history: old });
+
+      await handleMessage(dm('qual é a mais antiga?'), deps);
+      expect(calls[0].history).toEqual(old);
+      const stored = (await deps.candidates.get(shared))!.history;
+      expect(stored).toHaveLength(MAX_HISTORY_TURNS);
+      expect(stored.at(-2)).toEqual({ role: 'user', text: 'qual é a mais antiga?' });
+      expect(stored.at(-1)).toEqual({ role: 'assistant', text: 'portfólio: qual é a mais antiga?' });
+    });
+
+    it('answerPortfolioFn throwing replies CLAUDE_UNAVAILABLE and leaves history untouched', async () => {
+      const { deps } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      deps.answerPortfolioFn = async () => { throw new Error('429 rate limit'); };
+      const replies = await handleMessage(dm('qual é a mais antiga?'), deps);
+      expect(replies).toHaveLength(1);
+      expect(textOf(replies[0])).toBe(CLAUDE_UNAVAILABLE);
+      expect((await deps.candidates.get(shared))?.history).toEqual([]);
+    });
+
+    it('expand renders the requested section uncapped (more candidates than SECTION_LINE_CAP)', async () => {
+      const many = Array.from({ length: SECTION_LINE_CAP + 3 }, (_, i) => jiraCard(`AGL-${100 + i}`, `Tarefa ${i}`));
+      const { deps } = portfolioDeps(cardsOutcome(many));
+      const first = (await handleMessage(dm('buscar norte'), deps))[0];
+      expect(textOf(first)).toContain('AGL-100');
+
+      const replies = await handleMessage(dm('todos os de jira'), deps);
+      expect(replies).toHaveLength(1);
+      const reply = replies[0];
+      if (reply.kind !== 'card') throw new Error('unreachable');
+      for (const c of many) {
+        expect(reply.fallbackText).toContain(c.label);
+        expect(JSON.stringify(reply.card)).toContain(c.label);
+      }
+      expect(reply.fallbackText).not.toContain('e mais');
+    });
+
+    it('unbound + no portfolio + free-form is still NOTHING_BOUND, and never calls Claude', async () => {
+      const { deps, calls } = portfolioDeps();
+      const replies = await handleMessage(dm('qual é a mais antiga?'), deps);
+      expect(textOf(replies[0])).toBe(NOTHING_BOUND);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('bare "quantos" with no portfolio falls through to the normal pipeline (no crash)', async () => {
+      const { deps, calls } = portfolioDeps();
+      const unbound = await handleMessage(dm('quantos'), deps);
+      expect(textOf(unbound[0])).toBe(NOTHING_BOUND);
+      await handleMessage(dm('QZ-252'), deps);
+      const bound = await handleMessage(dm('quantos'), deps);
+      expect(textOf(bound[0])).toContain('resposta para: quantos');
+      expect(calls).toHaveLength(0);
+    });
   });
 });

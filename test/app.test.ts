@@ -16,6 +16,9 @@ function makeDeps(over: Partial<HandleDeps> = {}): HandleDeps {
     answerFn: async () => {
       throw new Error('answerFn should not be called in these tests');
     },
+    answerPortfolioFn: async () => {
+      throw new Error('answerPortfolioFn should not be called in these tests');
+    },
     cfg: testConfig,
     now: () => 0,
     candidates: new InMemoryCandidateStore(() => 0),

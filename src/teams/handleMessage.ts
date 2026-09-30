@@ -10,10 +10,13 @@ import { splitReferenceAndQuestion, isWholeMessageReference } from '../../script
 import { isBundleStale, type Binding, type BindingStore, type Slot } from './bindings.js';
 import { buildAnswerCard } from './cards.js';
 import { compressCitations } from './citations.js';
-import { matchCandidate, type CandidateStore } from './candidates.js';
+import { matchCandidate, type CandidateSet, type CandidateStore } from './candidates.js';
+import { computeAggregates, parseFollowup, renderCounts, renderPortfolio, type Followup } from './portfolio.js';
 import { parseCommand } from './commands.js';
 import { formatFooter, withFooter, type Reply } from './reply.js';
-import { buildCandidateCard, buildRundownCard, renderOrgChoices, renderRundown } from './rundown.js';
+import {
+  buildCandidateCard, buildPortfolioAnswerCard, buildRundownCard, portfolioFooter, renderOrgChoices, renderRundown,
+} from './rundown.js';
 import type { CardCandidate, SearchOutcome } from './search.js';
 import { surfaceFor } from './surface.js';
 
@@ -38,6 +41,8 @@ export interface HandleDeps {
   now: () => number;
   /** Candidate lists from portfolio searches, keyed like bindings (always the shared slot). */
   candidates: CandidateStore;
+  /** Claude over a rendered portfolio (read-only): answers free-form questions about a candidate set. */
+  answerPortfolioFn: (rendered: string, question: string, history: Turn[]) => Promise<Answer>;
   /** Portfolio search by company/client/project name (read-only against Jira and Zendesk). */
   search: (name: string) => Promise<SearchOutcome>;
   /**
@@ -372,6 +377,54 @@ async function offerCandidates(
   return { kind: 'card', card, fallbackText: rundown };
 }
 
+/** Deterministic follow-up on the stored set: `expand` shows sections uncapped, `counts` answers from aggregates. */
+function answerFollowup(followup: Followup, set: CandidateSet, deps: HandleDeps): Reply {
+  if (followup.kind === 'counts') {
+    const aggregates = computeAggregates(set.candidates, set.total, deps.now());
+    return { kind: 'text', text: renderCounts(set.name, aggregates, followup.status) };
+  }
+  return {
+    kind: 'card',
+    card: buildRundownCard(set.name, set.candidates, set.total, set.collectedAtMs, deps.cfg, followup.section),
+    fallbackText: renderRundown(set.name, set.candidates, set.total, set.collectedAtMs, deps.cfg, followup.section),
+  };
+}
+
+/**
+ * Free-form question over the stored portfolio (nothing bound). Aggregates are computed in code and
+ * handed to Claude as `[estatísticas]`; history lives on the set and dies with it on a context switch.
+ */
+async function askPortfolio(
+  set: CandidateSet,
+  question: string,
+  sharedSlot: Slot,
+  deps: HandleDeps,
+): Promise<Reply> {
+  const aggregates = computeAggregates(set.candidates, set.total, deps.now());
+  const rendered = renderPortfolio(set.name, set.candidates, aggregates, set.collectedAtMs);
+  let result: Answer;
+  try {
+    result = await deps.answerPortfolioFn(rendered, question, set.history);
+  } catch {
+    return { kind: 'text', text: CLAUDE_UNAVAILABLE };
+  }
+  const history = [
+    ...set.history,
+    { role: 'user' as const, text: question },
+    { role: 'assistant' as const, text: result.text },
+  ].slice(-MAX_HISTORY_TURNS);
+  await deps.candidates.set(sharedSlot, { ...set, history });
+
+  const displayText = compressCitations(result.text);
+  const fallbackText = `${displayText}\n\n${portfolioFooter(set.name, set.collectedAtMs)}`;
+  try {
+    return { kind: 'card', card: buildPortfolioAnswerCard(set.name, displayText, set.collectedAtMs), fallbackText };
+  } catch (err) {
+    console.error('Falha ao montar o card:', err);
+    return { kind: 'text', text: fallbackText };
+  }
+}
+
 /**
  * The whole DM pipeline (Phase 3 spec §5). Returns replies as data so the Teams SDK stays in
  * app.ts and this is testable offline.
@@ -413,6 +466,14 @@ export async function handleMessage(
   const buscarName = parseBuscar(text);
   if (buscarName) {
     return [await runSearch(buscarName, 'candidates', existing, sharedSlot, personalSlot, surface, deps)];
+  }
+
+  // 1c. Whole-message portfolio follow-ups ("todos os de jira", "quantos"): deterministic, and
+  // consulted only when a candidate set exists -- with no set they fall through untouched.
+  const followup = parseFollowup(text);
+  if (followup) {
+    const set = await deps.candidates.get(sharedSlot);
+    if (set) return [answerFollowup(followup, set, deps)];
   }
 
   // 2 & 3. A reference in the message, with or without a question.
@@ -467,13 +528,17 @@ export async function handleMessage(
     return [await ask(binding, text, activeSlot, surface, deps)];
   }
 
-  // 5. Nothing bound and nothing to bind: a vague portfolio question ("como está a empresa X?")
-  // gets a search; anything else gets the usual prompt. Reachable ONLY here, so a bound
-  // conversation's question can never be diverted into a search.
+  // 5. Nothing bound and nothing to bind. Reachable ONLY here, so a bound conversation's question
+  // can never be diverted into a search or a portfolio answer.
+  // 5a. A named entity ("como está a empresa X?") is a context switch: search first, even when a
+  // portfolio is stored (the new set starts with empty history).
   const portfolio = detectPortfolioQuery(text);
   if (portfolio) {
     return [await runSearch(portfolio.name, portfolio.mode, existing, sharedSlot, personalSlot, surface, deps)];
   }
+  // 5b. Otherwise free-form text is a question about the stored portfolio.
+  if (candidateSet) return [await askPortfolio(candidateSet, text, sharedSlot, deps)];
+  // 5c. Nothing to talk about.
   return [{ kind: 'text', text: NOTHING_BOUND }];
 }
 

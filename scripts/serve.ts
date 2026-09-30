@@ -4,7 +4,7 @@ import { createTeamsApp } from '@/teams/app.js';
 import { resolveAuthMode, type AuthMode } from '@/teams/authMode.js';
 import { InMemoryBindingStore } from '@/teams/bindings.js';
 import { loadCardBundleWithClients } from '@/bundle/load.js';
-import { answer } from '@/claude/answer.js';
+import { answer, answerPortfolio } from '@/claude/answer.js';
 import { createAnthropicClient } from '@/claude/client.js';
 import type { HandleDeps } from '@/teams/handleMessage.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
@@ -48,6 +48,12 @@ const deps: HandleDeps = {
   loadBundle: (ref, surface) => loadCardBundleWithClients(ref, cfg, surface, jira, zendesk),
   answerFn: (bundle, question, history) =>
     answer(bundle, question, history, {
+      client,
+      model: cfg.claudeModel,
+      maxTokens: cfg.claudeMaxTokens,
+    }),
+  answerPortfolioFn: (rendered, question, history) =>
+    answerPortfolio(rendered, question, history, {
       client,
       model: cfg.claudeModel,
       maxTokens: cfg.claudeMaxTokens,
