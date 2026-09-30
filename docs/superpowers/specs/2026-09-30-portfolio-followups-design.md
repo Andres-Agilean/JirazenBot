@@ -129,6 +129,32 @@ Users hop contexts rapidly — company A → project B → follow-up on B → co
   No multi-context store — sequential replacement covers the flow.
 - Bound-card precedence is unaffected: all of this lives in the no-card-bound path.
 
+## 10. Addendum — live-session findings (2026-09-30, owner screenshots)
+
+1. **Status aggregates split by system.** Jira and Zendesk use different status nomenclatures
+   (Pronto para Delivery/Done/Blocked vs open/pending), so a single global `por status` list in
+   `[estatísticas]` reads as noise. `PortfolioAggregates.byStatus` becomes two lists —
+   `jiraByStatus` and `zendeskByStatus` — rendered as separate `- por status (Jira): …` /
+   `- por status (Zendesk): …` lines (each omitted when its system has no items).
+   `renderCounts` status-marker sums run across both lists; `por responsável` stays global
+   (names are shared across systems; Zendesk items keep falling into "sem responsável").
+2. **Expand patterns accept natural fillers.** "quero ver todos os de zendesk" fell through to
+   Claude and produced prose instead of the sectioned card. `parseFollowup` expand forms gain an
+   optional leading filler (quero/queria [ver], me mostra/mostre, mostra/mostre/mostrar, ver,
+   exibe/exiba, lista/liste/listar) and accept `de`/`do`/`da` before the section name. Still
+   whole-message anchored — a sentence merely containing the words passes through.
+3. **Deterministic distribution cards.** "me mostra por status" / "divide por responsável" become
+   deterministic follow-ups (`kind: 'distribution'`, dimension status|assignee) instead of Claude
+   calls: whole-message patterns of optional filler + optional verb (divide/divida/distribui/
+   distribuição/quantos) + `por status` / `por responsável|responsáveis`. The reply is an
+   Adaptive Card in the rundown family: prominent org name + coletado às; for **status**, the
+   two bold sections (Cards (Jira) / Chamados (Zendesk), omitted when empty) with one line per
+   status — colored via the existing `statusColor` map — `Status — N:` plus that bucket's keys
+   as bold hyperlinks, capped at SECTION_LINE_CAP keys with `e mais N`; for **responsável**, a
+   single sectionless list in the same line shape. Plain-text fallback mirrors. Exact numbers
+   come from the same aggregates, so the never-count guarantee holds; Claude keeps everything
+   that doesn't match these patterns, now over the sectioned stats block.
+
 ## 5a. Selection tightening (consequence of §5, controller-ruled)
 
 Once free-form text over a portfolio reaches Claude, substring-based typed selection would steal
