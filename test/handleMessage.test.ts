@@ -1503,6 +1503,7 @@ describe('confirm-to-switch while bound (spec §11)', () => {
 
   it.each([
     'qual o status do chamado?', 'como está a obra?', 'qual o prazo de entrega?', 'não quero saber sobre a Flora',
+    'quero saber sobre o que aconteceu', 'como estão os comentários?',
   ])('no interstitial while bound (§11.1 guards): %s', async (q) => {
     const { deps, answered, searched } = bound();
     await handleMessage(dm('QZ-252'), deps);

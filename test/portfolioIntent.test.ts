@@ -142,6 +142,14 @@ describe('detectPortfolioQuery loose bare-name shapes (spec §10.4)', () => {
     'como está a obra?',
     'como estão os problemas?',
     'quero saber sobre o QZ-252',
+    'quero saber sobre o que aconteceu',
+    'quero saber sobre quem abriu',
+    'qual o status da que aconteceu',
+    'quero ver os anexos',
+    'quero saber sobre os anexos',
+    'como estão os comentários?',
+    'qual a prioridade?',
+    'quero saber sobre as atualizações',
   ])('§11.1 returns null for %s', (text) => {
     expect(detectPortfolioQuery(text)).toBeNull();
   });

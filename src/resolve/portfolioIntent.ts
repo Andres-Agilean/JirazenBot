@@ -21,7 +21,9 @@ const CARD_SHAPE = /\b(?:problema|erro|bug|card|chamado|ticket|incidente)\b/;
 /** Leading connectives between the kind word and the name. */
 const CONNECTIVE = /^(?:(?:d[aeo]s?|n[ao]s?|em)\s+)?/;
 /** Names that are almost certainly a verb/stray word, not an entity (false-positive guard). */
-const STOP_NAMES = new Set(['atrasou', 'atrasada', 'parou', 'parada', 'anda', 'esta', 'estao']);
+const STOP_NAMES = new Set(['atrasou', 'atrasada', 'parou', 'parada', 'anda', 'esta', 'estao',
+  // Interrogatives / clause starters: "quero saber sobre o que aconteceu" is a question, not a name.
+  'que', 'quem', 'qual', 'quais', 'quando', 'onde', 'como', 'porque']);
 
 /** Plural subject words (normalized): also anchors, but always a rundown (spec §10.1). */
 const PLURAL_KIND = /\b(?:cards|atividades|chamados|tickets|pendencias|demandas)\b/;
@@ -51,6 +53,8 @@ export const GENERIC_TAILS: ReadonlySet<string> = new Set([
   'erro', 'erros', 'bug', 'bugs', 'prazo', 'prazos', 'status', 'andamento', 'situacao',
   'historico', 'responsavel', 'descricao', 'resumo', 'resto', 'resultado', 'resultados',
   'pendencia', 'pendencias', 'demanda', 'demandas', 'tudo', 'isso', 'ele', 'ela', 'eles', 'elas',
+  'comentario', 'comentarios', 'sla', 'prioridade', 'anexo', 'anexos', 'nota', 'notas',
+  'atualizacao', 'atualizacoes', 'detalhe', 'detalhes',
 ]);
 /** Normalized tails that point at one specific card, so the loose shapes must leave them alone. */
 const REFERENCE_SHAPED: readonly RegExp[] = [
