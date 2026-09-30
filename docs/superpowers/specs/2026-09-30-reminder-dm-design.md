@@ -74,6 +74,27 @@ note when present, and two `Action.Execute` buttons — **Enviar lembrete** / **
   expirou, peça novamente".
 - One command → at most one DM. No repeat-send affordance on the receipt.
 
+### 5.1 The pending-reminder record (final-review amendment, 2026-09-30)
+
+A stateless confirmation card cannot enforce §5's "one command → at most one DM" (re-clicks,
+Enviar after Cancelar, several group-chat members clicking, invoke-timeout retries all
+double-send), and it forces the recipient id to be trusted from the client payload. Therefore:
+
+- Issuing a confirmation (directly or via the pick card) stores a **pending reminder** record
+  server-side, keyed by the slot like bindings: a fresh nonce (`crypto.randomUUID()`), the
+  resolved recipient(s) (`DirectoryUser`), the card key, and the note. Lifetime: the binding's
+  24h store semantics; a new `lembrar responsável` replaces the slot's record.
+- Card buttons carry ONLY `{ action, nonce }` (the pick buttons also carry the candidate index).
+  The recipient id, name, mail and note used at send time come from the SERVER record — the
+  client payload can no longer name a recipient or smuggle an uncapped note.
+- A pick click looks up the record by nonce and sets the chosen candidate (not one-shot — picking
+  again re-renders the confirmation). **Enviar and Cancelar CONSUME the record atomically**
+  (within the conversation's existing serialization) before any send: a missing nonce →
+  `REMINDER_EXPIRED`; an already-consumed one → a distinct pt-BR "já tratado" reply. After
+  Cancelar, Enviar on the same card can never send.
+- The reassignment re-check (§5/Task-4 ruling) now compares the fresh Jira assignee against the
+  RECORD's recipient displayName; the receipt names the record's recipient.
+
 ## 6. The DM — fixed template, never free-form
 
 pt-BR, fixed skeleton (exact copy at implementation, tests pin the load-bearing parts):
