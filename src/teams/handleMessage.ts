@@ -318,10 +318,27 @@ async function selectCard(
   surface: Surface,
   deps: HandleDeps,
 ): Promise<Reply> {
+  return (await trySelectCard(ref, sharedSlot, personalSlot, surface, deps)).reply;
+}
+
+/** A reply plus whether it reports an ERROR (as opposed to a legitimate empty/disambiguation result). */
+interface Attempt {
+  reply: Reply;
+  failed: boolean;
+}
+
+/** `selectCard` with an explicit failure signal: a bind error (load failure, not-found, ambiguous) is `failed`. */
+async function trySelectCard(
+  ref: CardRef,
+  sharedSlot: Slot,
+  personalSlot: Slot,
+  surface: Surface,
+  deps: HandleDeps,
+): Promise<Attempt> {
   const bound = await bind(ref, sharedSlot, surface, deps);
-  if ('error' in bound) return { kind: 'text', text: bound.error };
+  if ('error' in bound) return { reply: { kind: 'text', text: bound.error }, failed: true };
   await deps.store.delete(personalSlot);
-  return ask(bound.binding, DEFAULT_SUMMARY_QUESTION, sharedSlot, surface, deps);
+  return { reply: await ask(bound.binding, DEFAULT_SUMMARY_QUESTION, sharedSlot, surface, deps), failed: false };
 }
 
 /**
@@ -337,25 +354,26 @@ async function runSearch(
   personalSlot: Slot,
   surface: Surface,
   deps: HandleDeps,
-): Promise<Reply> {
+): Promise<Attempt> {
+  const ok = (reply: Reply): Attempt => ({ reply, failed: false });
   let outcome: SearchOutcome;
   try {
     outcome = await deps.search(name);
   } catch {
-    return { kind: 'text', text: SEARCH_UNAVAILABLE };
+    return { reply: { kind: 'text', text: SEARCH_UNAVAILABLE }, failed: true };
   }
   switch (outcome.kind) {
     case 'orgs':
-      return { kind: 'text', text: renderOrgChoices(outcome.name, outcome.orgs) };
+      return ok({ kind: 'text', text: renderOrgChoices(outcome.name, outcome.orgs) });
     case 'bind':
       // With a card already bound, a search never moves it (spec §3): offer the one match as a
       // button, exactly like a longer list. Only with nothing bound does a lone match bind.
-      if (existing) return offerCandidates(outcome.displayName, [outcome.candidate], 1, 'candidates', sharedSlot, deps);
-      return selectCard(outcome.candidate.ref, sharedSlot, personalSlot, surface, deps);
+      if (existing) return ok(await offerCandidates(outcome.displayName, [outcome.candidate], 1, 'candidates', sharedSlot, deps));
+      return trySelectCard(outcome.candidate.ref, sharedSlot, personalSlot, surface, deps);
     case 'none':
-      return { kind: 'text', text: SEARCH_NONE(outcome.name) };
+      return ok({ kind: 'text', text: SEARCH_NONE(outcome.name) });
     case 'cards':
-      return offerCandidates(outcome.displayName, outcome.cards, outcome.total, mode, sharedSlot, deps);
+      return ok(await offerCandidates(outcome.displayName, outcome.cards, outcome.total, mode, sharedSlot, deps));
   }
 }
 
@@ -372,7 +390,7 @@ function runBuscar(
   surface: Surface,
   deps: HandleDeps,
   mode: PortfolioQuery['mode'] = 'candidates',
-): Promise<Reply> {
+): Promise<Attempt> {
   return runSearch(name, mode, existing, sharedSlot, personalSlot, surface, deps);
 }
 
@@ -536,7 +554,7 @@ export async function handleMessage(
   // 1b. Explicit search: works with or without a binding and never unbinds.
   const buscarName = parseBuscar(text);
   if (buscarName) {
-    return [await runBuscar(buscarName, existing, sharedSlot, personalSlot, surface, deps)];
+    return [(await runBuscar(buscarName, existing, sharedSlot, personalSlot, surface, deps)).reply];
   }
 
   // 1c. Whole-message portfolio follow-ups ("todos os de jira", "quantos"): deterministic, and
@@ -613,7 +631,7 @@ export async function handleMessage(
   // vocabulary ("bloqueados", an assignee) stays a follow-up (spec §11.2, superseding §10.4's gate).
   const portfolio = detectSwitch(text, candidateSet);
   if (portfolio) {
-    return [await runSearch(portfolio.name, portfolio.mode, existing, sharedSlot, personalSlot, surface, deps)];
+    return [(await runSearch(portfolio.name, portfolio.mode, existing, sharedSlot, personalSlot, surface, deps)).reply];
   }
   // 5b. Otherwise free-form text is a question about the stored portfolio.
   if (candidateSet) return [await askPortfolio(candidateSet, text, sharedSlot, deps)];
@@ -666,7 +684,10 @@ function payloadString(data: unknown, field: 'name' | 'text'): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 }
 
-/** The confirm payload's detected mode: absent -> `candidates` (like typed `buscar`); unknown -> null. */
+/**
+ * The confirm payload's detected mode; unknown -> null. Absent -> `candidates`, because confirm
+ * cards sent before the payload carried a mode may still sit in chat history and be clicked.
+ */
 function payloadMode(data: unknown): PortfolioQuery['mode'] | null {
   const mode = (data as Record<string, unknown>).mode;
   if (mode === undefined) return 'candidates';
@@ -688,14 +709,25 @@ export async function handleSwitchBuscar(
   const mode = name ? payloadMode(data) : null;
   if (!name || !mode) return [{ kind: 'text', text: SELECTION_INVALID }];
   const before = await resolveSlots(incoming, deps);
+  const restore = async (): Promise<void> => {
+    if (before.existing) await deps.store.set(before.activeSlot, before.existing);
+  };
+  // Only the ACTIVE slot is unbound. With a personal split over a shared card, the shared card is
+  // the room's and survives; it may re-raise the interstitial later (accepted by spec §11.2).
+  // A restore goes back to that same slot.
   if (before.existing) await deps.store.delete(before.activeSlot);
-  // Re-resolve: a thread's shared card may still be bound behind a deleted personal split.
-  const { surface, sharedSlot, personalSlot, existing } = await resolveSlots(incoming, deps);
-  const reply = await runBuscar(name, existing, sharedSlot, personalSlot, surface, deps, mode);
-  if (before.existing && reply.kind === 'text' && reply.text === SEARCH_UNAVAILABLE) {
-    await deps.store.set(before.activeSlot, before.existing);
+  try {
+    // Re-resolve: a thread's shared card may still be bound behind a deleted personal split.
+    const { surface, sharedSlot, personalSlot, existing } = await resolveSlots(incoming, deps);
+    const { reply, failed } = await runBuscar(name, existing, sharedSlot, personalSlot, surface, deps, mode);
+    // Errors (outage, load failure, not-found) never cost the user their card; `none`/`orgs`
+    // intentionally do (spec §11.2): the user chose to move on.
+    if (failed) await restore();
+    return [reply];
+  } catch (err) {
+    await restore();
+    throw err;
   }
-  return [reply];
 }
 
 /**

@@ -1588,13 +1588,13 @@ describe('move-on semantics and vocabulary-aware switching (spec §11.2)', () =>
   const req = { conversationId: CONV, conversationType: 'personal', userId: 'u' };
   const shared = { scope: 'shared' as const, conversationId: CONV };
 
-  function world() {
+  function world(assignee = 'João Silva') {
     const searched: string[] = [];
     const calls: string[] = [];
     const made = makeDeps({
       search: async (name) => {
         searched.push(name);
-        return { kind: 'cards', name, displayName: name.toUpperCase(), total: 2, cards: [mk('AGL-11', 'João Silva'), mk('AGL-12')] };
+        return { kind: 'cards', name, displayName: name.toUpperCase(), total: 2, cards: [mk('AGL-11', assignee), mk('AGL-12')] };
       },
       answerPortfolioFn: async (_r, q) => { calls.push(q); return { text: `portfólio: ${q}`, model: 'm', usage }; },
     });
@@ -1640,6 +1640,94 @@ describe('move-on semantics and vocabulary-aware switching (spec §11.2)', () =>
     const replies = await handleSwitchBuscar(req, { name: 'dalle', mode: 'rundown' }, deps);
     expect(textOf(replies[0])).toBe(SEARCH_UNAVAILABLE);
     expect(await deps.store.get(shared)).toBeDefined();
+  });
+
+  describe('Buscar click failure semantics: an error never leaves the user with nothing bound (spec §11.2)', () => {
+    const bindOne: SearchOutcome = {
+      kind: 'bind', displayName: 'DALLE',
+      candidate: { ...mk('AGL-11'), ref: { system: 'jira', issueKey: 'AGL-11', explicit: true } },
+    };
+    async function boundWorld() {
+      const w = world();
+      await handleMessage(dm('QZ-252'), w.deps);
+      const original = await w.deps.store.get(shared);
+      w.deps.search = async () => bindOne;
+      return { ...w, original };
+    }
+
+    it('single-match bind whose bundle load THROWS restores the original binding', async () => {
+      const { deps, original } = await boundWorld();
+      deps.loadBundle = async () => { throw new Error('boom'); };
+      const replies = await handleSwitchBuscar(req, { name: 'dalle', mode: 'rundown' }, deps);
+      expect(textOf(replies[0])).toBe(JIRA_UNAVAILABLE);
+      expect(await deps.store.get(shared)).toEqual(original);
+    });
+
+    it('single-match bind that is not_found restores the original binding', async () => {
+      const { deps, original } = await boundWorld();
+      deps.loadBundle = async () => ({ status: 'not_found', message: 'Card não encontrado.' }) as AssembleResult;
+      const replies = await handleSwitchBuscar(req, { name: 'dalle', mode: 'rundown' }, deps);
+      expect(textOf(replies[0])).toBe('Card não encontrado.');
+      expect(await deps.store.get(shared)).toEqual(original);
+    });
+
+    it('a successful single-match bind replaces the old card (no restore)', async () => {
+      const { deps } = await boundWorld();
+      await handleSwitchBuscar(req, { name: 'dalle', mode: 'rundown' }, deps);
+      expect((await deps.store.get(shared))?.ref).toMatchObject({ issueKey: 'AGL-11' });
+    });
+
+    it('a search that throws restores the original binding', async () => {
+      const { deps, original } = await boundWorld();
+      deps.search = async () => { throw new Error('x'); };
+      await handleSwitchBuscar(req, { name: 'dalle', mode: 'rundown' }, deps);
+      expect(await deps.store.get(shared)).toEqual(original);
+    });
+
+    it('an unexpected throw after the unbind restores the binding, then rethrows', async () => {
+      const { deps, original } = await boundWorld();
+      deps.search = async () => ({ kind: 'cards', name: 'd', displayName: 'D', total: 1, cards: [mk('AGL-12')] });
+      deps.candidates.set = async () => { throw new Error('store down'); };
+      await expect(handleSwitchBuscar(req, { name: 'dalle', mode: 'rundown' }, deps)).rejects.toThrow('store down');
+      expect(await deps.store.get(shared)).toEqual(original);
+    });
+
+    it('none and orgs intentionally leave the user unbound', async () => {
+      const { deps } = await boundWorld();
+      deps.search = async () => ({ kind: 'none', name: 'dalle' });
+      await handleSwitchBuscar(req, { name: 'dalle', mode: 'rundown' }, deps);
+      expect(await deps.store.get(shared)).toBeUndefined();
+    });
+
+    it('thread: a personal split is the slot unbound and restored; the shared card is untouched', async () => {
+      const { deps } = world();
+      await handleMessage({ ...ana, text: 'QZ-252' }, deps);
+      await handleMessage({ ...ana, text: 'AGL-900 qual o status?' }, deps);
+      const personal = { scope: 'personal' as const, conversationId: 'thread', userId: 'ana' };
+      const threadShared = { scope: 'shared' as const, conversationId: 'thread' };
+      const originalPersonal = await deps.store.get(personal);
+      const originalShared = await deps.store.get(threadShared);
+      deps.search = async () => { throw new Error('x'); };
+      await handleSwitchBuscar(ana, { name: 'dalle', mode: 'rundown' }, deps);
+      expect(await deps.store.get(personal)).toEqual(originalPersonal);
+      expect(await deps.store.get(threadShared)).toEqual(originalShared);
+      // On success only the personal split goes. The surviving shared card is the room's and may
+      // re-raise the interstitial on the next matching message (accepted by spec §11.2).
+      deps.search = async () => ({ kind: 'cards', name: 'd', displayName: 'D', total: 1, cards: [mk('AGL-12')] });
+      await handleSwitchBuscar(ana, { name: 'dalle', mode: 'rundown' }, deps);
+      expect(await deps.store.get(personal)).toBeUndefined();
+      expect(await deps.store.get(threadShared)).toEqual(originalShared);
+    });
+  });
+
+  it('an ANCHORED name colliding with portfolio vocabulary still switches (anchored bypasses the filter)', async () => {
+    const { deps, searched, calls } = world('Dalle X');
+    await handleMessage(dm('buscar flora'), deps);
+    await handleMessage(dm('como estao as atividades da dalle?'), deps);
+    expect(searched).toEqual(['flora', 'dalle']);
+    await handleMessage(dm('como está a dalle?'), deps); // loose + vocabulary: stays on the context
+    expect(searched).toEqual(['flora', 'dalle']);
+    expect(calls).toHaveLength(1);
   });
 
   describe('unbound with a portfolio stored', () => {
@@ -1701,10 +1789,13 @@ describe('move-on semantics and vocabulary-aware switching (spec §11.2)', () =>
     await handleMessage(dm('buscar flora'), deps);
     await handleMessage(dm('QZ-252'), deps);
     const before = answered.length;
-    for (const q of ['organize por status', 'agrupa por responsável']) {
-      const replies = await handleMessage(dm(q), deps);
-      expect(replies[0].kind).toBe('card');
-    }
+    const byStatus = await handleMessage(dm('organize por status'), deps);
+    expect(byStatus[0].kind).toBe('card');
+    expect(textOf(byStatus[0])).toContain('Cards (Jira)');
+    expect(textOf(byStatus[0])).toContain('Bloqueado — 2');
+    const byAssignee = await handleMessage(dm('agrupa por responsável'), deps);
+    expect(byAssignee[0].kind).toBe('card');
+    expect(textOf(byAssignee[0])).toContain('João Silva — 1');
     expect(answered.length).toBe(before);
   });
 });
