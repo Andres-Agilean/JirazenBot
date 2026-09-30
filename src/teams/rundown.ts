@@ -1,10 +1,10 @@
 import type { Config } from '@/config.js';
 import { CARD_FETCH_CAP, type ZendeskOrg } from '@/fetch/zendesk.js';
-import { formatDayMonthTime } from '@/text/datetime.js';
+import { DAY_MS, formatDayMonthTime } from '@/text/datetime.js';
 import { normalizeText } from '@/text/normalize.js';
 import { ADAPTIVE_CARD_SCHEMA, ADAPTIVE_CARD_VERSION, styleCitations } from './cards.js';
 import { assigneeBuckets, statusBuckets, type Bucket, type DistributionDimension } from './grouping.js';
-import { collectedAt, jiraLink, zendeskLink } from './reply.js';
+import { collectedTime, jiraLink, zendeskLink } from './reply.js';
 import { candidateId, type CardCandidate } from './search.js';
 
 /** Most card lines a rundown shows PER SECTION (a two-section card is bounded at twice this); the rest collapse into that section's overflow line. */
@@ -20,8 +20,6 @@ export const OVERFLOW_LABEL_CAP = 10;
  * twin to derive it from: typed selection goes through `matchCandidate`, not `parseCommand`.
  */
 export const SELECT_ACTION = 'selecionar';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** `DD/MM` in Brazil local time, from the shared datetime formatter (no inline timezone logic). */
 export const dayMonth = (iso: string): string => formatDayMonthTime(iso).split(' ')[0];
@@ -130,15 +128,22 @@ const adaptiveCard = (body: Record<string, unknown>[]): Record<string, unknown> 
   body,
 });
 
+const updatedAtMs = (c: CardCandidate): number => Date.parse(c.updatedAt);
+
+/**
+ * Candidates with a parseable `updatedAt`, oldest first (a missing date is not "oldest"; ties keep
+ * incoming order). Shared by the rundown's stalest line and the portfolio aggregates.
+ */
+export const datedOldestFirst = (cards: CardCandidate[]): CardCandidate[] =>
+  cards.filter((c) => !Number.isNaN(updatedAtMs(c))).sort((a, b) => updatedAtMs(a) - updatedAtMs(b));
+
+/** True when the candidate went untouched for longer than `STALE_AFTER_DAYS` as of `nowMs`. */
+export const isStale = (c: CardCandidate, nowMs: number): boolean => nowMs - updatedAtMs(c) > STALE_AFTER_DAYS * DAY_MS;
+
 /** The candidate with the oldest parseable `updatedAt`, if it is past the stale threshold. */
 function staleCard(cards: CardCandidate[], nowMs: number): CardCandidate | undefined {
-  let oldest: { card: CardCandidate; ms: number } | undefined;
-  for (const card of cards) {
-    const ms = Date.parse(card.updatedAt);
-    if (Number.isNaN(ms)) continue;
-    if (!oldest || ms < oldest.ms) oldest = { card, ms };
-  }
-  return oldest && nowMs - oldest.ms > STALE_AFTER_DAYS * DAY_MS ? oldest.card : undefined;
+  const oldest = datedOldestFirst(cards)[0];
+  return oldest && isStale(oldest, nowMs) ? oldest : undefined;
 }
 
 /**
@@ -164,9 +169,6 @@ const countLabel = (total: number): string =>
   total >= CARD_FETCH_CAP
     ? `${CARD_FETCH_CAP}+ atividades abertas (mostrando as mais recentes)`
     : `${total} atividades abertas`;
-
-const collectedTime = (collectedAtMs: number): string =>
-  collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
 
 /** The plain-text header of a rundown-family answer: bold name, count and collection time. */
 const headerLine = (name: string, total: number, collectedAtMs: number): string =>
@@ -277,7 +279,7 @@ export function buildDistributionCard(
 
 /** The line under a portfolio answer: which set it speaks about and how fresh the data is. */
 export function portfolioFooter(name: string, collectedAtMs: number): string {
-  return `— ${name} · coletado às ${collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() })}`;
+  return `— ${name} · coletado às ${collectedTime(collectedAtMs)}`;
 }
 
 /** A portfolio answer as a card: bold set name, `coletado às` subtitle, then the styled answer body. */
@@ -286,7 +288,7 @@ export function buildPortfolioAnswerCard(
   answerText: string,
   collectedAtMs: number,
 ): Record<string, unknown> {
-  const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
+  const time = collectedTime(collectedAtMs);
   return adaptiveCard([
     { type: 'TextBlock', text: name, wrap: true, weight: 'Bolder' },
     { ...subtle(`coletado às ${time}`), spacing: 'None' },

@@ -25,6 +25,10 @@ export function collectedAt(bundle: Pick<CardBundle, 'fetchedAt'>): string {
   return TIME_FORMAT.format(new Date(bundle.fetchedAt));
 }
 
+/** A collection instant (epoch ms, as stored on a candidate set) as HH:mm; same formatting as `collectedAt`. */
+export const collectedTime = (collectedAtMs: number): string =>
+  collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
+
 /**
  * Which card this is, as markdown deep links: `[QZ-252](…) ↔ [chamado 16467](…)`, omitting
  * whichever side the bundle lacks.

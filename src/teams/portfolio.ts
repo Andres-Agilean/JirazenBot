@@ -1,11 +1,9 @@
 import { CARD_FETCH_CAP } from '@/fetch/zendesk.js';
 import { normalizeText } from '@/text/normalize.js';
 import { assigneeBuckets, statusBuckets, type DistributionDimension } from './grouping.js';
-import { collectedAt } from './reply.js';
-import { STALE_AFTER_DAYS, dayMonth } from './rundown.js';
+import { collectedTime } from './reply.js';
+import { STALE_AFTER_DAYS, datedOldestFirst, dayMonth, isStale } from './rundown.js';
 import type { CardCandidate } from './search.js';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type StatusCount = { status: string; count: number };
 
@@ -23,14 +21,11 @@ export interface PortfolioAggregates {
   oldest?: CardCandidate;
 }
 
-/** Unparseable timestamps are skipped for ordering (a missing date is not "oldest"). */
-const instant = (c: CardCandidate): number => Date.parse(c.updatedAt);
-
 const statusCounts = (cards: CardCandidate[], system: CardCandidate['ref']['system']): StatusCount[] =>
   statusBuckets(cards, system).map(({ key, items }) => ({ status: key, count: items.length }));
 
 export function computeAggregates(cards: CardCandidate[], total: number, nowMs: number): PortfolioAggregates {
-  const dated = cards.filter((c) => !Number.isNaN(instant(c))).sort((a, b) => instant(a) - instant(b));
+  const dated = datedOldestFirst(cards);
   return {
     total,
     capped: total >= CARD_FETCH_CAP,
@@ -39,7 +34,7 @@ export function computeAggregates(cards: CardCandidate[], total: number, nowMs: 
     byAssignee: assigneeBuckets(cards).map(({ key, items }) => ({ assignee: key, count: items.length })),
     jiraCount: cards.filter((c) => c.ref.system === 'jira').length,
     zendeskCount: cards.filter((c) => c.ref.system === 'zendesk').length,
-    stale: dated.filter((c) => nowMs - instant(c) > STALE_AFTER_DAYS * DAY_MS),
+    stale: dated.filter((c) => isStale(c, nowMs)),
     newest: dated[dated.length - 1],
     oldest: dated[0],
   };
@@ -82,7 +77,7 @@ export function renderPortfolio(
   aggregates: PortfolioAggregates,
   collectedAtMs: number,
 ): string {
-  const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
+  const time = collectedTime(collectedAtMs);
   const stats = [`- total: ${totalLine(aggregates)}`, ...statusLines(aggregates), assigneeLine(aggregates)];
   if (aggregates.stale.length > 0) {
     const stale = aggregates.stale.map((c) => `${c.label} (desde ${dayMonth(c.updatedAt)})`).join(', ');

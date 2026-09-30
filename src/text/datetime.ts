@@ -8,6 +8,9 @@
  */
 export const DISPLAY_TIMEZONE = 'America/Sao_Paulo';
 
+/** Milliseconds in a day; the one definition for every "older than N days" rule. */
+export const DAY_MS = 24 * 60 * 60 * 1000;
+
 const DATE_TIME_FORMAT = new Intl.DateTimeFormat('pt-BR', {
   day: '2-digit',
   month: '2-digit',
