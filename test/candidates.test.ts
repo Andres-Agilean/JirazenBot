@@ -66,13 +66,19 @@ describe('matchCandidate', () => {
   it('text under 3 chars is null', () => {
     expect(matchCandidate('ag', s)).toBeNull();
   });
-  it('ambiguous substring falls through, not reported as ambiguous (spec §5a)', () => {
-    expect(matchCandidate('integracao', s)).toBeNull();
+  it('same label listed twice returns one hit, deduped (not null)', () => {
+    const dup = set([cand('AGL-7', 'Reforma do telhado'), cand('AGL-7', 'Reforma do telhado'), b]);
+    expect(matchCandidate('AGL-7', dup)).toBe(dup.candidates[0]);
   });
-  it('regex-special characters are inert; exact label match unaffected', () => {
+  it('exact label with regex-special characters selects', () => {
     const z = { ...cand('AGL-9', 'z'), ref: { system: 'zendesk' as const, ticketId: '16467', explicit: true }, label: 'chamado 16467' };
     const withZ = set([a, b, z]);
     expect(matchCandidate('Chamado 16467', withZ)).toBe(z);
+  });
+  it('substring containing regex-special characters falls through (spec §5a)', () => {
+    const paren = set([cand('AGL-4', 'Norte (Construtora) obra'), cand('AGL-5', 'Outro')]);
+    expect(() => matchCandidate('norte (construtora)', paren)).not.toThrow();
+    expect(matchCandidate('norte (construtora)', paren)).toBeNull();
   });
   it('a bare ticket number stays a question (bare-number guard), not a selection', () => {
     const z = { ...cand('AGL-9', 'z'), ref: { system: 'zendesk' as const, ticketId: '16467', explicit: true }, label: 'chamado 16467' };
@@ -87,7 +93,7 @@ describe('matchCandidate', () => {
   });
   it('regex-special characters in user input do not throw', () => {
     const paren = set([cand('AGL-4', 'Norte (Construtora) obra'), cand('AGL-5', 'Outro')]);
-    expect(() => matchCandidate('norte (construtora)', paren)).not.toThrow();
+    expect(() => matchCandidate('.*', paren)).not.toThrow();
     expect(matchCandidate('.*', paren)).toBeNull();
     expect(matchCandidate('(((', paren)).toBeNull();
   });

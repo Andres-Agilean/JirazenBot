@@ -790,11 +790,12 @@ describe('busca de portfólio', () => {
   });
 
   it('substring text falls through; portfolio queries trigger search (spec §5a)', async () => {
-    const { deps, searched } = withSearch(cardsOutcome([jiraCard('AGL-11', 'Obra norte fase 1'), jiraCard('AGL-12', 'Obra norte fase 2')]));
+    const { deps, searched, loaded } = withSearch(cardsOutcome([jiraCard('AGL-11', 'Obra norte fase 1'), jiraCard('AGL-12', 'Obra norte fase 2')]));
     await handleMessage(dm('buscar norte'), deps);
     const replies = await handleMessage(dm('obra norte'), deps);
     // "obra norte" is a portfolio query (contains "obra" KIND), so it triggers search("norte") again
     expect(searched).toContain('norte');
+    expect(loaded).toHaveLength(0);
     // Returns the rundown (since it matches the portfolio query pattern)
     expect(textOf(replies[0])).toContain('Obra norte fase 1');
   });
