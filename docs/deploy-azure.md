@@ -93,7 +93,15 @@ Esperado: `Modo autenticado: validação de token do Bot Framework ativa.` segui
 `Bot ouvindo em ...`. Se aparecer o erro pt-BR de credenciais, alguma das três variáveis BOT_*
 está faltando ou com espaço — o bot se recusa a iniciar de propósito.
 
-### Pré-requisitos para Lembrar DM
+## 5. Instalar no Teams
+
+1. Siga `appPackage/README.md`: coloque o `<appId>` nos dois campos do manifest e gere o zip.
+2. **Piloto (sideload):** Teams → Apps → Gerenciar seus aplicativos → Carregar um aplicativo →
+   Carregar um aplicativo personalizado → selecione o zip. Requer política de sideloading.
+3. **Org toda:** Teams admin center (admin.teams.microsoft.com) → Teams apps → Manage apps →
+   Upload new app → zip → depois defina a política de disponibilidade.
+
+## Pré-requisitos do lembrete por DM
 
 O comando `lembrar responsável` envia mensagens diretas no Teams. Requer:
 
@@ -105,14 +113,6 @@ O comando `lembrar responsável` envia mensagens diretas no Teams. Requer:
 **Verificação ao vivo:** confirme que Teams aceita o id Microsoft Graph como membro da conversa 1:1.
 Se o método SDK falhar, pode exigir o id prefixado `29:` (Teams id); nesse caso, adicione um
 lookup Graph → Teams-id no sender (`src/teams/app.ts`).
-
-## 5. Instalar no Teams
-
-1. Siga `appPackage/README.md`: coloque o `<appId>` nos dois campos do manifest e gere o zip.
-2. **Piloto (sideload):** Teams → Apps → Gerenciar seus aplicativos → Carregar um aplicativo →
-   Carregar um aplicativo personalizado → selecione o zip. Requer política de sideloading.
-3. **Org toda:** Teams admin center (admin.teams.microsoft.com) → Teams apps → Manage apps →
-   Upload new app → zip → depois defina a política de disponibilidade.
 
 ## 6. Smoke test
 
