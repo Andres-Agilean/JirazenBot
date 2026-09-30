@@ -197,30 +197,37 @@ describe('renderCounts', () => {
     zen('2', { status: 'open' }),
   ];
   const a = computeAggregates(cards, 4, NOW);
+  const COLLECTED = NOW; // 12:30 in America/Sao_Paulo
+
+  it('ends with the coletado às footer, derived from the collection instant', () => {
+    const text = renderCounts('Acme', a, COLLECTED);
+    expect(text.endsWith('\n\n— Acme · coletado às 12:30')).toBe(true);
+    expect(renderCounts('Acme', a, COLLECTED, 'bloqueados').endsWith('\n\n— Acme · coletado às 12:30')).toBe(true);
+  });
 
   it('without a filter leads with the total and lists breakdowns', () => {
-    const lines = renderCounts('Acme', a).split('\n');
+    const lines = renderCounts('Acme', a, COLLECTED).split('\n');
     expect(lines[0]).toBe('**Acme — 4 atividades abertas (Jira: 2, Zendesk: 2)**');
     expect(lines[1]).toBe('- por status (Jira): Bloqueado: 1; Done: 1');
     expect(lines[2]).toBe('- por status (Zendesk): open: 1; solved: 1');
     expect(lines[3]).toBe('- por responsável: Ana: 2; sem responsável: 2');
   });
   it('with a status filter leads with the matching sum', () => {
-    expect(renderCounts('Acme', a, 'bloqueados').split('\n')[0])
+    expect(renderCounts('Acme', a, COLLECTED, 'bloqueados').split('\n')[0])
       .toBe('**Acme — 1 bloqueados (de 4 atividades abertas)**');
-    expect(renderCounts('Acme', a, 'concluidos').split('\n')[0])
+    expect(renderCounts('Acme', a, COLLECTED, 'concluidos').split('\n')[0])
       .toBe('**Acme — 2 concluidos (de 4 atividades abertas)**');
   });
   it('capped: abertos stays a lower bound, markers say they count fetched cards only', () => {
     const many = Array.from({ length: CARD_FETCH_CAP }, (_, i) => jira(`QZ-${i}`, { status: i < 3 ? 'Bloqueado' : 'Done' }));
     const c = computeAggregates(many, 40, NOW);
-    expect(renderCounts('Acme', c, 'abertos').split('\n')[0])
+    expect(renderCounts('Acme', c, COLLECTED, 'abertos').split('\n')[0])
       .toBe(`**Acme — ${CARD_FETCH_CAP}+ abertos (mostrando as ${CARD_FETCH_CAP} mais recentes)**`);
-    expect(renderCounts('Acme', c, 'bloqueados').split('\n')[0])
+    expect(renderCounts('Acme', c, COLLECTED, 'bloqueados').split('\n')[0])
       .toBe(`**Acme — 3 bloqueados entre as ${CARD_FETCH_CAP} mais recentes**`);
   });
   it('uncapped abertos is exact', () => {
-    expect(renderCounts('Acme', a, 'abertos').split('\n')[0]).toBe('**Acme — 4 abertos**');
+    expect(renderCounts('Acme', a, COLLECTED, 'abertos').split('\n')[0]).toBe('**Acme — 4 abertos**');
   });
   it('exposes the status-word mapping', () => {
     expect(STATUS_FILTER_MARKERS.bloqueados).toContain('bloqueado');

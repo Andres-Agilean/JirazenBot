@@ -381,8 +381,8 @@ async function offerCandidates(
 /** Deterministic follow-up on the stored set: `expand` shows sections uncapped, `counts` answers from aggregates. */
 function answerFollowup(followup: Followup, set: CandidateSet, deps: HandleDeps): Reply {
   if (followup.kind === 'counts') {
-    const aggregates = computeAggregates(set.candidates, set.total, deps.now());
-    return { kind: 'text', text: renderCounts(set.name, aggregates, followup.status) };
+    const aggregates = computeAggregates(set.candidates, set.total, set.collectedAtMs);
+    return { kind: 'text', text: renderCounts(set.name, aggregates, set.collectedAtMs, followup.status) };
   }
   if (followup.kind === 'distribution') {
     const args = [set.name, set.candidates, followup.dimension, set.total, set.collectedAtMs, deps.cfg] as const;
@@ -405,7 +405,9 @@ async function askPortfolio(
   sharedSlot: Slot,
   deps: HandleDeps,
 ): Promise<Reply> {
-  const aggregates = computeAggregates(set.candidates, set.total, deps.now());
+  // Aggregates are as-of store time (spec §2), never now(): the rendered context must stay
+  // byte-identical across turns or the cached prompt prefix is invalidated.
+  const aggregates = computeAggregates(set.candidates, set.total, set.collectedAtMs);
   const rendered = renderPortfolio(set.name, set.candidates, aggregates, set.collectedAtMs);
   let result: Answer;
   try {

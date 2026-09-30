@@ -5,7 +5,8 @@ import {
   type HandleDeps, type Incoming,
 } from '@/teams/handleMessage.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
-import { renderRundown, SECTION_LINE_CAP } from '@/teams/rundown.js';
+import { renderRundown, SECTION_LINE_CAP, STALE_AFTER_DAYS } from '@/teams/rundown.js';
+import { DAY_MS } from '@/text/datetime.js';
 import { MAX_HISTORY_TURNS } from '@/claude/prompt.js';
 import type { CardCandidate, SearchOutcome } from '@/teams/search.js';
 import { InMemoryBindingStore, BUNDLE_TTL_MS } from '@/teams/bindings.js';
@@ -1109,6 +1110,30 @@ describe('busca de portfólio', () => {
         expect(searched).toEqual(['norte', 'dalle']);
         expect(calls).toHaveLength(0);
       });
+    });
+
+    it('aggregates are computed at store time: two turns at different now() render byte-identical context (prompt cache, spec §2)', async () => {
+      const collected = Date.parse('2026-09-30T12:00:00.000Z');
+      // One hour short of stale at collection time; past the threshold by the second turn's now().
+      const nearStale: CardCandidate = {
+        ...jiraCard('AGL-11', 'Reforma'), updatedAt: new Date(collected - STALE_AFTER_DAYS * DAY_MS + 3_600_000).toISOString(),
+      };
+      const { deps, calls, setNow } = portfolioDeps(cardsOutcome([nearStale]));
+      setNow(collected);
+      await handleMessage(dm('buscar norte'), deps);
+      await handleMessage(dm('qual é a mais antiga?'), deps);
+      setNow(collected + 2 * 3_600_000);
+      await handleMessage(dm('e a mais recente?'), deps);
+      expect(calls).toHaveLength(2);
+      expect(calls[1].rendered).toBe(calls[0].rendered);
+      expect(calls[0].rendered).not.toContain('paradas há mais de');
+    });
+
+    it('counts follow-up reply carries the coletado às footer from the set', async () => {
+      const { deps } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      const text = textOf((await handleMessage(dm('quantos?'), deps))[0]);
+      expect(text).toMatch(/\n\n— norte · coletado às \d{2}:\d{2}$/);
     });
 
     describe('portfolio and bound card coexist (spec §2/§3/§8)', () => {

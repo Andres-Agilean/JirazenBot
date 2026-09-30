@@ -2,7 +2,7 @@ import { CARD_FETCH_CAP } from '@/fetch/zendesk.js';
 import { normalizeText } from '@/text/normalize.js';
 import { assigneeBuckets, statusBuckets, type DistributionDimension } from './grouping.js';
 import { collectedTime } from './reply.js';
-import { STALE_AFTER_DAYS, datedOldestFirst, dayMonth, isStale } from './rundown.js';
+import { STALE_AFTER_DAYS, datedOldestFirst, dayMonth, isStale, portfolioFooter } from './rundown.js';
 import type { CardCandidate } from './search.js';
 
 export type StatusCount = { status: string; count: number };
@@ -160,7 +160,12 @@ export function parseFollowup(text: string): Followup | null {
 }
 
 /** Deterministic answer to "quantos?" from the aggregates; with a status word, leads with its sum. */
-export function renderCounts(name: string, a: PortfolioAggregates, status?: string): string {
+export function renderCounts(
+  name: string,
+  a: PortfolioAggregates,
+  collectedAtMs: number,
+  status?: string,
+): string {
   const markers = status ? STATUS_FILTER_MARKERS[status] : undefined;
   let lead = `${name} — ${totalLine(a)}`;
   if (status && markers) {
@@ -177,5 +182,5 @@ export function renderCounts(name: string, a: PortfolioAggregates, status?: stri
         : `${name} — ${sum} ${status} (de ${countPhrase(a)})`;
     }
   }
-  return [`**${lead}**`, ...statusLines(a), assigneeLine(a)].join('\n');
+  return [`**${lead}**`, ...statusLines(a), assigneeLine(a), '', portfolioFooter(name, collectedAtMs)].join('\n');
 }
