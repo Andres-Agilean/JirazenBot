@@ -8,6 +8,8 @@ export interface PortfolioQuery {
   name: string;
   /** 'candidates' when the phrasing asks about ONE thing; 'rundown' for an overview. */
   mode: 'rundown' | 'candidates';
+  /** True when a loose bare-name shape matched (spec §11.2): callers filter these against portfolio vocabulary. */
+  loose: boolean;
 }
 
 const MAX_NAME_LENGTH = 60;
@@ -129,7 +131,7 @@ export function detectPortfolioQuery(
   // ...nor a bare generic noun ("qual o status do chamado", "como está a obra"): spec §11.1.
   if (loose && GENERIC_TAILS.has(normalizedName)) return null;
 
-  return { name, mode: singular && CARD_SHAPE.test(fold.folded) ? 'candidates' : 'rundown' };
+  return { name, mode: singular && CARD_SHAPE.test(fold.folded) ? 'candidates' : 'rundown', loose: loose !== null };
 }
 
 function firstMatch(patterns: readonly RegExp[], text: string): RegExpExecArray | null {

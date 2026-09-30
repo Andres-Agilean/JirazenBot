@@ -1097,8 +1097,9 @@ describe('busca de portfólio', () => {
       return { ...made, calls };
     }
 
-    describe('loose bare-name shapes fire only with no stored portfolio (spec §10.4 as amended)', () => {
-      const LOOSE = ['como estão os bloqueados?', 'qual o status dos pendentes?', 'como está o João?', 'como anda o resto?'];
+    // Spec §11.2 supersedes §10.4's cold-start-only gate: vocabulary names stay on the context, real names switch.
+    describe('loose bare-name shapes vs a stored portfolio: vocabulary stays, real names switch (spec §11.2)', () => {
+      const LOOSE = ['como estão os bloqueados?', 'qual o status dos pendentes?', 'como anda o resto?'];
 
       it.each(LOOSE)('unbound + portfolio stored: %s reaches Claude-over-portfolio, never a search', async (q) => {
         const { deps, searched, calls } = portfolioDeps();
@@ -1109,6 +1110,15 @@ describe('busca de portfólio', () => {
         expect(calls).toHaveLength(1);
         expect(calls[0].question).toBe(q);
         expect(replies[0].kind).toBe('card');
+      });
+
+      it('an assignee in the set is vocabulary: "como está o João?" stays on the context (§11.2)', async () => {
+        const withJoao = cardsOutcome([{ ...jiraCard('AGL-11', 'Reforma do telhado'), assignee: 'João Silva' }]);
+        const { deps, searched, calls } = portfolioDeps(withJoao);
+        await handleMessage(dm('buscar norte'), deps);
+        await handleMessage(dm('como está o João?'), deps);
+        expect(searched).toEqual(['norte']);
+        expect(calls[0].question).toBe('como está o João?');
       });
 
       it('with NO set stored the loose shape still searches (cold-start "qual o status da dalle?")', async () => {
@@ -1438,7 +1448,8 @@ describe('confirm-to-switch while bound (spec §11)', () => {
     const [buscar, continuar] = actions(replies[0]);
     expect(buscar.verb).toBe(BUSCAR_ACTION);
     expect(buscar.title).toBe('Buscar dalle');
-    expect(buscar.data).toEqual({ action: BUSCAR_ACTION, name: 'dalle' });
+    // §11.2: the payload also carries the detected mode (plural-anchor shapes are rundowns).
+    expect(buscar.data).toEqual({ action: BUSCAR_ACTION, name: 'dalle', mode: 'rundown' });
     expect(continuar.verb).toBe(CONTINUAR_ACTION);
     expect(continuar.title).toBe('Continuar no QZ-252');
     expect(continuar.data).toEqual({ action: CONTINUAR_ACTION, text: 'como estao as atividades da dalle?' });
@@ -1446,14 +1457,14 @@ describe('confirm-to-switch while bound (spec §11)', () => {
     expect(textOf(replies[0])).toContain('QZ-252');
   });
 
-  it('the Buscar button runs the typed-buscar path: search runs, binding stays intact', async () => {
+  it('the Buscar button runs the typed-buscar search; spec §11.2 flips "binding stays intact" to unbound', async () => {
     const { deps, searched } = bound();
     await handleMessage(dm('QZ-252'), deps);
     const replies = await handleSwitchBuscar(req, { action: BUSCAR_ACTION, name: 'dalle' }, deps);
     expect(searched).toEqual(['dalle']);
     expect(replies).toHaveLength(1);
     expect(textOf(replies[0])).toContain('atividades abertas');
-    expect((await deps.store.get(shared))?.ref).toMatchObject({ system: 'jira', issueKey: 'QZ-252' });
+    expect(await deps.store.get(shared)).toBeUndefined();
   });
 
   it('the Continuar button sends the ORIGINAL text to the bound card answer path', async () => {
@@ -1563,5 +1574,137 @@ describe('HELP_TEXT rendering (spec §12)', () => {
     for (const c of ['`ajuda`', '`atualizar`', '`buscar`', '`quantos?`', '`voltar`']) {
       expect(HELP_TEXT).toContain(`\n\n${c}`);
     }
+  });
+});
+
+// Spec §11.2 / §13.
+describe('move-on semantics and vocabulary-aware switching (spec §11.2)', () => {
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const mk = (key: string, assignee?: string): CardCandidate => ({
+    ref: { system: 'jira', issueKey: key, explicit: true },
+    label: key, summary: 'Reforma', status: 'Bloqueado', updatedAt: '2026-09-20T10:00:00.000Z',
+    ...(assignee ? { assignee } : {}),
+  });
+  const req = { conversationId: CONV, conversationType: 'personal', userId: 'u' };
+  const shared = { scope: 'shared' as const, conversationId: CONV };
+
+  function world() {
+    const searched: string[] = [];
+    const calls: string[] = [];
+    const made = makeDeps({
+      search: async (name) => {
+        searched.push(name);
+        return { kind: 'cards', name, displayName: name.toUpperCase(), total: 2, cards: [mk('AGL-11', 'João Silva'), mk('AGL-12')] };
+      },
+      answerPortfolioFn: async (_r, q) => { calls.push(q); return { text: `portfólio: ${q}`, model: 'm', usage }; },
+    });
+    return { ...made, searched, calls };
+  }
+  const verbs = (r: Reply) => (r.kind === 'card' ? (r.card.actions as Array<Record<string, any>> | undefined) ?? [] : []).map((a) => a.verb);
+
+  it('Buscar click unbinds the card, runs the search in the detected mode, stores the context', async () => {
+    const { deps, answered, searched } = world();
+    await handleMessage(dm('QZ-252'), deps);
+    const confirm = await handleMessage(dm('como esta jardins de potengi?'), deps);
+    const buscar = (confirm[0] as any).card.actions[0];
+    expect(buscar.data).toEqual({ action: BUSCAR_ACTION, name: 'jardins de potengi', mode: 'rundown' });
+    const replies = await handleSwitchBuscar(req, buscar.data, deps);
+    expect(searched).toEqual(['jardins de potengi']);
+    expect(verbs(replies[0])).toEqual([]); // rundown card: no select buttons
+    expect(await deps.store.get(shared)).toBeUndefined();
+    expect((await deps.candidates.get(shared))?.name).toBe('JARDINS DE POTENGI');
+    const before = answered.length;
+    await handleMessage(dm('qual o prazo de entrega?'), deps);
+    expect(answered.length).toBe(before); // not answered by the old card
+  });
+
+  it('typed buscar keeps candidates mode (select buttons) and does not unbind', async () => {
+    const { deps } = world();
+    await handleMessage(dm('QZ-252'), deps);
+    const replies = await handleMessage(dm('buscar dalle'), deps);
+    expect(verbs(replies[0]).length).toBeGreaterThan(0);
+    expect(await deps.store.get(shared)).toBeDefined();
+  });
+
+  it('Buscar click with a missing mode falls back to candidates; an invalid mode is rejected', async () => {
+    const { deps } = world();
+    const ok = await handleSwitchBuscar(req, { name: 'dalle' }, deps);
+    expect(verbs(ok[0]).length).toBeGreaterThan(0);
+    expect(await handleSwitchBuscar(req, { name: 'dalle', mode: 'x' }, deps)).toEqual([{ kind: 'text', text: SELECTION_INVALID }]);
+  });
+
+  it('a failed search on the Buscar click does not cost the user the binding', async () => {
+    const { deps } = world();
+    await handleMessage(dm('QZ-252'), deps);
+    deps.search = async () => { throw new Error('x'); };
+    const replies = await handleSwitchBuscar(req, { name: 'dalle', mode: 'rundown' }, deps);
+    expect(textOf(replies[0])).toBe(SEARCH_UNAVAILABLE);
+    expect(await deps.store.get(shared)).toBeDefined();
+  });
+
+  describe('unbound with a portfolio stored', () => {
+    it('a real name switches (context replaced)', async () => {
+      const { deps, searched, calls } = world();
+      await handleMessage(dm('buscar flora'), deps);
+      await handleMessage(dm('como esta jardins de potengi?'), deps);
+      expect(searched).toEqual(['flora', 'jardins de potengi']);
+      expect(calls).toEqual([]);
+    });
+    it.each(['como estão os bloqueados?', 'como está o João?', 'como está o Bloqueado?'])(
+      'vocabulary name stays on the context (Claude-over-portfolio): %s',
+      async (q) => {
+        const { deps, searched, calls } = world();
+        await handleMessage(dm('buscar flora'), deps);
+        await handleMessage(dm(q), deps);
+        expect(searched).toEqual(['flora']);
+        expect(calls).toEqual([q]);
+      },
+    );
+    it('cold start still searches', async () => {
+      const { deps, searched } = world();
+      await handleMessage(dm('qual o status da dalle?'), deps);
+      expect(searched).toEqual(['dalle']);
+    });
+  });
+
+  describe('bound with a portfolio stored', () => {
+    async function bound() {
+      const w = world();
+      await handleMessage(dm('buscar flora'), w.deps);
+      await handleMessage(dm('QZ-252'), w.deps);
+      return w;
+    }
+    it('a real name raises the confirm card', async () => {
+      const { deps, answered } = await bound();
+      const before = answered.length;
+      const replies = await handleMessage(dm('como esta jardins de potengi?'), deps);
+      expect(answered.length).toBe(before);
+      expect(verbs(replies[0])).toEqual([BUSCAR_ACTION, CONTINUAR_ACTION]);
+    });
+    it.each(['como estão os bloqueados?', 'como está o João?'])(
+      'vocabulary name goes straight to the bound card, no interstitial: %s',
+      async (q) => {
+        const { deps, answered } = await bound();
+        await handleMessage(dm(q), deps);
+        expect(answered.at(-1)).toBe(q);
+      },
+    );
+    it('an anchored shape still raises the confirm card', async () => {
+      const { deps } = await bound();
+      const replies = await handleMessage(dm('como estao as atividades da dalle?'), deps);
+      expect(verbs(replies[0])).toEqual([BUSCAR_ACTION, CONTINUAR_ACTION]);
+    });
+  });
+
+  it('organize/agrupa distribution verbs render the card while bound with a set (step 1c), no Claude', async () => {
+    const { deps, answered } = world();
+    await handleMessage(dm('buscar flora'), deps);
+    await handleMessage(dm('QZ-252'), deps);
+    const before = answered.length;
+    for (const q of ['organize por status', 'agrupa por responsável']) {
+      const replies = await handleMessage(dm(q), deps);
+      expect(replies[0].kind).toBe('card');
+    }
+    expect(answered.length).toBe(before);
   });
 });

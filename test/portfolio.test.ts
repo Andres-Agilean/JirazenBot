@@ -157,6 +157,16 @@ describe('parseFollowup', () => {
     ['distribuição por status', { kind: 'distribution', dimension: 'status' }],
     ['distribui pelos responsáveis', { kind: 'distribution', dimension: 'assignee' }],
     ['por status', { kind: 'distribution', dimension: 'status' }],
+    // §13: organiza/agrupa/separa verb families.
+    ['organize por status', { kind: 'distribution', dimension: 'status' }],
+    ['Organiza por responsável', { kind: 'distribution', dimension: 'assignee' }],
+    ['organizar pelos responsáveis', { kind: 'distribution', dimension: 'assignee' }],
+    ['agrupa por responsável', { kind: 'distribution', dimension: 'assignee' }],
+    ['agrupe por status', { kind: 'distribution', dimension: 'status' }],
+    ['agrupar pelo status', { kind: 'distribution', dimension: 'status' }],
+    ['separa por status', { kind: 'distribution', dimension: 'status' }],
+    ['separe por responsável', { kind: 'distribution', dimension: 'assignee' }],
+    ['separar por responsavel', { kind: 'distribution', dimension: 'assignee' }],
     ['quero ver por responsável', { kind: 'distribution', dimension: 'assignee' }],
   ])('matches %s', (text, expected) => {
     expect(parseFollowup(text)).toEqual(expected);

@@ -128,7 +128,9 @@ const FILLERS = [
 ];
 const FILLER = `(?:(?:${FILLERS.join('|')}) )`;
 /** Verbs that introduce a distribution ("divide por status"). */
-const DISTRIBUTION_VERBS = ['divide', 'divida', 'dividir', 'distribui', 'distribuicao', 'quantos', 'quantas'];
+const DISTRIBUTION_VERBS = [
+  'divide', 'divida', 'dividir', 'organiza', 'organizar', 'organize', 'agrupa', 'agrupar', 'agrupe',
+  'separa', 'separar', 'separe', 'distribui', 'distribuicao', 'quantos', 'quantas'];
 const DISTRIBUTION_DIMENSIONS = { status: 'status', responsaveis: 'assignee', responsavel: 'assignee' } as const;
 
 const EXPAND_SECTION_RE = new RegExp(`^${FILLER}?(?:todos os|todas as) (?:de|do|da) (jira|zendesk)$`);
@@ -183,4 +185,23 @@ export function renderCounts(
     }
   }
   return [`**${lead}**`, ...statusLines(a), assigneeLine(a), '', portfolioFooter(name, collectedAtMs)].join('\n');
+}
+
+/**
+ * The words that mean "the stored portfolio itself" (spec §11.2), normalized: every status filter
+ * word, every status string present in the set, and every assignee as full name and first token.
+ * A loose-shape name in this set is a follow-up on the context, never a request to switch to a new
+ * entity. (Global generic nouns live in the detector's `GENERIC_TAILS`.)
+ */
+export function portfolioVocabulary(cards: CardCandidate[]): Set<string> {
+  const words = new Set<string>(Object.keys(STATUS_FILTER_MARKERS));
+  for (const c of cards) {
+    words.add(normalizeText(c.status).trim());
+    if (c.assignee) {
+      const full = normalizeText(c.assignee).trim();
+      words.add(full);
+      words.add(full.split(/\s+/)[0]);
+    }
+  }
+  return words;
 }

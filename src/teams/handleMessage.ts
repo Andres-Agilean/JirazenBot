@@ -11,7 +11,10 @@ import { isBundleStale, type Binding, type BindingStore, type Slot } from './bin
 import { buildAnswerCard } from './cards.js';
 import { compressCitations } from './citations.js';
 import { matchCandidate, type CandidateSet, type CandidateStore } from './candidates.js';
-import { computeAggregates, parseFollowup, renderCounts, renderPortfolio, type Followup } from './portfolio.js';
+import {
+  computeAggregates, parseFollowup, portfolioVocabulary, renderCounts, renderPortfolio, type Followup,
+} from './portfolio.js';
+import { normalizeText } from '@/text/normalize.js';
 import { parseCommand } from './commands.js';
 import { cardLabel, formatFooter, withFooter, type Reply } from './reply.js';
 import {
@@ -358,7 +361,8 @@ async function runSearch(
 
 /**
  * The typed `buscar <nome>` behavior, shared with the confirm card's Buscar button (spec §11) so
- * the button can never drift from the command: same mode, same slot semantics, never unbinds.
+ * the button can never drift from the command: same search, same slot semantics. Typed `buscar`
+ * is always `candidates` mode; the button passes the mode the detector saw (spec §11.2).
  */
 function runBuscar(
   name: string,
@@ -367,8 +371,20 @@ function runBuscar(
   personalSlot: Slot,
   surface: Surface,
   deps: HandleDeps,
+  mode: PortfolioQuery['mode'] = 'candidates',
 ): Promise<Reply> {
-  return runSearch(name, 'candidates', existing, sharedSlot, personalSlot, surface, deps);
+  return runSearch(name, mode, existing, sharedSlot, personalSlot, surface, deps);
+}
+
+/**
+ * The portfolio detector with the vocabulary filter (spec §11.2), shared by the unbound and the
+ * bound paths: a LOOSE match whose name is the stored portfolio's own vocabulary (a status word, a
+ * status present in the set, an assignee) is a follow-up on that context, not a switch -> null.
+ */
+function detectSwitch(text: string, set: CandidateSet | undefined): PortfolioQuery | null {
+  const query = detectPortfolioQuery(text);
+  if (query?.loose && set && portfolioVocabulary(set.candidates).has(normalizeText(query.name).trim())) return null;
+  return query;
 }
 
 /**
@@ -577,12 +593,12 @@ export async function handleMessage(
   // guard keeps "qual o status do chamado" on the card). Mid-sentence anchors ("o problema da obra
   // Flora persiste?") also raise the card -- accepted by §11.
   if (existing) {
-    const switchQuery = detectPortfolioQuery(text);
+    const switchQuery = detectSwitch(text, candidateSet);
     if (switchQuery) {
       const boundLabel = cardLabel(existing.bundle);
       return [{
         kind: 'card',
-        card: buildSwitchConfirmCard(switchQuery.name, text, boundLabel),
+        card: buildSwitchConfirmCard(switchQuery.name, text, switchQuery.mode, boundLabel),
         fallbackText: renderSwitchConfirm(switchQuery.name, boundLabel),
       }];
     }
@@ -593,8 +609,9 @@ export async function handleMessage(
   // can never be diverted into a search or a portfolio answer.
   // 5a. A named entity ("como está a empresa X?") is a context switch: search first, even when a
   // portfolio is stored (the new set starts with empty history).
-  // The loose bare-name shapes are suppressed when a set is stored (spec §10.4 as amended).
-  const portfolio = detectPortfolioQuery(text, { allowLoose: !candidateSet });
+  // Loose bare-name shapes switch on real names even with a set stored; the portfolio's own
+  // vocabulary ("bloqueados", an assignee) stays a follow-up (spec §11.2, superseding §10.4's gate).
+  const portfolio = detectSwitch(text, candidateSet);
   if (portfolio) {
     return [await runSearch(portfolio.name, portfolio.mode, existing, sharedSlot, personalSlot, surface, deps)];
   }
@@ -649,16 +666,36 @@ function payloadString(data: unknown, field: 'name' | 'text'): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 }
 
-/** The confirm card's Buscar button (spec §11): exactly the typed `buscar <nome>` path. */
+/** The confirm payload's detected mode: absent -> `candidates` (like typed `buscar`); unknown -> null. */
+function payloadMode(data: unknown): PortfolioQuery['mode'] | null {
+  const mode = (data as Record<string, unknown>).mode;
+  if (mode === undefined) return 'candidates';
+  return mode === 'rundown' || mode === 'candidates' ? mode : null;
+}
+
+/**
+ * The confirm card's Buscar button (spec §11, §11.2): the typed `buscar <nome>` search, run in the
+ * detected mode, after UNBINDING the current card -- the user answered "switch or stay?" with
+ * switch, so the old card must stop catching their next question. The unbind is undone if the
+ * search itself fails, so an outage never leaves the user with nothing bound.
+ */
 export async function handleSwitchBuscar(
   incoming: RefreshRequest,
   data: unknown,
   deps: HandleDeps,
 ): Promise<Reply[]> {
   const name = payloadString(data, 'name');
-  if (!name) return [{ kind: 'text', text: SELECTION_INVALID }];
+  const mode = name ? payloadMode(data) : null;
+  if (!name || !mode) return [{ kind: 'text', text: SELECTION_INVALID }];
+  const before = await resolveSlots(incoming, deps);
+  if (before.existing) await deps.store.delete(before.activeSlot);
+  // Re-resolve: a thread's shared card may still be bound behind a deleted personal split.
   const { surface, sharedSlot, personalSlot, existing } = await resolveSlots(incoming, deps);
-  return [await runBuscar(name, existing, sharedSlot, personalSlot, surface, deps)];
+  const reply = await runBuscar(name, existing, sharedSlot, personalSlot, surface, deps, mode);
+  if (before.existing && reply.kind === 'text' && reply.text === SEARCH_UNAVAILABLE) {
+    await deps.store.set(before.activeSlot, before.existing);
+  }
+  return [reply];
 }
 
 /**

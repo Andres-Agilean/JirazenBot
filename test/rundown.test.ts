@@ -113,7 +113,9 @@ describe('buildCandidateCard', () => {
   it('caps buttons and notes the overflow', () => {
     const c = card(many(8));
     expect(c.actions).toHaveLength(BUTTON_CAP);
-    expect(JSON.stringify(c.body)).toContain('mais 2 sem botão — digite o nome');
+    // §13: the overflow line names the items that did not fit a button, as label links.
+    expect(JSON.stringify(c.body)).toContain(`e mais 2 — digite o nome: ${J('AGL-7')}, ${J('AGL-8')}`);
+    expect(JSON.stringify(c.body)).not.toContain('sem botão');
   });
 
   it('the card title uses the same capped count wording', () => {
@@ -124,7 +126,7 @@ describe('buildCandidateCard', () => {
   });
 
   it('no overflow note at exactly the button cap', () => {
-    expect(JSON.stringify(card(many(BUTTON_CAP)).body)).not.toContain('sem botão');
+    expect(JSON.stringify(card(many(BUTTON_CAP)).body)).not.toContain('digite o nome');
   });
 });
 

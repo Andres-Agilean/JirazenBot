@@ -1,6 +1,6 @@
 import type { Config } from '@/config.js';
 import { CARD_FETCH_CAP, type ZendeskOrg } from '@/fetch/zendesk.js';
-import { BUSCAR_COMMAND } from '@/resolve/portfolioIntent.js';
+import { BUSCAR_COMMAND, type PortfolioQuery } from '@/resolve/portfolioIntent.js';
 import { DAY_MS, formatDayMonthTime } from '@/text/datetime.js';
 import { normalizeText } from '@/text/normalize.js';
 import { ADAPTIVE_CARD_SCHEMA, ADAPTIVE_CARD_VERSION, styleCitations } from './cards.js';
@@ -25,6 +25,8 @@ export const SELECT_ACTION = 'selecionar';
 export const BUSCAR_ACTION = BUSCAR_COMMAND;
 /** The confirm card's "Continuar no <card>" button: re-sends the original text to the bound card. */
 export const CONTINUAR_ACTION = 'continuar';
+/** Lead-in of the candidate card's overflow line: the hidden items have no button, so they are typed. */
+const TYPE_THE_NAME = ' — digite o nome';
 
 /** `DD/MM` in Brazil local time, from the shared datetime formatter (no inline timezone logic). */
 export const dayMonth = (iso: string): string => formatDayMonthTime(iso).split(' ')[0];
@@ -73,10 +75,10 @@ function sectioned(cards: CardCandidate[], cap = Infinity, uncap?: ExpandSection
 }
 
 /** `e mais N: [A](url), [B](url), …` -- names a section's hidden items so each is reachable by typing. */
-function overflowLine(hidden: CardCandidate[], cfg: Config): string | undefined {
+function overflowLine(hidden: CardCandidate[], cfg: Config, lead = ''): string | undefined {
   if (hidden.length === 0) return undefined;
   const listed = hidden.slice(0, OVERFLOW_LABEL_CAP).map((c) => keyLink(c, cfg)).join(', ');
-  return `e mais ${hidden.length}: ${listed}${hidden.length > OVERFLOW_LABEL_CAP ? ', …' : ''}`;
+  return `e mais ${hidden.length}${lead}: ${listed}${hidden.length > OVERFLOW_LABEL_CAP ? ', …' : ''}`;
 }
 
 /** Statuses (normalized) that read as finished. Tenant-tunable. */
@@ -313,8 +315,8 @@ export function buildCandidateCard(
     titleBlock(name, total),
     ...sectionBlocks(sectioned(cards), cfg),
   ];
-  const hidden = cards.length - shown.length;
-  if (hidden > 0) body.push(subtle(`mais ${hidden} sem botão — digite o nome`));
+  const overflow = overflowLine(cards.slice(shown.length), cfg, TYPE_THE_NAME);
+  if (overflow) body.push(subtle(overflow));
   return {
     ...adaptiveCard(body),
     actions: shown.map((c) => ({
@@ -346,6 +348,7 @@ export function renderSwitchConfirm(name: string, boundLabel: string): string {
 export function buildSwitchConfirmCard(
   name: string,
   originalText: string,
+  mode: PortfolioQuery['mode'],
   boundLabel: string,
 ): Record<string, unknown> {
   return {
@@ -354,7 +357,7 @@ export function buildSwitchConfirmCard(
       subtle(switchAlternative(boundLabel)),
     ]),
     actions: [
-      { type: 'Action.Execute', title: `Buscar ${name}`, verb: BUSCAR_ACTION, data: { action: BUSCAR_ACTION, name } },
+      { type: 'Action.Execute', title: `Buscar ${name}`, verb: BUSCAR_ACTION, data: { action: BUSCAR_ACTION, name, mode } },
       {
         type: 'Action.Execute',
         title: `Continuar no ${boundLabel}`,

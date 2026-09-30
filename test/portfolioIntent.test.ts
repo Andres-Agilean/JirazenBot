@@ -12,7 +12,7 @@ describe('detectPortfolioQuery', () => {
     ['empresa Norte Construtora', 'Norte Construtora', 'rundown'],
     ['empresa São Bento', 'São Bento', 'rundown'],
   ])('detects portfolio shape: %s', (text, name, mode) => {
-    expect(detectPortfolioQuery(text)).toEqual({ name, mode });
+    expect(detectPortfolioQuery(text)).toEqual({ name, mode, loose: false });
   });
 
   it.each([
@@ -23,7 +23,7 @@ describe('detectPortfolioQuery', () => {
     ['pendências da São Bento?', 'São Bento'],
     ['demandas do Jaguaribe', 'Jaguaribe'],
   ])('plural subject words anchor a rundown: %s', (text, name) => {
-    expect(detectPortfolioQuery(text)).toEqual({ name, mode: 'rundown' });
+    expect(detectPortfolioQuery(text)).toEqual({ name, mode: 'rundown', loose: false });
   });
 
   it.each([
@@ -34,7 +34,7 @@ describe('detectPortfolioQuery', () => {
     ['como estao as atividades em São Bento?', 'São Bento'],
     ['status do projeto em Jaguaribe', 'Jaguaribe'],
   ])('na/no/nas/nos/em connectives are stripped after the anchor: %s', (text, name) => {
-    expect(detectPortfolioQuery(text)).toEqual({ name, mode: 'rundown' });
+    expect(detectPortfolioQuery(text)).toEqual({ name, mode: 'rundown', loose: false });
   });
 
   it('a name that merely starts with a connective-like word keeps it', () => {
@@ -47,7 +47,7 @@ describe('detectPortfolioQuery', () => {
   });
 
   it('singular defect words still flip to candidates', () => {
-    expect(detectPortfolioQuery('qual o status do chamado da obra X')).toEqual({ name: 'X', mode: 'candidates' });
+    expect(detectPortfolioQuery('qual o status do chamado da obra X')).toEqual({ name: 'X', mode: 'candidates', loose: false });
   });
 
   it('a plural word with no name after it is not a query', () => {
@@ -56,7 +56,7 @@ describe('detectPortfolioQuery', () => {
 
   it('detects card shape when a defect word precedes the name', () => {
     expect(detectPortfolioQuery('qual o status do problema da obra Jaguaribe?'))
-      .toEqual({ name: 'Jaguaribe', mode: 'candidates' });
+      .toEqual({ name: 'Jaguaribe', mode: 'candidates', loose: false });
   });
 
   it.each([
@@ -104,7 +104,7 @@ describe('detectPortfolioQuery loose bare-name shapes (spec §10.4)', () => {
     ['como anda a Dalle?', 'Dalle'],
     ['como estão os Jardins de Potengi', 'Jardins de Potengi'],
   ])('detects %s as a rundown', (text, name) => {
-    expect(detectPortfolioQuery(text)).toEqual({ name, mode: 'rundown' });
+    expect(detectPortfolioQuery(text)).toEqual({ name, mode: 'rundown', loose: true });
   });
 
   it.each([
@@ -130,7 +130,7 @@ describe('detectPortfolioQuery loose bare-name shapes (spec §10.4)', () => {
     ['quero ver da Dalle', 'Dalle'],
     ['quero saber do Jardins de Potengi', 'Jardins de Potengi'],
   ])('§11.1 shape %s -> %s', (text, name) => {
-    expect(detectPortfolioQuery(text)).toEqual(name ? { name, mode: 'rundown' } : null);
+    expect(detectPortfolioQuery(text)).toEqual(name ? { name, mode: 'rundown', loose: true } : null);
   });
 
   it.each([
@@ -155,11 +155,11 @@ describe('detectPortfolioQuery loose bare-name shapes (spec §10.4)', () => {
   });
 
   it('§11.1 generic guard is single-token only: a multi-word name starting with a generic noun passes', () => {
-    expect(detectPortfolioQuery('como está a atividade flora?')).toEqual({ name: 'atividade flora', mode: 'rundown' });
+    expect(detectPortfolioQuery('como está a atividade flora?')).toEqual({ name: 'atividade flora', mode: 'rundown', loose: true });
   });
 
   it('anchored patterns still win over the loose shapes', () => {
-    expect(detectPortfolioQuery('qual o status da empresa dalle?')).toEqual({ name: 'dalle', mode: 'rundown' });
+    expect(detectPortfolioQuery('qual o status da empresa dalle?')).toEqual({ name: 'dalle', mode: 'rundown', loose: false });
   });
 });
 
@@ -176,7 +176,7 @@ describe('detectPortfolioQuery allowLoose (spec §10.4 as amended: loose shapes 
   });
 
   it('allowLoose defaults to true', () => {
-    expect(detectPortfolioQuery('qual o status da dalle?', {})).toEqual({ name: 'dalle', mode: 'rundown' });
+    expect(detectPortfolioQuery('qual o status da dalle?', {})).toEqual({ name: 'dalle', mode: 'rundown', loose: true });
   });
 
   it.each([
@@ -184,7 +184,7 @@ describe('detectPortfolioQuery allowLoose (spec §10.4 as amended: loose shapes 
     ['qual o status da empresa dalle?', 'dalle'],
     ['como estão os projetos da empresa Norte', 'Norte'],
   ])('anchored shape %s still fires with allowLoose:false', (text, name) => {
-    expect(detectPortfolioQuery(text, { allowLoose: false })).toEqual({ name, mode: 'rundown' });
+    expect(detectPortfolioQuery(text, { allowLoose: false })).toEqual({ name, mode: 'rundown', loose: false });
   });
 });
 
