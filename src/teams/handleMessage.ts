@@ -545,7 +545,8 @@ export async function handleMessage(
   // can never be diverted into a search or a portfolio answer.
   // 5a. A named entity ("como está a empresa X?") is a context switch: search first, even when a
   // portfolio is stored (the new set starts with empty history).
-  const portfolio = detectPortfolioQuery(text);
+  // The loose bare-name shapes are suppressed when a set is stored (spec §10.4 as amended).
+  const portfolio = detectPortfolioQuery(text, { allowLoose: !candidateSet });
   if (portfolio) {
     return [await runSearch(portfolio.name, portfolio.mode, existing, sharedSlot, personalSlot, surface, deps)];
   }

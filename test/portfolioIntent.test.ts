@@ -127,6 +127,31 @@ describe('detectPortfolioQuery loose bare-name shapes (spec §10.4)', () => {
   });
 });
 
+describe('detectPortfolioQuery allowLoose (spec §10.4 as amended: loose shapes only with no stored portfolio)', () => {
+  it.each([
+    'qual o status da dalle?',
+    'como está a dalle?',
+    'como estão os bloqueados?',
+    'qual o status dos pendentes?',
+    'como está o João?',
+    'como anda o resto?',
+  ])('allowLoose:false returns null for loose shape %s', (text) => {
+    expect(detectPortfolioQuery(text, { allowLoose: false })).toBeNull();
+  });
+
+  it('allowLoose defaults to true', () => {
+    expect(detectPortfolioQuery('qual o status da dalle?', {})).toEqual({ name: 'dalle', mode: 'rundown' });
+  });
+
+  it.each([
+    ['como estao as atividades da dalle?', 'dalle'],
+    ['qual o status da empresa dalle?', 'dalle'],
+    ['como estão os projetos da empresa Norte', 'Norte'],
+  ])('anchored shape %s still fires with allowLoose:false', (text, name) => {
+    expect(detectPortfolioQuery(text, { allowLoose: false })).toEqual({ name, mode: 'rundown' });
+  });
+});
+
 describe('parseBuscar', () => {
   it('extracts the name from "buscar <nome>"', () => {
     expect(parseBuscar('buscar Norte Construtora')).toBe('Norte Construtora');

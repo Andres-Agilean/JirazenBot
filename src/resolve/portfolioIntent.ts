@@ -79,7 +79,10 @@ function nameFrom(fold: ReturnType<typeof foldWithOffsets>, from: number): strin
  * otherwise send the help text (spec §3), so a false positive costs one failed search and a
  * false negative costs the help text the user would have gotten anyway.
  */
-export function detectPortfolioQuery(text: string): PortfolioQuery | null {
+export function detectPortfolioQuery(
+  text: string,
+  { allowLoose = true }: { allowLoose?: boolean } = {},
+): PortfolioQuery | null {
   const fold = foldWithOffsets(text.normalize('NFC').trim().replace(/[?!.]+$/, '').trim());
   if (fold.folded === '') return null;
 
@@ -87,7 +90,7 @@ export function detectPortfolioQuery(text: string): PortfolioQuery | null {
   const singular = NAME_AFTER_KIND.exec(fold.folded);
   const anchored = singular ?? NAME_AFTER_PLURAL.exec(fold.folded);
   // The loose bare-name shapes run only when no anchored pattern found anything (spec §10.4).
-  const loose = anchored ? null : firstMatch(LOOSE_SHAPES, fold.folded);
+  const loose = anchored || !allowLoose ? null : firstMatch(LOOSE_SHAPES, fold.folded);
   const m = anchored ?? loose;
   if (!m) return null;
   const tail = m[1];

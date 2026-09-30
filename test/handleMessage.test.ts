@@ -1081,6 +1081,36 @@ describe('busca de portfólio', () => {
       return { ...made, calls };
     }
 
+    describe('loose bare-name shapes fire only with no stored portfolio (spec §10.4 as amended)', () => {
+      const LOOSE = ['como estão os bloqueados?', 'qual o status dos pendentes?', 'como está o João?', 'como anda o resto?'];
+
+      it.each(LOOSE)('unbound + portfolio stored: %s reaches Claude-over-portfolio, never a search', async (q) => {
+        const { deps, searched, calls } = portfolioDeps();
+        await handleMessage(dm('buscar norte'), deps);
+        expect(searched).toEqual(['norte']);
+        const replies = await handleMessage(dm(q), deps);
+        expect(searched).toEqual(['norte']); // no second search
+        expect(calls).toHaveLength(1);
+        expect(calls[0].question).toBe(q);
+        expect(replies[0].kind).toBe('card');
+      });
+
+      it('with NO set stored the loose shape still searches (cold-start "qual o status da dalle?")', async () => {
+        const { deps, searched, calls } = portfolioDeps();
+        await handleMessage(dm('qual o status da dalle?'), deps);
+        expect(searched).toEqual(['dalle']);
+        expect(calls).toHaveLength(0);
+      });
+
+      it('an ANCHORED shape still switches context with a set stored', async () => {
+        const { deps, searched, calls } = portfolioDeps();
+        await handleMessage(dm('buscar norte'), deps);
+        await handleMessage(dm('como estao as atividades da dalle?'), deps);
+        expect(searched).toEqual(['norte', 'dalle']);
+        expect(calls).toHaveLength(0);
+      });
+    });
+
     it('counts follow-up with a card bound answers from aggregates, without Claude', async () => {
       const { deps, answered, calls } = portfolioDeps();
       await handleMessage(dm('QZ-252'), deps);
