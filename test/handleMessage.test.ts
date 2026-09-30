@@ -867,6 +867,7 @@ describe('busca de portfólio', () => {
 
   it('HELP_TEXT mentions portfolio follow-up affordances', () => {
     expect(HELP_TEXT).toContain('`quantos?`');
+    expect(HELP_TEXT).toContain('`todos os de jira`');
   });
 
   it('handleSelect binds with no candidate set present', async () => {

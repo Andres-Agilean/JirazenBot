@@ -99,7 +99,7 @@ export const HELP_TEXT = [
   '`ajuda` — esta mensagem',
   '`atualizar` — busca os dados mais recentes do card',
   '`buscar <nome>` — procura atividades abertas por empresa, cliente ou obra',
-  'Depois de uma busca: `quantos?`, `todos os de jira` ou perguntas sobre as atividades.',
+  '`quantos?` / `todos os de jira` — depois de uma busca ou resumo, contagens e lista completa',
   '`voltar` — encerra sua consulta separada e volta para o card da conversa',
 ].join('\n');
 
