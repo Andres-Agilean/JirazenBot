@@ -202,9 +202,9 @@ describe('checkRules', () => {
 });
 
 describe('eval corpus', () => {
-  it('has 33 cases with unique ids', () => {
-    expect(CASES).toHaveLength(33);
-    expect(new Set(CASES.map((c) => c.id)).size).toBe(33);
+  it('has 38 cases with unique ids', () => {
+    expect(CASES).toHaveLength(38);
+    expect(new Set(CASES.map((c) => c.id)).size).toBe(38);
   });
 
   it('is weighted toward not-in-bundle cases', () => {

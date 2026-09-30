@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import { loadConfig } from '@/config.js';
 import { createAnthropicClient } from '@/claude/client.js';
-import { answer, type AnswerDeps } from '@/claude/answer.js';
+import { answer, answerPortfolio, type AnswerDeps } from '@/claude/answer.js';
+import { computeAggregates, renderPortfolio } from '@/teams/portfolio.js';
 import type { Usage } from '@/claude/types.js';
 import { classifyCase } from './classify.js';
 import { judge } from './judge.js';
@@ -82,7 +83,15 @@ async function runEval(): Promise<void> {
     // Task 7 fix review finding 2. Whatever usage was already added to `totals` before the throw
     // reflects a real, billed call and is deliberately kept, not rolled back.
     try {
-      const a = await answer(c.bundle, c.question, [], deps);
+      const p = c.portfolio;
+      const a = p
+        ? await answerPortfolio(
+            renderPortfolio(p.name, p.cards, computeAggregates(p.cards, p.total, p.nowMs), p.nowMs),
+            c.question,
+            [],
+            deps,
+          )
+        : await answer(c.bundle, c.question, [], deps);
       addUsage(totals, a.usage);
 
       const { ok: rulesOk, warnings, ruleFailures } = classifyCase(a.text, c);

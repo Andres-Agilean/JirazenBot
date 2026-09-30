@@ -1,4 +1,5 @@
 import type { CardBundle } from '@/bundle/types.js';
+import type { CardCandidate } from '@/teams/search.js';
 
 export type EvalCategory =
   | 'not_in_bundle'
@@ -7,7 +8,8 @@ export type EvalCategory =
   | 'said_vs_recorded'
   | 'visibility'
   | 'degraded'
-  | 'style';
+  | 'style'
+  | 'portfolio';
 
 /**
  * A deterministic, offline-checkable expectation about an answer's text.
@@ -29,7 +31,17 @@ export interface Rule {
 export interface EvalCase {
   id: string;
   category: EvalCategory;
+  /**
+   * Required even for portfolio cases (which ignore it) so the 33 card cases and the offline
+   * "every case renders a non-empty bundle" check keep their types; portfolio cases pass a
+   * shared dummy (see PORTFOLIO_DUMMY_BUNDLE in cases.ts).
+   */
   bundle: CardBundle;
+  /**
+   * When set, the answer comes from the portfolio path (answerPortfolio over renderPortfolio)
+   * instead of the single-card path, and `bundle` is ignored.
+   */
+  portfolio?: { name: string; cards: CardCandidate[]; total: number; nowMs: number };
   question: string;
   rules: Rule[];
   /**

@@ -177,15 +177,32 @@ function hasUnknownIsoDate(answer: string, known: Set<string>): boolean {
  *  - False negative: spelled-out months ("15 de agosto de 2026") and hyphenated DD-MM-YYYY are
  *    not matched at all.
  */
+const DATE_RULE_LABEL = 'não deve afirmar uma data específica que não está no bundle';
+
+const dateRule = (known: Set<string>): Rule => ({
+  label: DATE_RULE_LABEL,
+  check: (answer) =>
+    !hasUnknownFullSlashDate(answer, known) &&
+    !hasUnknownIsoDate(answer, known) &&
+    !hasContextualBareDate(answer, known),
+});
+
 export function mustNotInventDate(bundle: CardBundle): Rule {
-  const known = harvestBundleDates(bundle);
-  return {
-    label: 'não deve afirmar uma data específica que não está no bundle',
-    check: (answer) =>
-      !hasUnknownFullSlashDate(answer, known) &&
-      !hasUnknownIsoDate(answer, known) &&
-      !hasContextualBareDate(answer, known),
-  };
+  return dateRule(harvestBundleDates(bundle));
+}
+
+/**
+ * Portfolio variant: same rule (same label, so the refusal-case pairing check still sees it), but
+ * the known dates are harvested from the rendered portfolio context. That context prints
+ * year-less `DD/MM` days (`dayMonth`), which harvestBundleDates never collects, so each bare pair
+ * in the render is remembered as-is.
+ */
+export function mustNotInventDateIn(renderedPortfolio: string): Rule {
+  const known = new Set<string>();
+  for (const match of renderedPortfolio.matchAll(BARE_DAY_MONTH)) {
+    known.add(`${pad(Number(match[1]), 2)}/${pad(Number(match[2]), 2)}`);
+  }
+  return dateRule(known);
 }
 
 /**

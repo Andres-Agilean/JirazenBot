@@ -7,10 +7,26 @@ import {
   mustLeadWithBold,
   mustNotContain,
   mustNotInventDate,
+  mustNotInventDateIn,
   mustNotMatch,
 } from './rules.js';
 import { DEFAULT_SUMMARY_QUESTION } from '@/claude/prompt.js';
 import { channelBundle, jiraOnlyBundle, richBundle, sparseBundle, truncatedBundle } from './bundles.js';
+import { ROOT_CAUSE_ITEM_LABEL, STALE_ITEM_LABEL, teamPortfolio } from './portfolios.js';
+import { computeAggregates, renderPortfolio } from '@/teams/portfolio.js';
+
+// Portfolio cases ignore `bundle` (run.ts answers them from `portfolio`); EvalCase keeps it
+// required so the 33 card cases are untouched, so they share this minimal dummy.
+const PORTFOLIO_DUMMY_BUNDLE = sparseBundle;
+
+// What the model is shown for the fixture, rendered once so the date guard's known set is
+// harvested from the real context, never hand-duplicated.
+const PORTFOLIO_RENDERED = renderPortfolio(
+  teamPortfolio.name,
+  teamPortfolio.cards,
+  computeAggregates(teamPortfolio.cards, teamPortfolio.total, teamPortfolio.nowMs),
+  teamPortfolio.nowMs,
+);
 
 // A Brazilian phone shape: an optional DDD (area code) followed by an 8- or 9-digit subscriber
 // number, digits optionally separated by a space/dot/hyphen after the DDD and before the last
@@ -27,7 +43,7 @@ const BRAZILIAN_PHONE_SHAPE = /\b(?:\(?\d{2}\)?[\s.-]?)?9?\d{4}[\s.-]?\d{4}\b/;
 const IMPLAUSIBLE_DURATION_DAYS = /\b(1[5-9]|[2-9]\d)\s*dias?/;
 
 /**
- * Exactly 33 synthetic cases proving the bot refuses to invent facts (spec §6). Every case whose
+ * Exactly 38 synthetic cases (33 card cases + 5 portfolio cases) proving the bot refuses to invent facts (spec §6). Every case whose
  * correct answer is a refusal -- every `not_in_bundle` case, and any other case whose rules
  * include mustAdmitGap() -- carries mustNotInventDate() plus a non-empty `judge` criterion:
  * mustAdmitGap() is only a cheap screen (see its doc comment in rules.ts) and cannot tell *which*
@@ -326,6 +342,51 @@ const RAW_CASES: EvalCase[] = [
     // it is internal (spec §2.3).
     rules: [mustCite('comentário zendesk 90001'), mustContain('interna')],
     judge: 'A resposta usa a nota interna de abertura como fonte e a identifica como nota interna?',
+  },
+  // --- portfolio: questions over the org list, grounded in [estatísticas] / [atividades] ---
+  {
+    id: 'pf-01-counts-by-status',
+    category: 'portfolio',
+    bundle: PORTFOLIO_DUMMY_BUNDLE,
+    portfolio: teamPortfolio,
+    question: 'Quantas atividades estão prontas para delivery?',
+    rules: [mustContain('3'), mustCite('estatísticas')],
+    judge: 'Todos os números da resposta coincidem com o bloco [estatísticas] (3 em Pronto para Delivery), sem contagens recalculadas ou inventadas?',
+  },
+  {
+    id: 'pf-02-counts-by-assignee',
+    category: 'portfolio',
+    bundle: PORTFOLIO_DUMMY_BUNDLE,
+    portfolio: teamPortfolio,
+    question: 'Quem é responsável por mais atividades?',
+    rules: [mustContain('Gabriel'), mustContain('2'), mustCite('estatísticas')],
+    judge: 'A resposta indica Gabriel como o responsável nomeado com mais atividades (2), usando apenas os números de [estatísticas]?',
+  },
+  {
+    id: 'pf-03-not-in-context',
+    category: 'portfolio',
+    bundle: PORTFOLIO_DUMMY_BUNDLE,
+    portfolio: teamPortfolio,
+    question: `Qual a causa raiz do problema do ${ROOT_CAUSE_ITEM_LABEL}?`,
+    rules: [mustAdmitGap(), mustNotInventDateIn(PORTFOLIO_RENDERED)],
+    judge: 'A resposta admite que a causa raiz não está no contexto do portfólio e orienta abrir o card para os detalhes, sem inventar uma causa ou uma data?',
+  },
+  {
+    id: 'pf-04-stale-insight',
+    category: 'portfolio',
+    bundle: PORTFOLIO_DUMMY_BUNDLE,
+    portfolio: teamPortfolio,
+    question: 'Tem algo parado há muito tempo?',
+    rules: [mustCite(STALE_ITEM_LABEL)],
+    judge: `A resposta aponta ${STALE_ITEM_LABEL} como parada e a data citada (desde 20/08) confere com o contexto, sem citar outras atividades como paradas?`,
+  },
+  {
+    id: 'pf-05-summary-style',
+    category: 'portfolio',
+    bundle: PORTFOLIO_DUMMY_BUNDLE,
+    portfolio: teamPortfolio,
+    question: 'Resume a situação.',
+    rules: [mustLeadWithBold(), maxLines(8)],
   },
 ];
 
