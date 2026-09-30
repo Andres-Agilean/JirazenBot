@@ -236,6 +236,11 @@ Three connected findings from the live session:
   vocabulary tails there either). Non-vocabulary loose names: unbound → new search (context
   switch); bound → the §11 confirm card. `PortfolioQuery` gains a `loose` flag so the caller
   can apply the filter; the detector stays pure.
+- **Unbind failure semantics (review-hardened):** the Buscar click's unbind is restored whenever
+  the search or a resulting single-match bind FAILS (outage, load error, not-found) — an error
+  never leaves the user with nothing bound. A search that succeeds but finds nothing (`none`) or
+  stops at org disambiguation (`orgs`) intentionally leaves the user unbound: they chose to move
+  on, and retyping a key or continuing the search is one message away.
 
 ## 13. Addendum — candidate-card affordances and distribution verbs (same session)
 
