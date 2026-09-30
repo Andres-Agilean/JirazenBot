@@ -4,7 +4,7 @@ import { NO_TEXT_RECEIVED, SELECTION_INVALID, handleSelect, type HandleDeps } fr
 import { InMemoryBindingStore, type Binding, type BindingStore, type Slot } from '@/teams/bindings.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
 import { REFRESH_ACTION } from '@/teams/cards.js';
-import { SELECT_ACTION } from '@/teams/rundown.js';
+import { BUSCAR_ACTION, CONTINUAR_ACTION, SELECT_ACTION } from '@/teams/rundown.js';
 import { testConfig } from './helpers.js';
 
 function makeDeps(over: Partial<HandleDeps> = {}): HandleDeps {
@@ -286,6 +286,14 @@ describe('handleCardAction: routes on the invoke verb (spec §7, review finding:
     const isCard = typeof reply === 'object' && reply !== null && 'attachments' in reply;
     const isNonErrorText = typeof reply === 'string' && !reply.includes('deu errado');
     expect(isCard || isNonErrorText).toBe(true);
+  });
+
+  it('routes the confirm-card verbs (spec §11): a garbage payload gets SELECTION_INVALID, not UNKNOWN_INVOKE', async () => {
+    for (const verb of [BUSCAR_ACTION, CONTINUAR_ACTION]) {
+      const sent: unknown[] = [];
+      await handleCardAction(async (a) => { sent.push(a); return undefined; }, verb, {}, 'c', 'personal', 'u', makeDeps());
+      expect(sent).toEqual([SELECTION_INVALID]);
+    }
   });
 
   it('replies with SELECTION_INVALID when SELECT_ACTION has garbage payload', async () => {

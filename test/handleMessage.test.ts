@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   CLAUDE_UNAVAILABLE, handleMessage, handleRefresh, handleSelect, JIRA_UNAVAILABLE, NOT_SPLIT, NO_THREAD_TO_REJOIN, NOTHING_BOUND,
-  SEARCH_NONE, SEARCH_UNAVAILABLE, SELECTION_INVALID, HELP_TEXT,
+  SEARCH_NONE, SEARCH_UNAVAILABLE, SELECTION_INVALID, HELP_TEXT, handleSwitchBuscar, handleSwitchContinuar,
   type HandleDeps, type Incoming,
 } from '@/teams/handleMessage.js';
+import { BUSCAR_ACTION, CONTINUAR_ACTION } from '@/teams/rundown.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
 import { renderRundown, SECTION_LINE_CAP, STALE_AFTER_DAYS } from '@/teams/rundown.js';
 import { DAY_MS } from '@/text/datetime.js';
@@ -741,11 +742,20 @@ describe('busca de portfólio', () => {
     expect(textOf(replies[0])).toContain('atividades abertas');
   });
 
-  it('a genuine question with a binding and empresa/obra wording reaches answerFn untouched', async () => {
+  // Amended by spec §11: entity wording mid-sentence now raises the confirm card instead of going
+  // straight to the card. The property this test protects survives: nothing is searched or
+  // silently stolen, and the original question reaches answerFn untouched once the user picks
+  // "Continuar" (same handler the button invokes).
+  it('a genuine question with a binding and empresa/obra wording reaches answerFn untouched via Continuar', async () => {
     const { deps, answered, searched } = withSearch(cardsOutcome(two));
     await handleMessage(dm('QZ-252'), deps);
     const q = 'como está a empresa Norte na obra da fundação?';
-    const replies = await handleMessage(dm(q), deps);
+    const before = answered.length;
+    const confirm = await handleMessage(dm(q), deps);
+    expect(confirm[0].kind).toBe('card');
+    expect(searched).toEqual([]);
+    expect(answered.length).toBe(before);
+    const replies = await handleSwitchContinuar(req, { action: CONTINUAR_ACTION, text: q }, deps);
     expect(searched).toEqual([]);
     expect(answered.at(-1)).toBe(q);
     expect(textOf(replies[0])).toContain(`resposta para: ${q}`);
@@ -858,12 +868,12 @@ describe('busca de portfólio', () => {
 
   it('uses "atividades abertas" terminology in SEARCH_NONE and the help text', () => {
     expect(SEARCH_NONE('norte')).toBe('Não encontrei atividades abertas para "norte". Tente outro nome, ou use `buscar <nome>`.');
-    expect(HELP_TEXT).toContain('`buscar <nome>` — procura atividades abertas por empresa, cliente ou obra');
+    expect(HELP_TEXT).toContain('`buscar` + nome — procura atividades abertas por empresa, cliente ou obra');
     expect(HELP_TEXT).not.toContain('cards ativos');
   });
 
   it('HELP_TEXT mentions buscar', () => {
-    expect(HELP_TEXT).toContain('`buscar <nome>`');
+    expect(HELP_TEXT).toContain('`buscar` + nome');
   });
 
   it('HELP_TEXT mentions portfolio follow-up affordances', () => {
@@ -981,9 +991,14 @@ describe('busca de portfólio', () => {
       await handleMessage(dm('QZ-252'), deps);
       await handleMessage(dm('buscar norte'), deps);
       const replies = await handleMessage(dm('obra norte'), deps);
-      // "obra norte" is not an exact label, so it falls through to be a question about the bound card
+      // "obra norte" is not an exact label, so it never selects a candidate. Amended by spec §11:
+      // it is anchored-detector-shaped, so the fallthrough is now the confirm card rather than a
+      // direct answer; "Continuar" then delivers it to the bound card unchanged.
+      expect(replies[0].kind).toBe('card');
+      expect(answered.at(-1)).not.toBe('obra norte');
+      const cont = await handleSwitchContinuar(req, { action: CONTINUAR_ACTION, text: 'obra norte' }, deps);
       expect(answered.at(-1)).toBe('obra norte');
-      expect(textOf(replies[0])).toContain('resposta para: obra norte');
+      expect(textOf(cont[0])).toContain('resposta para: obra norte');
     });
 
     it('a bare number that is a substring of a key stays a question', async () => {
@@ -1389,5 +1404,132 @@ describe('busca de portfólio', () => {
       expect(textOf(bound[0])).toContain('resposta para: quantos');
       expect(calls).toHaveLength(0);
     });
+  });
+});
+
+// Spec §11: confirm-to-switch while a card is bound.
+describe('confirm-to-switch while bound (spec §11)', () => {
+  const jiraCard = (key: string, summary: string): CardCandidate => ({
+    ref: { system: 'jira', issueKey: key, explicit: true },
+    label: key, summary, status: 'Em Teste', updatedAt: '2026-09-20T10:00:00.000Z',
+  });
+  const outcome: SearchOutcome = {
+    kind: 'cards', name: 'dalle', displayName: 'DALLE', total: 1, cards: [jiraCard('AGL-11', 'Reforma')],
+  };
+  const req = { conversationId: CONV, conversationType: 'personal', userId: 'u' };
+  const shared = { scope: 'shared' as const, conversationId: CONV };
+
+  function bound() {
+    const searched: string[] = [];
+    const made = makeDeps({ search: async (name) => { searched.push(name); return outcome; } });
+    return { ...made, searched };
+  }
+  const actions = (r: Reply) => (r.kind === 'card' ? (r.card.actions as Array<Record<string, any>>) : []);
+
+  it('an anchored portfolio question while bound yields a confirm card: no Claude call, no search', async () => {
+    const { deps, answered, searched } = bound();
+    await handleMessage(dm('QZ-252'), deps);
+    const before = answered.length;
+    const replies = await handleMessage(dm('como estao as atividades da dalle?'), deps);
+    expect(replies).toHaveLength(1);
+    expect(replies[0].kind).toBe('card');
+    expect(answered.length).toBe(before);
+    expect(searched).toEqual([]);
+    const [buscar, continuar] = actions(replies[0]);
+    expect(buscar.verb).toBe(BUSCAR_ACTION);
+    expect(buscar.title).toBe('Buscar dalle');
+    expect(buscar.data).toEqual({ action: BUSCAR_ACTION, name: 'dalle' });
+    expect(continuar.verb).toBe(CONTINUAR_ACTION);
+    expect(continuar.title).toBe('Continuar no QZ-252');
+    expect(continuar.data).toEqual({ action: CONTINUAR_ACTION, text: 'como estao as atividades da dalle?' });
+    expect(textOf(replies[0])).toContain('Você quer ver as atividades de **dalle**?');
+    expect(textOf(replies[0])).toContain('QZ-252');
+  });
+
+  it('the Buscar button runs the typed-buscar path: search runs, binding stays intact', async () => {
+    const { deps, searched } = bound();
+    await handleMessage(dm('QZ-252'), deps);
+    const replies = await handleSwitchBuscar(req, { action: BUSCAR_ACTION, name: 'dalle' }, deps);
+    expect(searched).toEqual(['dalle']);
+    expect(replies).toHaveLength(1);
+    expect(textOf(replies[0])).toContain('atividades abertas');
+    expect((await deps.store.get(shared))?.ref).toMatchObject({ system: 'jira', issueKey: 'QZ-252' });
+  });
+
+  it('the Continuar button sends the ORIGINAL text to the bound card answer path', async () => {
+    const { deps, answered } = bound();
+    await handleMessage(dm('QZ-252'), deps);
+    const q = 'como estao as atividades da dalle?';
+    const replies = await handleSwitchContinuar(req, { action: CONTINUAR_ACTION, text: q }, deps);
+    expect(answered.at(-1)).toBe(q);
+    expect(replies).toHaveLength(1);
+    expect(textOf(replies[0])).toContain(`resposta para: ${q}`);
+    expect(textOf(replies[0])).toContain('coletado às');
+  });
+
+  it('a genuine question with no entity anchor goes straight to the bound card (regression pin)', async () => {
+    const { deps, answered, searched } = bound();
+    await handleMessage(dm('QZ-252'), deps);
+    const replies = await handleMessage(dm('qual o prazo de entrega?'), deps);
+    expect(answered.at(-1)).toBe('qual o prazo de entrega?');
+    expect(searched).toEqual([]);
+    expect(textOf(replies[0])).toContain('resposta para:');
+  });
+
+  it('a mid-sentence anchor DOES show the confirm card (spec §11 accepts this false positive)', async () => {
+    const { deps, answered } = bound();
+    await handleMessage(dm('QZ-252'), deps);
+    const before = answered.length;
+    const replies = await handleMessage(dm('o problema da obra Flora persiste?'), deps);
+    expect(answered.length).toBe(before);
+    expect(actions(replies[0]).map((a) => a.verb)).toEqual([BUSCAR_ACTION, CONTINUAR_ACTION]);
+  });
+
+  it('loose-only shapes never fire while bound (allowLoose:false pin)', async () => {
+    const { deps, answered, searched } = bound();
+    await handleMessage(dm('QZ-252'), deps);
+    const replies = await handleMessage(dm('qual o status da dalle?'), deps);
+    expect(answered.at(-1)).toBe('qual o status da dalle?');
+    expect(searched).toEqual([]);
+    expect(textOf(replies[0])).toContain('resposta para:');
+  });
+
+  it('precedence: typed buscar still wins over the confirm card while bound', async () => {
+    const { deps, searched } = bound();
+    await handleMessage(dm('QZ-252'), deps);
+    const replies = await handleMessage(dm('buscar atividades da dalle'), deps);
+    expect(searched).toEqual(['atividades da dalle']);
+    expect(textOf(replies[0])).toContain('atividades abertas');
+  });
+
+  it('malformed confirm payloads get a pt-BR invalid reply, never silence', async () => {
+    const { deps } = bound();
+    for (const bad of [undefined, null, 'x', {}, { name: '' }, { name: '  ' }, { name: 5 }]) {
+      expect(await handleSwitchBuscar(req, bad, deps)).toEqual([{ kind: 'text', text: SELECTION_INVALID }]);
+    }
+    for (const bad of [undefined, null, 'x', {}, { text: '' }, { text: 7 }]) {
+      expect(await handleSwitchContinuar(req, bad, deps)).toEqual([{ kind: 'text', text: SELECTION_INVALID }]);
+    }
+  });
+
+  it('Continuar with nothing bound (binding expired) still replies', async () => {
+    const { deps } = bound();
+    const r = await handleSwitchContinuar(req, { text: 'como estao as atividades da dalle?' }, deps);
+    expect(r).toEqual([{ kind: 'text', text: NOTHING_BOUND }]);
+  });
+});
+
+describe('HELP_TEXT rendering (spec §12)', () => {
+  it('has no angle brackets (Teams renders them as &lt;&gt;)', () => {
+    expect(HELP_TEXT).not.toMatch(/[<>]/);
+  });
+  it('keeps a concrete buscar example', () => {
+    expect(HELP_TEXT).toContain('`buscar`');
+    expect(HELP_TEXT).toContain('(ex.: `buscar dalle`)');
+  });
+  it('separates each command line with a blank line so Teams renders them on their own lines', () => {
+    for (const c of ['`ajuda`', '`atualizar`', '`buscar`', '`quantos?`', '`voltar`']) {
+      expect(HELP_TEXT).toContain(`\n\n${c}`);
+    }
   });
 });

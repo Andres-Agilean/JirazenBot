@@ -1,10 +1,12 @@
 import { App, type AppOptions, type IPlugin } from '@microsoft/teams.apps';
 import { REFRESH_ACTION } from './cards.js';
-import { handleMessage, handleRefresh, handleSelect, NO_TEXT_RECEIVED, type HandleDeps } from './handleMessage.js';
+import {
+  handleMessage, handleRefresh, handleSelect, handleSwitchBuscar, handleSwitchContinuar, NO_TEXT_RECEIVED, type HandleDeps,
+} from './handleMessage.js';
 import { appOptionsForAuthMode, type AuthMode, type TeamsAppAuthOptions } from './authMode.js';
 import { botMentions, stripMentions, type MentionLike } from './mentions.js';
 import { runExclusive } from './serialize.js';
-import { SELECT_ACTION } from './rundown.js';
+import { BUSCAR_ACTION, CONTINUAR_ACTION, SELECT_ACTION } from './rundown.js';
 import type { Reply } from './reply.js';
 
 export const UNEXPECTED_ERROR_REPLY = 'Algo deu errado do meu lado. Tente novamente em instantes.';
@@ -187,6 +189,18 @@ export async function handleCardAction(
   if (verb === SELECT_ACTION) {
     await runCardReplies(send, conversationId, () =>
       handleSelect({ conversationId, conversationType, userId }, data, deps));
+    return;
+  }
+
+  if (verb === BUSCAR_ACTION) {
+    await runCardReplies(send, conversationId, () =>
+      handleSwitchBuscar({ conversationId, conversationType, userId }, data, deps));
+    return;
+  }
+
+  if (verb === CONTINUAR_ACTION) {
+    await runCardReplies(send, conversationId, () =>
+      handleSwitchContinuar({ conversationId, conversationType, userId }, data, deps));
     return;
   }
 

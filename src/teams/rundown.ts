@@ -1,5 +1,6 @@
 import type { Config } from '@/config.js';
 import { CARD_FETCH_CAP, type ZendeskOrg } from '@/fetch/zendesk.js';
+import { BUSCAR_COMMAND } from '@/resolve/portfolioIntent.js';
 import { DAY_MS, formatDayMonthTime } from '@/text/datetime.js';
 import { normalizeText } from '@/text/normalize.js';
 import { ADAPTIVE_CARD_SCHEMA, ADAPTIVE_CARD_VERSION, styleCitations } from './cards.js';
@@ -20,6 +21,10 @@ export const OVERFLOW_LABEL_CAP = 10;
  * twin to derive it from: typed selection goes through `matchCandidate`, not `parseCommand`.
  */
 export const SELECT_ACTION = 'selecionar';
+/** The confirm card's "Buscar <nome>" button: its verb IS the typed command, so they cannot drift. */
+export const BUSCAR_ACTION = BUSCAR_COMMAND;
+/** The confirm card's "Continuar no <card>" button: re-sends the original text to the bound card. */
+export const CONTINUAR_ACTION = 'continuar';
 
 /** `DD/MM` in Brazil local time, from the shared datetime formatter (no inline timezone logic). */
 export const dayMonth = (iso: string): string => formatDayMonthTime(iso).split(' ')[0];
@@ -318,6 +323,45 @@ export function buildCandidateCard(
       verb: SELECT_ACTION,
       data: { action: SELECT_ACTION, system: c.ref.system, id: candidateId(c) },
     })),
+  };
+}
+
+/** The confirm card's question and its subtle line naming the bound card; shared by card and fallback. */
+const switchQuestion = (name: string): string => `Você quer ver as atividades de **${name}**?`;
+const switchAlternative = (boundLabel: string): string => `Ou continuar no ${boundLabel}?`;
+
+/** Plain-text mirror of `buildSwitchConfirmCard`. */
+export function renderSwitchConfirm(name: string, boundLabel: string): string {
+  return [
+    switchQuestion(name),
+    switchAlternative(boundLabel),
+    `Responda \`buscar ${name}\` para ver as atividades, ou repita sua pergunta sobre o ${boundLabel}.`,
+  ].join('\n\n');
+}
+
+/**
+ * Confirm card for an anchored portfolio-shaped message while a card is bound (spec §11): search
+ * `name`, or continue on the bound card with the ORIGINAL text, which rides in the button payload.
+ */
+export function buildSwitchConfirmCard(
+  name: string,
+  originalText: string,
+  boundLabel: string,
+): Record<string, unknown> {
+  return {
+    ...adaptiveCard([
+      { type: 'TextBlock', text: switchQuestion(name), wrap: true },
+      subtle(switchAlternative(boundLabel)),
+    ]),
+    actions: [
+      { type: 'Action.Execute', title: `Buscar ${name}`, verb: BUSCAR_ACTION, data: { action: BUSCAR_ACTION, name } },
+      {
+        type: 'Action.Execute',
+        title: `Continuar no ${boundLabel}`,
+        verb: CONTINUAR_ACTION,
+        data: { action: CONTINUAR_ACTION, text: originalText },
+      },
+    ],
   };
 }
 

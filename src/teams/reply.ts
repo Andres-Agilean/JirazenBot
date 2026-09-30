@@ -48,6 +48,11 @@ export function cardIdentity(bundle: CardBundle, cfg: Config): string {
   return parts.join(' ↔ ');
 }
 
+/** Plain-text name of a bound card (no links), for button titles: `QZ-252`, or `chamado 16467` with no Jira side. */
+export function cardLabel(bundle: CardBundle): string {
+  return bundle.jira?.issueKey ?? `chamado ${bundle.zendesk?.ticketId ?? ''}`.trim();
+}
+
 /**
  * Rendered under every answer so the user never has to guess which card the bot thinks it is
  * discussing, or how fresh the data is (plan §9.3, §7.5).

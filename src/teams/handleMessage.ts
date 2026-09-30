@@ -13,10 +13,10 @@ import { compressCitations } from './citations.js';
 import { matchCandidate, type CandidateSet, type CandidateStore } from './candidates.js';
 import { computeAggregates, parseFollowup, renderCounts, renderPortfolio, type Followup } from './portfolio.js';
 import { parseCommand } from './commands.js';
-import { formatFooter, withFooter, type Reply } from './reply.js';
+import { cardLabel, formatFooter, withFooter, type Reply } from './reply.js';
 import {
-  buildCandidateCard, buildDistributionCard, buildPortfolioAnswerCard, buildRundownCard, portfolioFooter,
-  renderDistribution, renderOrgChoices, renderRundown,
+  buildCandidateCard, buildDistributionCard, buildPortfolioAnswerCard, buildRundownCard, buildSwitchConfirmCard,
+  portfolioFooter, renderDistribution, renderOrgChoices, renderRundown, renderSwitchConfirm,
 } from './rundown.js';
 import type { CardCandidate, SearchOutcome } from './search.js';
 import { surfaceFor } from './surface.js';
@@ -97,10 +97,16 @@ export const HELP_TEXT = [
   'Depois é só perguntar — eu continuo no mesmo card até você trocar.',
   '',
   '**Comandos**',
+  // Blank lines between commands: a single newline collapses into one paragraph in Teams markdown.
+  '',
   '`ajuda` — esta mensagem',
+  '',
   '`atualizar` — busca os dados mais recentes do card',
-  '`buscar <nome>` — procura atividades abertas por empresa, cliente ou obra',
+  '',
+  '`buscar` + nome — procura atividades abertas por empresa, cliente ou obra (ex.: `buscar dalle`)',
+  '',
   '`quantos?` / `todos os de jira` — depois de uma busca ou resumo, contagens e lista completa',
+  '',
   '`voltar` — encerra sua consulta separada e volta para o card da conversa',
 ].join('\n');
 
@@ -351,6 +357,41 @@ async function runSearch(
 }
 
 /**
+ * The typed `buscar <nome>` behavior, shared with the confirm card's Buscar button (spec §11) so
+ * the button can never drift from the command: same mode, same slot semantics, never unbinds.
+ */
+function runBuscar(
+  name: string,
+  existing: Binding | undefined,
+  sharedSlot: Slot,
+  personalSlot: Slot,
+  surface: Surface,
+  deps: HandleDeps,
+): Promise<Reply> {
+  return runSearch(name, 'candidates', existing, sharedSlot, personalSlot, surface, deps);
+}
+
+/**
+ * Answers a question on the bound card, refetching first when the bundle has gone stale. Shared by
+ * the free-form fallthrough and the confirm card's Continuar button (spec §11).
+ */
+async function askBound(
+  existing: Binding,
+  question: string,
+  activeSlot: Slot,
+  surface: Surface,
+  deps: HandleDeps,
+): Promise<Reply> {
+  let binding = existing;
+  if (isBundleStale(binding, deps.now())) {
+    const refreshed = await refresh(binding, activeSlot, surface, deps);
+    if ('error' in refreshed) return { kind: 'text', text: refreshed.error };
+    binding = refreshed.binding;
+  }
+  return ask(binding, question, activeSlot, surface, deps);
+}
+
+/**
  * Stores a candidate set on the shared slot and replies with it: a text rundown, or a card with
  * one select button per candidate. A rundown never binds -- the stored set keeps typed selection
  * working.
@@ -479,7 +520,7 @@ export async function handleMessage(
   // 1b. Explicit search: works with or without a binding and never unbinds.
   const buscarName = parseBuscar(text);
   if (buscarName) {
-    return [await runSearch(buscarName, 'candidates', existing, sharedSlot, personalSlot, surface, deps)];
+    return [await runBuscar(buscarName, existing, sharedSlot, personalSlot, surface, deps)];
   }
 
   // 1c. Whole-message portfolio follow-ups ("todos os de jira", "quantos"): deterministic, and
@@ -530,15 +571,21 @@ export async function handleMessage(
     }
   }
 
-  // 4. A question about the bound card.
+  // 4. A question about the bound card -- unless it is shaped like a portfolio question (spec §11):
+  // then a confirm card lets one click pick the search or the bound card. ANCHORED shapes only:
+  // the loose bare-name shapes stay cold-start-only. Mid-sentence anchors ("o problema da obra
+  // Flora persiste?") also raise the card -- accepted by §11, it costs one click.
   if (existing) {
-    let binding = existing;
-    if (isBundleStale(binding, deps.now())) {
-      const refreshed = await refresh(binding, activeSlot, surface, deps);
-      if ('error' in refreshed) return [{ kind: 'text', text: refreshed.error }];
-      binding = refreshed.binding;
+    const switchQuery = detectPortfolioQuery(text, { allowLoose: false });
+    if (switchQuery) {
+      const boundLabel = cardLabel(existing.bundle);
+      return [{
+        kind: 'card',
+        card: buildSwitchConfirmCard(switchQuery.name, text, boundLabel),
+        fallbackText: renderSwitchConfirm(switchQuery.name, boundLabel),
+      }];
     }
-    return [await ask(binding, text, activeSlot, surface, deps)];
+    return [await askBound(existing, text, activeSlot, surface, deps)];
   }
 
   // 5. Nothing bound and nothing to bind. Reachable ONLY here, so a bound conversation's question
@@ -592,6 +639,41 @@ export async function handleSelect(
   if (!ref) return [{ kind: 'text', text: SELECTION_INVALID }];
   const { surface, sharedSlot, personalSlot } = await resolveSlots(incoming, deps);
   return [await selectCard(ref, sharedSlot, personalSlot, surface, deps)];
+}
+
+/** A confirm-card payload field: a non-blank string, or null (client data is validated like typed input). */
+function payloadString(data: unknown, field: 'name' | 'text'): string | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const value = (data as Record<string, unknown>)[field];
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+/** The confirm card's Buscar button (spec §11): exactly the typed `buscar <nome>` path. */
+export async function handleSwitchBuscar(
+  incoming: RefreshRequest,
+  data: unknown,
+  deps: HandleDeps,
+): Promise<Reply[]> {
+  const name = payloadString(data, 'name');
+  if (!name) return [{ kind: 'text', text: SELECTION_INVALID }];
+  const { surface, sharedSlot, personalSlot, existing } = await resolveSlots(incoming, deps);
+  return [await runBuscar(name, existing, sharedSlot, personalSlot, surface, deps)];
+}
+
+/**
+ * The confirm card's Continuar button (spec §11): the ORIGINAL message text goes to the bound
+ * card's ordinary answer path. With the binding gone (24h expiry) it says so rather than go silent.
+ */
+export async function handleSwitchContinuar(
+  incoming: RefreshRequest,
+  data: unknown,
+  deps: HandleDeps,
+): Promise<Reply[]> {
+  const text = payloadString(data, 'text');
+  if (!text) return [{ kind: 'text', text: SELECTION_INVALID }];
+  const { surface, existing, activeSlot } = await resolveSlots(incoming, deps);
+  if (!existing) return [{ kind: 'text', text: NOTHING_BOUND }];
+  return [await askBound(existing, text, activeSlot, surface, deps)];
 }
 
 /**
