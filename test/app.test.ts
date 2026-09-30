@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleActivity, handleCardAction, UNEXPECTED_ERROR_REPLY, UNKNOWN_INVOKE_ACTION_REPLY } from '@/teams/app.js';
 import { NO_TEXT_RECEIVED, type HandleDeps } from '@/teams/handleMessage.js';
 import { InMemoryBindingStore, type Binding, type BindingStore, type Slot } from '@/teams/bindings.js';
+import { InMemoryCandidateStore } from '@/teams/candidates.js';
 import { REFRESH_ACTION } from '@/teams/cards.js';
 import { testConfig } from './helpers.js';
 
@@ -16,6 +17,10 @@ function makeDeps(over: Partial<HandleDeps> = {}): HandleDeps {
     },
     cfg: testConfig,
     now: () => 0,
+    candidates: new InMemoryCandidateStore(() => 0),
+    search: async () => {
+      throw new Error('search should not be called in these tests');
+    },
     ...over,
   };
 }

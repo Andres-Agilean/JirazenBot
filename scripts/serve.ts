@@ -7,6 +7,10 @@ import { loadCardBundle } from '@/bundle/load.js';
 import { answer } from '@/claude/answer.js';
 import { createAnthropicClient } from '@/claude/client.js';
 import type { HandleDeps } from '@/teams/handleMessage.js';
+import { InMemoryCandidateStore } from '@/teams/candidates.js';
+import { createSearchCache, type SearchDeps } from '@/teams/search.js';
+import { JiraClient } from '@/fetch/jira.js';
+import { ZendeskClient } from '@/fetch/zendesk.js';
 
 const DEFAULT_PORT = 3978;
 
@@ -25,6 +29,20 @@ try {
 
 const client = createAnthropicClient(cfg);
 
+// Read-only search clients, built once and shared by every message. Bundle loading keeps its own
+// clients (loadCardBundle), untouched.
+const searchClients: SearchDeps = (() => {
+  const jira = new JiraClient(cfg);
+  const zendesk = new ZendeskClient(cfg);
+  return {
+    searchOrganizations: (name) => zendesk.searchOrganizations(name),
+    openTicketsForOrganization: (orgId) => zendesk.openTicketsForOrganization(orgId),
+    searchActiveByText: (text) => jira.searchActiveByText(text),
+    searchByZendeskIds: (ids) => jira.searchByZendeskIds(ids),
+  };
+})();
+const searchCache = createSearchCache();
+
 const deps: HandleDeps = {
   store: new InMemoryBindingStore(),
   loadBundle: (ref, surface) => loadCardBundle(ref, cfg, surface),
@@ -36,6 +54,8 @@ const deps: HandleDeps = {
     }),
   cfg,
   now: Date.now,
+  candidates: new InMemoryCandidateStore(),
+  search: (name) => searchCache.run(name, searchClients),
 };
 
 const port = Number(process.env.PORT ?? DEFAULT_PORT);

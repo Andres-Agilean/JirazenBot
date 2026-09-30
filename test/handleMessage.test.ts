@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  handleMessage, handleRefresh, JIRA_UNAVAILABLE, NOT_SPLIT, NO_THREAD_TO_REJOIN, NOTHING_BOUND,
+  handleMessage, handleRefresh, handleSelect, JIRA_UNAVAILABLE, NOT_SPLIT, NO_THREAD_TO_REJOIN, NOTHING_BOUND,
+  SEARCH_NONE, SEARCH_UNAVAILABLE, SELECTION_AMBIGUOUS, SELECTION_INVALID, HELP_TEXT,
   type HandleDeps, type Incoming,
 } from '@/teams/handleMessage.js';
+import { InMemoryCandidateStore } from '@/teams/candidates.js';
+import type { CardCandidate, SearchOutcome } from '@/teams/search.js';
 import { InMemoryBindingStore, BUNDLE_TTL_MS } from '@/teams/bindings.js';
 import { PERSONAL_MARKER } from '@/teams/cards.js';
 import type { Reply } from '@/teams/reply.js';
@@ -63,6 +66,10 @@ function makeDeps(over: Partial<HandleDeps> = {}) {
     },
     cfg: testConfig,
     now: () => now,
+    candidates: new InMemoryCandidateStore(() => now),
+    search: async () => {
+      throw new Error('search should not be called in these tests');
+    },
     ...over,
   };
   return { deps, answered, loaded, setNow: (t: number) => { now = t; } };
@@ -673,5 +680,188 @@ describe('handleRefresh (spec §6)', () => {
     const { deps } = makeDeps();
     const replies = await handleRefresh(ana, deps);
     expect(textOf(replies[0])).toBe(NOTHING_BOUND);
+  });
+});
+
+
+describe('busca de portfólio', () => {
+  const jiraCard = (key: string, summary: string): CardCandidate => ({
+    ref: { system: 'jira', issueKey: key, explicit: true },
+    label: key, summary, status: 'Em Teste', updatedAt: '2026-09-20T10:00:00.000Z',
+  });
+  const cardsOutcome = (cards: CardCandidate[], name = 'norte'): SearchOutcome =>
+    ({ kind: 'cards', name, cards, total: cards.length });
+  const two = [jiraCard('AGL-11', 'Reforma do telhado'), jiraCard('AGL-12', 'Pintura externa')];
+  const req = { conversationId: CONV, conversationType: 'personal', userId: 'u' };
+
+  function withSearch(outcome: SearchOutcome | Error) {
+    const searched: string[] = [];
+    const made = makeDeps({
+      search: async (name) => {
+        searched.push(name);
+        if (outcome instanceof Error) throw outcome;
+        return outcome;
+      },
+    });
+    return { ...made, searched };
+  }
+  const shared = { scope: 'shared' as const, conversationId: CONV };
+
+  it('buscar searches with a binding present and does not unbind', async () => {
+    const { deps, answered, searched } = withSearch(cardsOutcome(two));
+    await handleMessage(dm('QZ-252'), deps);
+    const replies = await handleMessage(dm('buscar Norte'), deps);
+    expect(searched).toEqual(['norte']);
+    expect(replies[0].kind).toBe('card');
+    await handleMessage(dm('e o prazo?'), deps);
+    expect(answered.at(-1)).toBe('e o prazo?');
+  });
+
+  it('detector fires only when nothing is bound and nothing parses', async () => {
+    const { deps, searched } = withSearch(cardsOutcome(two));
+    const replies = await handleMessage(dm('como está a empresa Norte?'), deps);
+    expect(searched).toEqual(['norte']);
+    expect(replies).toHaveLength(1);
+    expect(replies[0].kind).toBe('text');
+    expect(textOf(replies[0])).toContain('cards ativos');
+  });
+
+  it('a genuine question with a binding and empresa/obra wording reaches answerFn untouched', async () => {
+    const { deps, answered, searched } = withSearch(cardsOutcome(two));
+    await handleMessage(dm('QZ-252'), deps);
+    const q = 'como está a empresa Norte na obra da fundação?';
+    const replies = await handleMessage(dm(q), deps);
+    expect(searched).toEqual([]);
+    expect(answered.at(-1)).toBe(q);
+    expect(textOf(replies[0])).toContain(`resposta para: ${q}`);
+  });
+
+  it('orgs outcome renders the choice text', async () => {
+    const { deps } = withSearch({ kind: 'orgs', name: 'norte', orgs: [{ id: 1, name: 'Norte A' }, { id: 2, name: 'Norte B' }] });
+    const replies = await handleMessage(dm('buscar norte'), deps);
+    expect(textOf(replies[0])).toContain('Norte A');
+    expect(textOf(replies[0])).toContain('buscar <nome da organização>');
+  });
+
+  it('cards outcome stores the set and replies with a button card carrying system+id', async () => {
+    const { deps } = withSearch(cardsOutcome(two));
+    const replies = await handleMessage(dm('buscar norte'), deps);
+    const reply = replies[0];
+    expect(reply.kind).toBe('card');
+    if (reply.kind !== 'card') throw new Error('unreachable');
+    const actions = (reply.card as { actions: Array<{ data: Record<string, string> }> }).actions;
+    expect(actions[0].data).toMatchObject({ system: 'jira', id: 'AGL-11' });
+    expect(reply.fallbackText).toContain('AGL-11');
+    const set = await deps.candidates.get(shared);
+    expect(set?.candidates).toHaveLength(2);
+  });
+
+  it('rundown mode replies with rundown text and still stores the set', async () => {
+    const { deps, loaded } = withSearch(cardsOutcome(two));
+    const replies = await handleMessage(dm('como estão os projetos da empresa Norte'), deps);
+    expect(replies[0].kind).toBe('text');
+    expect(textOf(replies[0])).toContain('2 cards ativos');
+    expect(loaded).toHaveLength(0);
+    expect((await deps.candidates.get(shared))?.candidates).toHaveLength(2);
+  });
+
+  it('typed selection binds, clears the set and answers the summary', async () => {
+    const { deps, loaded, answered } = withSearch(cardsOutcome(two));
+    await handleMessage(dm('buscar norte'), deps);
+    const replies = await handleMessage(dm('reforma'), deps);
+    expect(loaded).toEqual([{ system: 'jira', issueKey: 'AGL-11', explicit: true }]);
+    expect(answered).toHaveLength(1);
+    expect(textOf(replies[0])).toContain('resposta para:');
+    expect(await deps.candidates.get(shared)).toBeUndefined();
+  });
+
+  it('ambiguous typed selection replies SELECTION_AMBIGUOUS', async () => {
+    const { deps, loaded } = withSearch(cardsOutcome([jiraCard('AGL-11', 'Obra norte fase 1'), jiraCard('AGL-12', 'Obra norte fase 2')]));
+    await handleMessage(dm('buscar norte'), deps);
+    const replies = await handleMessage(dm('obra norte'), deps);
+    expect(textOf(replies[0])).toBe(SELECTION_AMBIGUOUS);
+    expect(loaded).toHaveLength(0);
+  });
+
+  it('non-matching text with a set stored falls through to the bound card question', async () => {
+    const { deps, answered } = withSearch(cardsOutcome(two));
+    await handleMessage(dm('QZ-252'), deps);
+    await handleMessage(dm('buscar norte'), deps);
+    await handleMessage(dm('qual o status atual?'), deps);
+    expect(answered.at(-1)).toBe('qual o status atual?');
+  });
+
+  it('a successful reference rebind clears a stale candidate set', async () => {
+    const { deps } = withSearch(cardsOutcome(two));
+    await handleMessage(dm('buscar norte'), deps);
+    expect(await deps.candidates.get(shared)).toBeDefined();
+    await handleMessage(dm('QZ-252'), deps);
+    expect(await deps.candidates.get(shared)).toBeUndefined();
+  });
+
+  it('a failed rebind keeps the candidate set', async () => {
+    const { deps } = withSearch(cardsOutcome(two));
+    await handleMessage(dm('buscar norte'), deps);
+    deps.loadBundle = async () => ({ status: 'not_found', message: 'nada' }) as AssembleResult;
+    await handleMessage(dm('QZ-999'), deps);
+    expect(await deps.candidates.get(shared)).toBeDefined();
+  });
+
+  it('search bind outcome binds and answers the summary', async () => {
+    const { deps, loaded, answered } = withSearch({ kind: 'bind', ref: { system: 'zendesk', ticketId: '16467', explicit: true } });
+    const replies = await handleMessage(dm('buscar norte'), deps);
+    expect(loaded).toHaveLength(1);
+    expect(answered).toHaveLength(1);
+    expect(textOf(replies[0])).toContain('resposta para:');
+  });
+
+  it('search throwing replies SEARCH_UNAVAILABLE', async () => {
+    const { deps } = withSearch(new Error('boom'));
+    const replies = await handleMessage(dm('buscar norte'), deps);
+    expect(replies).toHaveLength(1);
+    expect(textOf(replies[0])).toBe(SEARCH_UNAVAILABLE);
+  });
+
+  it('none outcome replies SEARCH_NONE', async () => {
+    const { deps } = withSearch({ kind: 'none', name: 'norte' });
+    const replies = await handleMessage(dm('buscar norte'), deps);
+    expect(textOf(replies[0])).toBe(SEARCH_NONE('norte'));
+  });
+
+  it('nothing bound and no detector hit still replies NOTHING_BOUND', async () => {
+    const { deps } = withSearch({ kind: 'none', name: 'x' });
+    const replies = await handleMessage(dm('oi tudo bem'), deps);
+    expect(textOf(replies[0])).toBe(NOTHING_BOUND);
+  });
+
+  it('HELP_TEXT mentions buscar', () => {
+    expect(HELP_TEXT).toContain('`buscar <nome>`');
+  });
+
+  it('handleSelect binds with no candidate set present', async () => {
+    const { deps, loaded } = makeDeps();
+    const replies = await handleSelect(req, { system: 'jira', id: 'AGL-11' }, deps);
+    expect(loaded).toEqual([{ system: 'jira', issueKey: 'AGL-11', explicit: true }]);
+    expect(textOf(replies[0])).toContain('resposta para:');
+    expect(await deps.store.get(shared)).toBeDefined();
+  });
+
+  it('handleSelect builds a zendesk ref and clears the set', async () => {
+    const { deps, loaded } = withSearch(cardsOutcome(two));
+    await handleMessage(dm('buscar norte'), deps);
+    await handleSelect(req, { system: 'zendesk', id: '16467' }, deps);
+    expect(loaded).toEqual([{ system: 'zendesk', ticketId: '16467', explicit: true }]);
+    expect(await deps.candidates.get(shared)).toBeUndefined();
+  });
+
+  it('handleSelect with a garbage payload replies pt-BR and never throws', async () => {
+    const { deps, loaded } = makeDeps();
+    const bad = [{}, { system: 'github', id: 'x' }, { system: 'jira', id: '' }, { system: 'jira' }, { system: 'jira', id: 5 as unknown as string }];
+    for (const data of bad) {
+      const replies = await handleSelect(req, data, deps);
+      expect(replies).toHaveLength(1);
+      expect(textOf(replies[0])).toBe(SELECTION_INVALID);
+    }
+    expect(loaded).toHaveLength(0);
   });
 });

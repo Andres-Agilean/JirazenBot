@@ -4,13 +4,17 @@ import type { CardBundle, Surface } from '@/bundle/types.js';
 import type { AssembleResult } from '@/bundle/assemble.js';
 import type { Answer, Turn } from '@/claude/types.js';
 import { parseReference } from '@/resolve/parseReference.js';
+import { detectPortfolioQuery, parseBuscar, type PortfolioQuery } from '@/resolve/portfolioIntent.js';
 import { DEFAULT_SUMMARY_QUESTION, MAX_HISTORY_TURNS } from '@/claude/prompt.js';
 import { splitReferenceAndQuestion, isWholeMessageReference } from '../../scripts/splitReference.js';
 import { isBundleStale, type Binding, type BindingStore, type Slot } from './bindings.js';
 import { buildAnswerCard } from './cards.js';
 import { compressCitations } from './citations.js';
+import { matchCandidate, type CandidateStore } from './candidates.js';
 import { parseCommand } from './commands.js';
 import { formatFooter, withFooter, type Reply } from './reply.js';
+import { buildCandidateCard, renderOrgChoices, renderRundown } from './rundown.js';
+import type { SearchOutcome } from './search.js';
 import { surfaceFor } from './surface.js';
 
 /**
@@ -32,6 +36,10 @@ export interface HandleDeps {
   answerFn: (bundle: CardBundle, question: string, history: Turn[]) => Promise<Answer>;
   cfg: Config;
   now: () => number;
+  /** Candidate lists from portfolio searches, keyed like bindings (always the shared slot). */
+  candidates: CandidateStore;
+  /** Portfolio search by company/client/project name (read-only against Jira and Zendesk). */
+  search: (name: string) => Promise<SearchOutcome>;
   /**
    * Overridable for tests only (e.g. to exercise the "card builder throws" fallback path,
    * spec §7). Production code always falls through to `buildAnswerCard`.
@@ -67,8 +75,20 @@ export const REJOINED_THREAD = 'Você voltou para o card da conversa.';
 export const NO_THREAD_TO_REJOIN =
   'Não há um card da conversa para eu voltar. Sua consulta separada continua valendo.';
 
+export const SEARCH_NONE = (name: string) =>
+  `Não encontrei cards ativos para "${name}". Tente outro nome, ou use \`buscar <nome>\`.`;
+
+export const SEARCH_UNAVAILABLE = 'Não consegui buscar agora. Tente novamente em instantes.';
+
+export const SELECTION_AMBIGUOUS =
+  'Mais de um card corresponde — seja mais específico ou toque no botão do card desejado.';
+
+/** A select button whose payload is malformed (should not happen; never a silent drop). */
+export const SELECTION_INVALID = 'Não reconheci a seleção. Envie a chave do card (ex.: QZ-252).';
+
 export const HELP_TEXT = [
   'Posso responder perguntas sobre um card do Jira e o chamado do Zendesk correspondente.',
+  'Sem um card, você também pode perguntar pelo status de uma empresa ou obra.',
   '',
   '**Para começar**, envie uma referência: `QZ-252`, `chamado 16467`, `#16467` ou um link.',
   'Depois é só perguntar — eu continuo no mesmo card até você trocar.',
@@ -76,6 +96,7 @@ export const HELP_TEXT = [
   '**Comandos**',
   '`ajuda` — esta mensagem',
   '`atualizar` — busca os dados mais recentes do card',
+  '`buscar <nome>` — procura cards ativos por empresa, cliente ou obra',
   '`voltar` — encerra sua consulta separada e volta para o card da conversa',
 ].join('\n');
 
@@ -273,6 +294,66 @@ async function resolveSlots(
 }
 
 /**
+ * Binds a picked/searched card to the room's shared slot and answers the default summary. The
+ * candidate set and the sender's personal split are cleared only once the bind SUCCEEDED, so a
+ * failed load leaves the list on screen usable (same rule as the whole-message rebind above).
+ */
+async function selectCard(
+  ref: CardRef,
+  sharedSlot: Slot,
+  personalSlot: Slot,
+  surface: Surface,
+  deps: HandleDeps,
+): Promise<Reply> {
+  const bound = await bind(ref, sharedSlot, surface, deps);
+  if ('error' in bound) return { kind: 'text', text: bound.error };
+  await deps.store.delete(personalSlot);
+  await deps.candidates.delete(sharedSlot);
+  return ask(bound.binding, DEFAULT_SUMMARY_QUESTION, sharedSlot, surface, deps);
+}
+
+/**
+ * Runs a portfolio search and turns the outcome into a reply. Candidate sets live on the shared
+ * slot always: a search reply is a room-level artifact. A rundown never binds -- it stores the
+ * same set so typed selection still works.
+ */
+async function runSearch(
+  name: string,
+  mode: PortfolioQuery['mode'],
+  sharedSlot: Slot,
+  personalSlot: Slot,
+  surface: Surface,
+  deps: HandleDeps,
+): Promise<Reply> {
+  let outcome: SearchOutcome;
+  try {
+    outcome = await deps.search(name);
+  } catch {
+    return { kind: 'text', text: SEARCH_UNAVAILABLE };
+  }
+  switch (outcome.kind) {
+    case 'orgs':
+      return { kind: 'text', text: renderOrgChoices(outcome.name, outcome.orgs) };
+    case 'bind':
+      return selectCard(outcome.ref, sharedSlot, personalSlot, surface, deps);
+    case 'none':
+      return { kind: 'text', text: SEARCH_NONE(outcome.name) };
+    case 'cards': {
+      await deps.candidates.set(sharedSlot, {
+        name: outcome.name, candidates: outcome.cards, createdAt: deps.now(),
+      });
+      const rundown = renderRundown(outcome.name, outcome.cards, outcome.total, deps.now());
+      if (mode === 'rundown') return { kind: 'text', text: rundown };
+      return {
+        kind: 'card',
+        card: buildCandidateCard(outcome.name, outcome.cards, outcome.total),
+        fallbackText: rundown,
+      };
+    }
+  }
+}
+
+/**
  * The whole DM pipeline (Phase 3 spec §5). Returns replies as data so the Teams SDK stays in
  * app.ts and this is testable offline.
  */
@@ -309,6 +390,12 @@ export async function handleMessage(
     return [{ kind: 'text', text: `${REJOINED_THREAD}\n\n${formatFooter(sharedBinding, deps.cfg)}` }];
   }
 
+  // 1b. Explicit search: works with or without a binding and never unbinds.
+  const buscarName = parseBuscar(text);
+  if (buscarName) {
+    return [await runSearch(buscarName, 'candidates', sharedSlot, personalSlot, surface, deps)];
+  }
+
   // 2 & 3. A reference in the message, with or without a question.
   const split = splitReferenceAndQuestion(text, deps.cfg.allowedProjects);
   const bare = split ? null : parseReference(text, deps.cfg.allowedProjects);
@@ -333,8 +420,21 @@ export async function handleMessage(
     // leaves the sender's next question answered against the room's card instead
     // (review finding: Important 1).
     if (wholeMessage) await deps.store.delete(personalSlot);
+    // A successful rebind makes any listed candidates stale; they must not intercept later text.
+    await deps.candidates.delete(sharedSlot);
     const question = split?.question ?? DEFAULT_SUMMARY_QUESTION;
     return [await ask(bound.binding, question, targetSlot, surface, deps)];
+  }
+
+  // 3b. Typed selection from a listed candidate set. Only a real match acts; no match falls
+  // through untouched so a bound conversation's question still reaches the card.
+  const candidateSet = await deps.candidates.get(sharedSlot);
+  if (candidateSet) {
+    const picked = matchCandidate(text, candidateSet);
+    if (picked === 'ambiguous') return [{ kind: 'text', text: SELECTION_AMBIGUOUS }];
+    if (picked) {
+      return [await selectCard(picked.ref, sharedSlot, personalSlot, surface, deps)];
+    }
   }
 
   // 4. A question about the bound card.
@@ -348,8 +448,34 @@ export async function handleMessage(
     return [await ask(binding, text, activeSlot, surface, deps)];
   }
 
-  // 5. Nothing bound and nothing to bind.
+  // 5. Nothing bound and nothing to bind: a vague portfolio question ("como está a empresa X?")
+  // gets a search; anything else gets the usual prompt. Reachable ONLY here, so a bound
+  // conversation's question can never be diverted into a search.
+  const portfolio = detectPortfolioQuery(text);
+  if (portfolio) {
+    return [await runSearch(portfolio.name, portfolio.mode, sharedSlot, personalSlot, surface, deps)];
+  }
   return [{ kind: 'text', text: NOTHING_BOUND }];
+}
+
+/**
+ * The candidate card's select button (`Action.Execute`). The payload is self-sufficient -- it
+ * carries system and id -- so it works even after the candidate set expired or was cleared.
+ */
+export async function handleSelect(
+  incoming: RefreshRequest,
+  data: { system?: string; id?: string },
+  deps: HandleDeps,
+): Promise<Reply[]> {
+  const { system, id } = data;
+  if ((system !== 'jira' && system !== 'zendesk') || typeof id !== 'string' || id.trim() === '') {
+    return [{ kind: 'text', text: SELECTION_INVALID }];
+  }
+  const ref: CardRef = system === 'jira'
+    ? { system, issueKey: id.trim(), explicit: true }
+    : { system, ticketId: id.trim(), explicit: true };
+  const { surface, sharedSlot, personalSlot } = await resolveSlots(incoming, deps);
+  return [await selectCard(ref, sharedSlot, personalSlot, surface, deps)];
 }
 
 /**
