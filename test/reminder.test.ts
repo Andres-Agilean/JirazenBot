@@ -14,6 +14,12 @@ describe('parseLembrar', () => {
   it('rejects an empty note after the colon', () => expect(parseLembrar('lembrar responsável:  ')).toBeNull());
   it('flags an over-cap note as tooLong instead of matching', () =>
     expect(parseLembrar(`lembrar responsável: ${'x'.repeat(NOTE_MAX_CHARS + 1)}`)).toEqual({ note: undefined, tooLong: true }));
+  it('tolerates a space before the colon', () =>
+    expect(parseLembrar('lembrar responsável : nota')).toEqual({ note: 'nota' }));
+  it('accepts a note of exactly NOTE_MAX_CHARS', () =>
+    expect(parseLembrar(`lembrar responsável: ${'x'.repeat(NOTE_MAX_CHARS)}`)).toEqual({ note: 'x'.repeat(NOTE_MAX_CHARS) }));
+  it('preserves colons inside the note', () =>
+    expect(parseLembrar('lembrar responsável: reunião: sala 2')).toEqual({ note: 'reunião: sala 2' }));
 });
 
 const jiraBundle = (assignee: unknown): CardBundle => ({
@@ -26,4 +32,5 @@ describe('bundleAssignee', () => {
   it('undefined for null assignee', () => expect(bundleAssignee(jiraBundle(null))).toBeUndefined());
   it('undefined for missing jira side', () =>
     expect(bundleAssignee({ fetchedAt: '', surface: 'dm' } as CardBundle)).toBeUndefined());
+  it('undefined for empty displayName', () => expect(bundleAssignee(jiraBundle({ displayName: '' }))).toBeUndefined());
 });

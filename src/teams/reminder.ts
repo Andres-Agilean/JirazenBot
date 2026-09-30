@@ -10,7 +10,9 @@ export const REMINDER_NEEDS_CARD =
   'Para lembrar o responsável, primeiro abra um card (ex.: `QZ-252`) e envie `lembrar responsável`.';
 export const NO_ASSIGNEE_REPLY = 'Este card não tem responsável no Jira, então não há quem lembrar.';
 
-const LEMBRAR_RE = /^lembrar (?:o )?responsavel(?::(.*))?$/;
+// Derive regex from LEMBRAR_COMMAND so they cannot drift
+const [LEMBRAR_VERB, LEMBRAR_TARGET] = LEMBRAR_COMMAND.split(' ');
+const LEMBRAR_RE = new RegExp(`^${LEMBRAR_VERB} (?:o )?${LEMBRAR_TARGET}\\s*(?::(.*))?$`);
 
 export function parseLembrar(text: string): { note?: string; tooLong?: true } | null {
   // Normalize the command shell but slice the note from the ORIGINAL text so casing/accents survive.
