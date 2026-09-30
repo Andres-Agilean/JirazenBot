@@ -138,8 +138,7 @@ export async function handleActivity(
  * Names what the bot understood rather than the unrecognised verb, per spec §7's wording.
  */
 export const UNKNOWN_INVOKE_ACTION_REPLY =
-  'Não reconheço essa ação. Por aqui sei executar "Atualizar" (buscar os dados mais recentes do card) '
-  + 'e a seleção de card dos resultados de busca.';
+  'Não reconheci essa ação do cartão. Use os botões mais recentes.';
 
 /**
  * Executes a card-action handler with per-conversation serialization and never-silent error handling.
@@ -221,7 +220,7 @@ export async function handleCardAction(
   }
 
   if (verb === REMIND_CANCEL_ACTION) {
-    await runCardReplies(send, conversationId, async () => handleReminderCancel());
+    await runCardReplies(send, conversationId, () => handleReminderCancel({ conversationId }, data, deps));
     return;
   }
 

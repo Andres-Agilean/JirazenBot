@@ -8,8 +8,9 @@ import {
 import {
   NOT_IN_ORG, NOTE_TOO_LONG, NOTE_MAX_CHARS, NO_ASSIGNEE_REPLY, REMINDER_NEEDS_CARD, REMIND_PICK_ACTION,
   REMIND_SEND_ACTION, REMINDER_EXPIRED, UNCONFIGURED_DIRECTORY, REMINDER_SENT, REMINDER_SEND_FAILED, REMINDER_CANCELLED,
-  REMINDER_REASSIGNED, UNCONFIGURED_SEND, UNKNOWN_REQUESTER, type ReminderSenderLike,
+  REMINDER_REASSIGNED, UNCONFIGURED_SEND, UNKNOWN_REQUESTER, REMIND_CANCEL_ACTION, type ReminderSenderLike,
 } from '@/teams/reminder.js';
+import { InMemoryPendingReminderStore } from '@/teams/pendingReminders.js';
 import { DIRECTORY_UNAVAILABLE, type DirectoryUser } from '@/msgraph/directory.js';
 import { BUSCAR_ACTION, CONTINUAR_ACTION } from '@/teams/rundown.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
@@ -81,6 +82,7 @@ function makeDeps(over: Partial<HandleDeps> = {}) {
     cfg: testConfig,
     now: () => now,
     candidates: new InMemoryCandidateStore(() => now),
+    pendingReminders: new InMemoryPendingReminderStore(() => now),
     search: async () => {
       throw new Error('search should not be called in these tests');
     },
@@ -1875,10 +1877,12 @@ describe('lembrar responsável (reminder spec §3-§5)', () => {
     const before = answered.length;
     const [reply] = await handleMessage(dm('lembrar responsável: reunião às 10h'), deps);
     expect(reply.kind).toBe('card');
-    const card = JSON.stringify((reply as { card: unknown }).card);
-    for (const s of [REMIND_SEND_ACTION, 'João Silva', 'joao@org.com', 'QZ-252', 'Erro no relatório', 'reunião às 10h']) {
-      expect(card).toContain(s);
-    }
+    const card = (reply as unknown as { card: { body: { text: string }[]; actions: { verb: string }[] } }).card;
+    // Review M8: the note must be in a card TextBlock, not merely somewhere in the serialized payload.
+    const bodyText = card.body.map((b) => b.text).join('\n');
+    for (const s of ['João Silva', 'joao@org.com', 'QZ-252', 'Erro no relatório']) expect(bodyText).toContain(s);
+    expect(card.body.some((b) => b.text === 'Nota: reunião às 10h')).toBe(true);
+    expect(card.actions.some((a) => a.verb === REMIND_SEND_ACTION)).toBe(true);
     expect(textOf(reply)).toContain('Enviar lembrete para **João Silva**');
     expect(answered.length).toBe(before); // never reaches Claude
   });
@@ -1904,6 +1908,20 @@ describe('lembrar responsável (reminder spec §3-§5)', () => {
     expect(replies).toEqual([{ kind: 'text', text: DIRECTORY_UNAVAILABLE }]);
   });
 
+  // Review M3: the failure reply stays generic, but the cause goes to the server log (message + name only).
+  it('directory throwing logs the error message and the searched name, never the error object', async () => {
+    const { deps } = await bound(joaoAssignee, new Error('Graph users: HTTP 500'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await handleMessage(dm('lembrar responsável'), deps);
+    const calls = err.mock.calls;
+    err.mockRestore();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.every((a) => typeof a === 'string')).toBe(true);
+    const line = calls[0]!.join(' ');
+    expect(line).toContain('HTTP 500');
+    expect(line).toContain('João Silva');
+  });
+
   it('deps.directory undefined -> unconfigured reply (spec §7)', async () => {
     const { deps } = makeDeps({
       loadBundle: async () => ({ status: 'ok', bundle: assigneeBundle(joaoAssignee) } as AssembleResult),
@@ -1922,56 +1940,116 @@ describe('lembrar responsável (reminder spec §3-§5)', () => {
     expect(textOf(replies[0])).toContain('resposta para');
   });
 
-  describe('handleReminderPick', () => {
-    const conv = { conversationId: CONV, conversationType: 'personal', userId: 'u' };
-    const pick = { action: REMIND_PICK_ACTION, userId: 'g2', userName: 'João Silva', userMail: null, cardKey: 'QZ-252', note: 'oi' };
+  // Spec §5.1: the recipient, card and note live in a server-side pending record; buttons carry
+  // only { action, nonce } (pick adds index). These helpers read the nonce off an issued card.
+  type IssuedCard = { card: { actions: { verb: string; data: Record<string, unknown> }[] } };
+  const actionData = (reply: Reply, verb: string) =>
+    (reply as unknown as IssuedCard).card.actions.find((a) => a.verb === verb)!.data;
+  const pickActions = (reply: Reply) =>
+    (reply as unknown as IssuedCard).card.actions.filter((a) => a.verb === REMIND_PICK_ACTION).map((a) => a.data);
+  const STATUS = 'Em Teste';
+  const asText = (t: string) => [{ kind: 'text', text: t }];
 
-    it('a pick answers with the same confirmation card for the picked user', async () => {
-      const { deps } = await bound(joaoAssignee, [joao, joao2]);
-      const [reply] = await handleReminderPick(conv, pick, deps);
-      expect(reply.kind).toBe('card');
-      const card = (reply as unknown as { card: { actions: { verb: string; data: Record<string, unknown> }[] } }).card;
-      const send = card.actions.find((a) => a.verb === REMIND_SEND_ACTION);
-      expect(send?.data).toMatchObject({ userId: 'g2', userMail: null, cardKey: 'QZ-252', note: 'oi' });
-      expect(textOf(reply)).toContain('sem e-mail');
-      expect(textOf(reply)).toContain('Erro no relatório');
+  function statusBundle(assignee: unknown, status: string = STATUS): CardBundle {
+    const base = assigneeBundle(assignee);
+    return { ...base, jira: { ...base.jira!, fields: { ...base.jira!.fields, status: { name: status } } } } as CardBundle;
+  }
+
+  type Conv = { conversationId: string; conversationType: string; userId: string };
+
+  /**
+   * A conversation bound to QZ-252 (assignee João Silva) with a recording sender and a directory
+   * returning `users`. `issue` runs the real `lembrar responsável` command, so the record and nonce
+   * under test are the ones the bot itself produced.
+   */
+  async function e2e(users: DirectoryUser[], c: Conv = { conversationId: CONV, conversationType: 'personal', userId: 'u' }, sender?: ReminderSenderLike) {
+    const sent: Array<{ userId: string; text: string }> = [];
+    const made = makeDeps({
+      loadBundle: async () => ({ status: 'ok', bundle: statusBundle(joaoAssignee) } as AssembleResult),
+      directory: { searchByName: async () => users },
+      sendReminder: sender ?? { sendDm: async (userId, text) => { sent.push({ userId, text }); } },
+    });
+    const say = (text: string, userId: string = c.userId) => handleMessage({ ...c, userId, text }, made.deps);
+    await say('QZ-252');
+    const click = (userId: string = c.userId, userName?: string) => ({ ...c, userId, ...(userName ? { userName } : {}) });
+    return { ...made, sent, say, click, conv: c };
+  }
+
+  describe('handleReminderPick (spec §5.1)', () => {
+    const joaoB: DirectoryUser = { id: 'g2', displayName: 'João A. Silva', mail: null };
+
+    it('a pick sets the chosen candidate and answers the confirmation card, re-using the same nonce', async () => {
+      const w = await e2e([joao, joaoB]);
+      const [issued] = await w.say('lembrar responsável: oi');
+      const buttons = pickActions(issued!);
+      const [reply] = await handleReminderPick(w.click(), buttons[1], w.deps);
+      expect(reply!.kind).toBe('card');
+      expect(textOf(reply!)).toContain('João A. Silva');
+      expect(textOf(reply!)).toContain('sem e-mail');
+      expect(textOf(reply!)).toContain('Erro no relatório');
+      expect(textOf(reply!)).toContain('Nota: oi');
+      expect(actionData(reply!, REMIND_SEND_ACTION)).toEqual({ action: REMIND_SEND_ACTION, nonce: buttons[1]!.nonce });
+    });
+
+    it('picking again re-renders (not one-shot): the later pick wins', async () => {
+      const w = await e2e([joao, joaoB]);
+      const [issued] = await w.say('lembrar responsável');
+      const buttons = pickActions(issued!);
+      await handleReminderPick(w.click(), buttons[1], w.deps);
+      const [again] = await handleReminderPick(w.click(), buttons[0], w.deps);
+      expect(textOf(again!)).toContain('João Silva** (joao@org.com)');
+      await handleReminderSend(w.click('u', 'Andres'), actionData(again!, REMIND_SEND_ACTION), w.deps);
+      expect(w.sent.map((d) => d.userId)).toEqual(['g1']);
     });
 
     it.each([
-      ['a non-object', 'x'], ['null', null],
-      ['a missing userId', { ...pick, userId: undefined }],
-      ['a blank userName', { ...pick, userName: '  ' }],
-      ['a numeric mail', { ...pick, userMail: 5 }],
-      ['a numeric note', { ...pick, note: 5 }],
-      ['a missing cardKey', { ...pick, cardKey: undefined }],
+      ['a non-object', 'x'], ['null', null], ['no nonce', { action: REMIND_PICK_ACTION, index: 0 }],
+      ['no index', { action: REMIND_PICK_ACTION, nonce: 'whatever' }],
     ])('malformed payload (%s) -> SELECTION_INVALID', async (_n, data) => {
       const { deps } = await bound(joaoAssignee, [joao]);
-      expect(await handleReminderPick(conv, data, deps)).toEqual([{ kind: 'text', text: SELECTION_INVALID }]);
+      expect(await handleReminderPick({ conversationId: CONV, conversationType: 'personal', userId: 'u' }, data, deps))
+        .toEqual([{ kind: 'text', text: SELECTION_INVALID }]);
     });
 
-    it('nothing bound, or a different card bound -> REMINDER_EXPIRED', async () => {
+    it('an out-of-range index -> SELECTION_INVALID, and nothing becomes chosen', async () => {
+      const w = await e2e([joao, joaoB]);
+      const [issued] = await w.say('lembrar responsável');
+      const nonce = pickActions(issued!)[0]!.nonce;
+      expect(await handleReminderPick(w.click(), { action: REMIND_PICK_ACTION, nonce, index: 2 }, w.deps))
+        .toEqual(asText(SELECTION_INVALID));
+      expect(await handleReminderSend(w.click(), { action: REMIND_SEND_ACTION, nonce }, w.deps))
+        .toEqual(asText(SELECTION_INVALID));
+      expect(w.sent).toHaveLength(0);
+    });
+
+    it('no record or a never-issued nonce -> REMINDER_EXPIRED', async () => {
       const { deps } = makeDeps();
-      expect(await handleReminderPick(conv, pick, deps)).toEqual([{ kind: 'text', text: REMINDER_EXPIRED }]);
-      const b = await bound(joaoAssignee, [joao]);
-      const other = { ...pick, cardKey: 'QZ-999' };
-      expect(await handleReminderPick(conv, other, b.deps)).toEqual([{ kind: 'text', text: REMINDER_EXPIRED }]);
+      const conv = { conversationId: CONV, conversationType: 'personal', userId: 'u' };
+      expect(await handleReminderPick(conv, { nonce: 'x', index: 0 }, deps)).toEqual(asText(REMINDER_EXPIRED));
+      const w = await e2e([joao, joaoB]);
+      const [issued] = await w.say('lembrar responsável');
+      expect(pickActions(issued!)).toHaveLength(2);
+      expect(await handleReminderPick(w.click(), { nonce: 'forged', index: 0 }, w.deps)).toEqual(asText(REMINDER_EXPIRED));
+    });
+
+    it('a record for a different card than the bound one -> REMINDER_EXPIRED', async () => {
+      const w = await e2e([joao, joaoB]);
+      await w.say('lembrar responsável');
+      await w.deps.pendingReminders.set({ scope: 'shared', conversationId: CONV }, {
+        nonce: 'other', candidates: [joao, joaoB], cardKey: 'QZ-999', createdAt: T0,
+      });
+      expect(await handleReminderPick(w.click(), { nonce: 'other', index: 0 }, w.deps)).toEqual(asText(REMINDER_EXPIRED));
     });
   });
 
-  describe('handleReminderSend / handleReminderCancel', () => {
+  describe('handleReminderSend / handleReminderCancel (spec §5.1)', () => {
     const conv = { conversationId: CONV, conversationType: 'personal', userId: 'u' };
-    const sendData = {
-      action: REMIND_SEND_ACTION, userId: 'g1', userName: 'João Silva', userMail: 'joao@org.com', cardKey: 'QZ-252', note: 'reunião às 10h',
-    };
-    const STATUS = 'Em Teste';
+    const asker = { ...conv, userName: 'Andres' };
+    const NONCE = 'n-seeded';
+    const sendData = { action: REMIND_SEND_ACTION, nonce: NONCE };
 
-    function statusBundle(assignee: unknown, status: string = STATUS): CardBundle {
-      const base = assigneeBundle(assignee);
-      return { ...base, jira: { ...base.jira!, fields: { ...base.jira!.fields, status: { name: status } } } } as CardBundle;
-    }
-
-    /** A bound DM with a recording sender; `bundles` is what each successive vendor load returns. */
-    async function sendWorld(bundles: CardBundle[], sender?: ReminderSenderLike | null) {
+    /** A bound DM with a recording sender and a SEEDED record for João Silva (g1); `bundles` is what each successive vendor load returns. */
+    async function sendWorld(bundles: CardBundle[], sender?: ReminderSenderLike | null, note: string | undefined = 'reunião às 10h') {
       const sent: Array<{ userId: string; text: string }> = [];
       const fake: ReminderSenderLike = sender ?? { sendDm: async (userId, text) => { sent.push({ userId, text }); } };
       let loads = 0;
@@ -1980,10 +2058,11 @@ describe('lembrar responsável (reminder spec §3-§5)', () => {
         ...(sender === null ? {} : { sendReminder: fake }),
       });
       await handleMessage(dm('QZ-252'), made.deps);
+      await made.deps.pendingReminders.set({ scope: 'shared', conversationId: CONV }, {
+        nonce: NONCE, candidates: [joao], chosen: 0, cardKey: 'QZ-252', ...(note !== undefined ? { note } : {}), createdAt: T0,
+      });
       return { ...made, sent, loadCount: () => loads };
     }
-
-    const asker = { ...conv, userName: 'Andres' };
 
     it('Enviar sends ONE dm with the template text, replies REMINDER_SENT, logs one audit line without the text', async () => {
       const { deps, sent } = await sendWorld([statusBundle(joaoAssignee)]);
@@ -2043,28 +2122,18 @@ describe('lembrar responsável (reminder spec §3-§5)', () => {
       expect(w.sent).toHaveLength(0);
     });
 
-    it('a fresh bundle whose assignee no longer matches the confirmed person -> REMINDER_REASSIGNED', async () => {
+    it('a fresh bundle whose assignee no longer matches the RECORD recipient -> REMINDER_REASSIGNED', async () => {
       const { deps, sent } = await sendWorld([statusBundle({ displayName: 'Maria Souza' })]);
       expect(await handleReminderSend(asker, sendData, deps)).toEqual([{ kind: 'text', text: REMINDER_REASSIGNED }]);
       expect(sent).toHaveLength(0);
     });
 
-    it('sender failure -> REMINDER_SEND_FAILED (never success), audit logs failed, no error text leaks', async () => {
-      const { deps } = await sendWorld([statusBundle(joaoAssignee)], { sendDm: async () => { throw new Error('boom 403 secret'); } });
-      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-      const replies = await handleReminderSend(asker, sendData, deps);
-      const lines = log.mock.calls.map((c) => String(c[0]));
-      log.mockRestore();
-      expect(replies).toEqual([{ kind: 'text', text: REMINDER_SEND_FAILED }]);
-      expect(lines).toHaveLength(1);
-      expect(lines[0]).toContain('failed');
-      expect(lines[0]).not.toContain('secret');
-    });
-
-    it('a different card bound than the payload card -> REMINDER_EXPIRED, nothing sent', async () => {
+    it('a record for a different card than the bound one -> REMINDER_EXPIRED, nothing sent', async () => {
       const { deps, sent } = await sendWorld([statusBundle(joaoAssignee)]);
-      expect(await handleReminderSend(asker, { ...sendData, cardKey: 'QZ-999' }, deps))
-        .toEqual([{ kind: 'text', text: REMINDER_EXPIRED }]);
+      await deps.pendingReminders.set({ scope: 'shared', conversationId: CONV }, {
+        nonce: NONCE, candidates: [joao], chosen: 0, cardKey: 'QZ-999', createdAt: T0,
+      });
+      expect(await handleReminderSend(asker, sendData, deps)).toEqual([{ kind: 'text', text: REMINDER_EXPIRED }]);
       expect(sent).toHaveLength(0);
     });
 
@@ -2078,7 +2147,7 @@ describe('lembrar responsável (reminder spec §3-§5)', () => {
       expect(await handleReminderSend(asker, sendData, deps)).toEqual([{ kind: 'text', text: UNCONFIGURED_SEND }]);
     });
 
-    it.each([['a non-object', 'x'], ['a blank userId', { ...sendData, userId: ' ' }], ['a numeric note', { ...sendData, note: 5 }]])(
+    it.each([['a non-object', 'x'], ['a blank nonce', { ...sendData, nonce: ' ' }], ['a numeric nonce', { nonce: 5 }]])(
       'malformed payload (%s) -> SELECTION_INVALID, nothing sent', async (_n, data) => {
         const { deps, sent } = await sendWorld([statusBundle(joaoAssignee)]);
         expect(await handleReminderSend(asker, data, deps)).toEqual([{ kind: 'text', text: SELECTION_INVALID }]);
@@ -2091,8 +2160,121 @@ describe('lembrar responsável (reminder spec §3-§5)', () => {
       expect(sent[0]!.text).toContain(`**${UNKNOWN_REQUESTER}**`);
     });
 
-    it('Cancelar -> REMINDER_CANCELLED', () => {
-      expect(handleReminderCancel()).toEqual([{ kind: 'text', text: REMINDER_CANCELLED }]);
+    // --- The invariants of spec §5.1, each its own test ---
+
+    it('1. Enviar twice on the same card -> exactly ONE DM; the second click is expired', async () => {
+      const w = await e2e([joao]);
+      const [card] = await w.say('lembrar responsável');
+      const data = actionData(card!, REMIND_SEND_ACTION);
+      expect(await handleReminderSend(w.click(), data, w.deps)).toEqual(asText(REMINDER_SENT('João Silva')));
+      expect(await handleReminderSend(w.click(), data, w.deps)).toEqual(asText(REMINDER_EXPIRED));
+      expect(w.sent).toHaveLength(1);
+    });
+
+    it('2. Cancelar then Enviar -> ZERO DMs', async () => {
+      const w = await e2e([joao]);
+      const [card] = await w.say('lembrar responsável');
+      expect(await handleReminderCancel(w.click(), actionData(card!, REMIND_CANCEL_ACTION), w.deps))
+        .toEqual(asText(REMINDER_CANCELLED));
+      expect(await handleReminderSend(w.click(), actionData(card!, REMIND_SEND_ACTION), w.deps))
+        .toEqual(asText(REMINDER_EXPIRED));
+      expect(w.sent).toHaveLength(0);
+    });
+
+    it('2b. Cancelar twice, or with an unknown nonce -> REMINDER_EXPIRED; malformed -> SELECTION_INVALID', async () => {
+      const w = await e2e([joao]);
+      const [card] = await w.say('lembrar responsável');
+      const data = actionData(card!, REMIND_CANCEL_ACTION);
+      await handleReminderCancel(w.click(), data, w.deps);
+      expect(await handleReminderCancel(w.click(), data, w.deps)).toEqual(asText(REMINDER_EXPIRED));
+      expect(await handleReminderCancel(w.click(), { nonce: 'forged' }, w.deps)).toEqual(asText(REMINDER_EXPIRED));
+      expect(await handleReminderCancel(w.click(), undefined, w.deps)).toEqual(asText(SELECTION_INVALID));
+    });
+
+    it('3. group chat: member B clicks Enviar -> one DM; a second click by A sends nothing more', async () => {
+      const group = { conversationId: 'room', conversationType: 'groupChat', userId: 'ana' };
+      const w = await e2e([joao], group);
+      const [card] = await w.say('lembrar responsável: oi', 'ana');
+      const data = actionData(card!, REMIND_SEND_ACTION);
+      const b = await handleReminderSend(w.click('bruno', 'Bruno'), data, w.deps);
+      expect(b).toEqual(asText(REMINDER_SENT('João Silva')));
+      expect(w.sent).toHaveLength(1);
+      expect(w.sent[0]!.text).toContain('**Bruno**');
+      expect(await handleReminderSend(w.click('ana', 'Ana'), data, w.deps)).toEqual(asText(REMINDER_EXPIRED));
+      expect(w.sent).toHaveLength(1);
+    });
+
+    it('4. a nonce that was never issued -> REMINDER_EXPIRED, no DM', async () => {
+      const w = await e2e([joao]);
+      await w.say('lembrar responsável');
+      expect(await handleReminderSend(w.click(), { action: REMIND_SEND_ACTION, nonce: 'never-issued' }, w.deps))
+        .toEqual(asText(REMINDER_EXPIRED));
+      expect(w.sent).toHaveLength(0);
+    });
+
+    it('5. the DM goes to the RECORD recipient; a recipient id smuggled into the payload is ignored', async () => {
+      const record: DirectoryUser = { id: 'g-record', displayName: 'João Silva', mail: 'joao@org.com' };
+      const w = await e2e([record]);
+      const [card] = await w.say('lembrar responsável');
+      const data = { ...actionData(card!, REMIND_SEND_ACTION), userId: 'g-evil', userName: 'Mallory', note: 'x'.repeat(5000) };
+      const replies = await handleReminderSend(w.click(), data, w.deps);
+      expect(w.sent.map((d) => d.userId)).toEqual(['g-record']);
+      expect(w.sent[0]!.text).not.toContain('xxxxx');
+      expect(replies).toEqual(asText(REMINDER_SENT('João Silva')));
+    });
+
+    it('6. pick -> confirmation -> Enviar end-to-end: the chosen candidate is the one sent to', async () => {
+      const w = await e2e([joao, { id: 'g2', displayName: 'João A. Silva', mail: null }]);
+      const [pickCard] = await w.say('lembrar responsável');
+      const [confirm] = await handleReminderPick(w.click(), pickActions(pickCard!)[1], w.deps);
+      const replies = await handleReminderSend(w.click(), actionData(confirm!, REMIND_SEND_ACTION), w.deps);
+      expect(w.sent.map((d) => d.userId)).toEqual(['g2']);
+      expect(replies).toEqual(asText(REMINDER_SENT('João A. Silva')));
+    });
+
+    it('6b. Enviar on a pick card before any pick -> SELECTION_INVALID, nothing sent, record kept', async () => {
+      const w = await e2e([joao, { id: 'g2', displayName: 'João A. Silva', mail: null }]);
+      const [pickCard] = await w.say('lembrar responsável');
+      const nonce = pickActions(pickCard!)[0]!.nonce;
+      expect(await handleReminderSend(w.click(), { action: REMIND_SEND_ACTION, nonce }, w.deps)).toEqual(asText(SELECTION_INVALID));
+      expect(w.sent).toHaveLength(0);
+      const [confirm] = await handleReminderPick(w.click(), pickActions(pickCard!)[0], w.deps);
+      expect(confirm!.kind).toBe('card');
+    });
+
+    it('7. a new `lembrar responsável` replaces the record: the OLD card nonce is expired', async () => {
+      const w = await e2e([joao]);
+      const [first] = await w.say('lembrar responsável: primeiro');
+      const [second] = await w.say('lembrar responsável: segundo');
+      expect(await handleReminderSend(w.click(), actionData(first!, REMIND_SEND_ACTION), w.deps)).toEqual(asText(REMINDER_EXPIRED));
+      expect(w.sent).toHaveLength(0);
+      await handleReminderSend(w.click(), actionData(second!, REMIND_SEND_ACTION), w.deps);
+      expect(w.sent).toHaveLength(1);
+      expect(w.sent[0]!.text).toContain('> segundo');
+    });
+
+    it('8. send failure: the record is consumed, REMINDER_SEND_FAILED, and a retry click does NOT send', async () => {
+      let attempts = 0;
+      const w = await e2e([joao], undefined, { sendDm: async () => { attempts += 1; throw new Error('boom 403 secret'); } });
+      const [card] = await w.say('lembrar responsável');
+      const data = actionData(card!, REMIND_SEND_ACTION);
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const first = await handleReminderSend(w.click(), data, w.deps);
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      log.mockRestore();
+      err.mockRestore();
+      expect(first).toEqual(asText(REMINDER_SEND_FAILED));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('failed');
+      expect(lines[0]).not.toContain('secret');
+      expect(await handleReminderSend(w.click(), data, w.deps)).toEqual(asText(REMINDER_EXPIRED));
+      expect(attempts).toBe(1);
+    });
+
+    it('REMINDER_SEND_FAILED tells the user to ask again (a retry click cannot resend)', () => {
+      expect(REMINDER_SEND_FAILED).toContain('Nada foi entregue');
+      expect(REMINDER_SEND_FAILED).toContain('peça o lembrete novamente');
     });
   });
 });

@@ -52,7 +52,7 @@ export const REMINDER_EXPIRED = 'Este lembrete expirou. Peça novamente com `lem
 
 export const REMINDER_SENT = (name: string): string => `Lembrete enviado para **${name}**.`;
 export const REMINDER_SEND_FAILED =
-  'Não consegui enviar o lembrete agora. Nada foi entregue — tente novamente em instantes.';
+  'Não consegui enviar o lembrete. Nada foi entregue — peça o lembrete novamente.';
 export const REMINDER_CANCELLED = 'Ok, nada foi enviado.';
 export const UNCONFIGURED_SEND = 'Envio indisponível neste ambiente.';
 /** The refreshed Jira assignee no longer matches the confirmed recipient: refuse rather than DM the wrong person (spec §1). */
@@ -63,6 +63,9 @@ export const UNKNOWN_REQUESTER = 'Um colega';
 /** The proactive-DM seam (spec §7): SDK-free here, implemented in src/teams/app.ts. */
 export interface ReminderSenderLike { sendDm(userId: string, text: string): Promise<void> }
 
+/** One line, with link-bracket syntax escaped so a note can never render a live link in the DM (review M5). */
+const quotableNote = (note: string): string => note.replace(/\r?\n/g, ' ').replace(/[[\]]/g, '\\$&');
+
 /** Fixed template (spec §6): user text appears ONLY inside the quoted note block. */
 export function buildReminderDm(args: {
   requester: string; cardKey: string; summary: string; status: string | undefined; url: string; note?: string;
@@ -70,7 +73,7 @@ export function buildReminderDm(args: {
   const lines = [
     `**${args.requester}** pediu um lembrete sobre o card [${args.cardKey}](${args.url}) — ${args.summary}.`,
     args.status ? `Status atual: ${args.status}.` : undefined,
-    args.note ? `> ${args.note.replace(/\r?\n/g, ' ')}` : undefined,
+    args.note ? `> ${quotableNote(args.note)}` : undefined,
     `Para tratar do assunto, responda diretamente a ${args.requester} — eu não encaminho respostas.`,
   ];
   return lines.filter(Boolean).join('\n\n');
@@ -104,38 +107,31 @@ export async function resolveAssignee(name: string, directory: DirectoryClientLi
   return [...seen.values()];
 }
 
-/** Button payload shared by pick and send: the resolved person, the card and the optional note. */
+/**
+ * Button payload (spec §5.1): ONLY the pending-record nonce, plus the candidate index on pick
+ * buttons. The recipient, card and note live in the server-side record, never in client data.
+ */
 export interface ReminderPayload {
-  userId: string;
-  userName: string;
-  userMail: string | null;
-  cardKey: string;
-  note?: string;
+  nonce: string;
+  index?: number;
 }
 
-const reminderData = (action: string, user: DirectoryUser, cardKey: string, note: string | undefined) => ({
-  action, userId: user.id, userName: user.displayName, userMail: user.mail, cardKey,
-  ...(note !== undefined ? { note } : {}),
+const reminderData = (action: string, nonce: string, index?: number) => ({
+  action, nonce, ...(index !== undefined ? { index } : {}),
 });
 
 /**
- * Validates a pick/send payload like typed input (client data): non-blank strings for user and card,
- * a string-or-null mail, an optional string note. Anything else is null.
+ * Validates a button payload like typed input (client data): a non-blank nonce and, when present,
+ * a non-negative integer index. Any other field is ignored, never read.
  */
 export function parseReminderPayload(data: unknown): ReminderPayload | null {
   if (typeof data !== 'object' || data === null) return null;
   const d = data as Record<string, unknown>;
-  const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
-  const userId = str(d.userId);
-  const userName = str(d.userName);
-  const cardKey = str(d.cardKey);
-  if (!userId || !userName || !cardKey) return null;
-  if (d.userMail !== null && typeof d.userMail !== 'string') return null;
-  if (d.note !== undefined && typeof d.note !== 'string') return null;
-  return {
-    userId, userName, userMail: (d.userMail as string | null), cardKey,
-    ...(d.note !== undefined ? { note: d.note as string } : {}),
-  };
+  if (typeof d.nonce !== 'string' || d.nonce.trim() === '') return null;
+  const nonce = d.nonce.trim();
+  if (d.index === undefined) return { nonce };
+  if (typeof d.index !== 'number' || !Number.isInteger(d.index) || d.index < 0) return null;
+  return { nonce, index: d.index };
 }
 
 const mailOf = (user: DirectoryUser): string => user.mail ?? NO_MAIL;
@@ -153,7 +149,7 @@ export function renderReminderConfirm(
 
 /** Confirmation card (spec §5): nothing is sent until Enviar lembrete is clicked. */
 export function buildReminderConfirmCard(
-  user: DirectoryUser, cardKey: string, summary: string, note: string | undefined,
+  user: DirectoryUser, cardKey: string, summary: string, note: string | undefined, nonce: string,
 ): Record<string, unknown> {
   return {
     ...adaptiveCard([
@@ -163,9 +159,9 @@ export function buildReminderConfirmCard(
     actions: [
       {
         type: 'Action.Execute', title: 'Enviar lembrete', verb: REMIND_SEND_ACTION,
-        data: reminderData(REMIND_SEND_ACTION, user, cardKey, note),
+        data: reminderData(REMIND_SEND_ACTION, nonce),
       },
-      { type: 'Action.Execute', title: 'Cancelar', verb: REMIND_CANCEL_ACTION, data: { action: REMIND_CANCEL_ACTION } },
+      { type: 'Action.Execute', title: 'Cancelar', verb: REMIND_CANCEL_ACTION, data: reminderData(REMIND_CANCEL_ACTION, nonce) },
     ],
   };
 }
@@ -175,7 +171,7 @@ const pickLabel = (user: DirectoryUser): string => `${user.displayName} (${mailO
 const pickOverflow = (hidden: number): string => `e mais ${hidden} — refine o nome no Jira.`;
 
 /** Plain-text mirror of `buildReminderPickCard`. */
-export function renderReminderPick(users: DirectoryUser[], cardKey: string, _note: string | undefined): string {
+export function renderReminderPick(users: DirectoryUser[], cardKey: string): string {
   const shown = users.slice(0, REMINDER_CANDIDATE_CAP);
   const hidden = users.length - shown.length;
   return [pickQuestion(cardKey), ...shown.map((u) => `- ${pickLabel(u)}`), ...(hidden > 0 ? [pickOverflow(hidden)] : [])]
@@ -184,7 +180,7 @@ export function renderReminderPick(users: DirectoryUser[], cardKey: string, _not
 
 /** Clarification card (spec §4): one button per homonym (name + email), capped, overflow named. */
 export function buildReminderPickCard(
-  users: DirectoryUser[], cardKey: string, note: string | undefined,
+  users: DirectoryUser[], cardKey: string, nonce: string,
 ): Record<string, unknown> {
   const shown = users.slice(0, REMINDER_CANDIDATE_CAP);
   const hidden = users.length - shown.length;
@@ -193,9 +189,9 @@ export function buildReminderPickCard(
       { type: 'TextBlock', text: pickQuestion(cardKey), wrap: true },
       ...(hidden > 0 ? [subtle(pickOverflow(hidden))] : []),
     ]),
-    actions: shown.map((u) => ({
+    actions: shown.map((u, i) => ({
       type: 'Action.Execute', title: pickLabel(u), verb: REMIND_PICK_ACTION,
-      data: reminderData(REMIND_PICK_ACTION, u, cardKey, note),
+      data: reminderData(REMIND_PICK_ACTION, nonce, i),
     })),
   };
 }

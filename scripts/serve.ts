@@ -9,6 +9,7 @@ import { answer, answerPortfolio } from '@/claude/answer.js';
 import { createAnthropicClient } from '@/claude/client.js';
 import type { HandleDeps } from '@/teams/handleMessage.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
+import { InMemoryPendingReminderStore } from '@/teams/pendingReminders.js';
 import { createSearchCache, type SearchDeps } from '@/teams/search.js';
 import { JiraClient } from '@/fetch/jira.js';
 import { ZendeskClient } from '@/fetch/zendesk.js';
@@ -62,6 +63,7 @@ const deps: HandleDeps = {
   cfg,
   now: Date.now,
   candidates: new InMemoryCandidateStore(),
+  pendingReminders: new InMemoryPendingReminderStore(),
   search: (name) => searchCache.run(name, searchClients),
   // Reminder directory search reuses the bot's own Entra app (same BOT_* credentials as authMode);
   // absent in Playground mode, where `lembrar responsável` answers "indisponível neste ambiente".

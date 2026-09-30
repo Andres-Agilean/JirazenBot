@@ -4,11 +4,12 @@ import {
 } from '@/teams/app.js';
 import type { AuthMode } from '@/teams/authMode.js';
 import {
-  REMIND_CANCEL_ACTION, REMIND_PICK_ACTION, REMIND_SEND_ACTION, REMINDER_CANCELLED, REMINDER_SENT,
+  REMIND_CANCEL_ACTION, REMIND_PICK_ACTION, REMIND_SEND_ACTION, REMINDER_CANCELLED, REMINDER_EXPIRED, REMINDER_SENT,
 } from '@/teams/reminder.js';
 import { NO_TEXT_RECEIVED, SELECTION_INVALID, handleSelect, type HandleDeps } from '@/teams/handleMessage.js';
 import { InMemoryBindingStore, type Binding, type BindingStore, type Slot } from '@/teams/bindings.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
+import { InMemoryPendingReminderStore } from '@/teams/pendingReminders.js';
 import { REFRESH_ACTION } from '@/teams/cards.js';
 import { BUSCAR_ACTION, CONTINUAR_ACTION, SELECT_ACTION } from '@/teams/rundown.js';
 import { testConfig } from './helpers.js';
@@ -28,6 +29,7 @@ function makeDeps(over: Partial<HandleDeps> = {}): HandleDeps {
     cfg: testConfig,
     now: () => 0,
     candidates: new InMemoryCandidateStore(() => 0),
+    pendingReminders: new InMemoryPendingReminderStore(() => 0),
     search: async () => {
       throw new Error('search should not be called in these tests');
     },
@@ -359,7 +361,9 @@ describe('handleCardAction: routes on the invoke verb (spec §7, review finding:
     expect(sent[0]).toBe(UNEXPECTED_ERROR_REPLY);
   });
 
-  it('names both known actions in UNKNOWN_INVOKE_ACTION_REPLY for updated wording', async () => {
+  // Review M6 (spec-driven copy change): the reply no longer enumerates an action list that goes
+  // stale every time a button ships; it says generically that the action is unknown.
+  it('UNKNOWN_INVOKE_ACTION_REPLY is generic and does not enumerate actions', async () => {
     const sent: unknown[] = [];
     const deps = makeDeps();
 
@@ -368,9 +372,8 @@ describe('handleCardAction: routes on the invoke verb (spec §7, review finding:
       'unknownVerb', undefined, 'c', 'personal', 'u', deps,
     );
 
-    expect(sent).toHaveLength(1);
-    expect(String(sent[0])).toContain('Atualizar');
-    expect(String(sent[0])).toContain('seleção de card');
+    expect(sent).toEqual(['Não reconheci essa ação do cartão. Use os botões mais recentes.']);
+    expect(String(sent[0])).not.toContain('Atualizar');
   });
 });
 
@@ -508,8 +511,18 @@ describe('handleCardAction: reminder verbs (reminder spec §5-§7)', () => {
     for (const verb of [REMIND_SEND_ACTION, REMIND_PICK_ACTION]) expect(await card(verb, {})).toEqual([SELECTION_INVALID]);
   });
 
-  it('routes cancel to REMINDER_CANCELLED', async () => {
-    expect(await card(REMIND_CANCEL_ACTION, undefined)).toEqual([REMINDER_CANCELLED]);
+  // Spec §5.1: Cancelar now consumes the pending record, so it needs a nonce like the other buttons.
+  it('routes cancel: a garbage payload -> SELECTION_INVALID, an unknown nonce -> REMINDER_EXPIRED', async () => {
+    expect(await card(REMIND_CANCEL_ACTION, undefined)).toEqual([SELECTION_INVALID]);
+    expect(await card(REMIND_CANCEL_ACTION, { action: REMIND_CANCEL_ACTION, nonce: 'n' })).toEqual([REMINDER_EXPIRED]);
+  });
+
+  it('routes cancel with a live record to REMINDER_CANCELLED', async () => {
+    const deps = makeDeps();
+    await deps.pendingReminders.set({ scope: 'shared', conversationId: 'c' }, {
+      nonce: 'n', candidates: [{ id: 'g1', displayName: 'João Silva', mail: null }], chosen: 0, cardKey: 'QZ-252', createdAt: 0,
+    });
+    expect(await card(REMIND_CANCEL_ACTION, { action: REMIND_CANCEL_ACTION, nonce: 'n' }, undefined, deps)).toEqual([REMINDER_CANCELLED]);
   });
 
   it('Enviar click carries the clicking user name into the DM and sends the receipt', async () => {
@@ -528,12 +541,11 @@ describe('handleCardAction: reminder verbs (reminder spec §5-§7)', () => {
       }),
     });
     await handleActivity(async () => undefined, 'QZ-252', [], 'c', 'personal', 'u', deps);
+    await deps.pendingReminders.set({ scope: 'shared', conversationId: 'c' }, {
+      nonce: 'n1', candidates: [{ id: 'g1', displayName: 'João Silva', mail: null }], chosen: 0, cardKey: 'QZ-252', createdAt: 0,
+    });
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const sent = await card(
-      REMIND_SEND_ACTION,
-      { action: REMIND_SEND_ACTION, userId: 'g1', userName: 'João Silva', userMail: null, cardKey: 'QZ-252' },
-      'Andres', deps,
-    );
+    const sent = await card(REMIND_SEND_ACTION, { action: REMIND_SEND_ACTION, nonce: 'n1' }, 'Andres', deps);
     log.mockRestore();
     expect(dms).toHaveLength(1);
     expect(dms[0]!.text).toContain('**Andres**');

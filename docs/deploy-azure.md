@@ -114,6 +114,9 @@ O comando `lembrar responsável` envia mensagens diretas no Teams. Requer:
 Se o método SDK falhar, pode exigir o id prefixado `29:` (Teams id); nesse caso, adicione um
 lookup Graph → Teams-id no sender (`src/teams/app.ts`).
 
+Na mesma sessão ao vivo, verifique também o `serviceUrl`: o `conversations.create` proativo depende
+do `serviceUrl` do SDK, e pode ser necessário um `serviceUrl` regional do Teams.
+
 ## 6. Smoke test
 
 1. DM com o bot: `QZ-252` → resumo com rodapé e botões; uma pergunta de follow-up.

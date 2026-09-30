@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Config } from '@/config.js';
 import type { CardRef } from '@/resolve/types.js';
 import type { CardBundle, Surface } from '@/bundle/types.js';
@@ -26,10 +27,11 @@ import { surfaceFor } from './surface.js';
 import {
   assigneeMatches, buildReminderConfirmCard, buildReminderDm, buildReminderPickCard, bundleAssignee, bundleSummary,
   NO_ASSIGNEE_REPLY, NOT_IN_ORG, NOTE_TOO_LONG, parseLembrar, parseReminderPayload, REMINDER_CANCELLED,
-  REMINDER_EXPIRED, REMINDER_NEEDS_CARD, REMINDER_REASSIGNED, REMINDER_SEND_FAILED, REMINDER_SENT, renderReminderConfirm,
+  REMINDER_CANDIDATE_CAP, REMINDER_EXPIRED, REMINDER_NEEDS_CARD, REMINDER_REASSIGNED, REMINDER_SEND_FAILED, REMINDER_SENT, renderReminderConfirm,
   renderReminderPick, resolveAssignee, UNCONFIGURED_DIRECTORY, UNCONFIGURED_SEND, UNKNOWN_REQUESTER,
   type ReminderSenderLike,
 } from './reminder.js';
+import type { PendingReminder, PendingReminderStore } from './pendingReminders.js';
 import { DIRECTORY_UNAVAILABLE, type DirectoryClientLike, type DirectoryUser } from '@/msgraph/directory.js';
 
 /**
@@ -55,6 +57,8 @@ export interface HandleDeps {
   now: () => number;
   /** Candidate lists from portfolio searches, keyed like bindings (always the shared slot). */
   candidates: CandidateStore;
+  /** One server-side pending reminder per conversation: the one-shot record behind the confirmation card (reminder spec §5.1). */
+  pendingReminders: PendingReminderStore;
   /** Claude over a rendered portfolio (read-only): answers free-form questions about a candidate set. */
   answerPortfolioFn: (rendered: string, question: string, history: Turn[]) => Promise<Answer>;
   /** Portfolio search by company/client/project name (read-only against Jira and Zendesk). */
@@ -298,6 +302,9 @@ async function doRefresh(
  * priority over the thread's shared card (spec §4). Shared by handleMessage and handleRefresh so
  * the Refresh button resolves its binding exactly the way typing a command does.
  */
+/** The room-wide slot: bindings' shared scope, and the one pending reminder per conversation (spec §5.1). */
+const sharedSlotFor = (conversationId: string): Slot => ({ scope: 'shared', conversationId });
+
 async function resolveSlots(
   incoming: RefreshRequest,
   deps: HandleDeps,
@@ -312,7 +319,7 @@ async function resolveSlots(
   activeSlot: Slot;
 }> {
   const surface = surfaceFor(incoming.conversationType);
-  const sharedSlot: Slot = { scope: 'shared', conversationId: incoming.conversationId };
+  const sharedSlot = sharedSlotFor(incoming.conversationId);
   const personalSlot: Slot = {
     scope: 'personal', conversationId: incoming.conversationId, userId: incoming.userId,
   };
@@ -541,24 +548,38 @@ async function askPortfolio(
 }
 
 /** The confirmation card reply for one resolved person: the single builder behind both the single-match and pick paths. */
-function confirmReply(user: DirectoryUser, binding: Binding, note: string | undefined): Reply {
+function confirmReply(user: DirectoryUser, binding: Binding, note: string | undefined, nonce: string): Reply {
   const key = cardLabel(binding.bundle);
   const summary = bundleSummary(binding.bundle);
   return {
     kind: 'card',
-    card: buildReminderConfirmCard(user, key, summary, note),
+    card: buildReminderConfirmCard(user, key, summary, note, nonce),
     fallbackText: renderReminderConfirm(user, key, summary, note),
   };
+}
+
+const reminderText = (t: string): Reply[] => [{ kind: 'text', text: t }];
+
+/**
+ * The conversation's pending reminder, but only when `nonce` names it. A missing, expired,
+ * replaced or already-consumed record all answer undefined: there is deliberately no tombstone,
+ * so "already handled" and "expired" are one reply (spec §5.1).
+ */
+async function liveReminder(slot: Slot, nonce: string, deps: HandleDeps): Promise<PendingReminder | undefined> {
+  const record = await deps.pendingReminders.get(slot);
+  return record?.nonce === nonce ? record : undefined;
 }
 
 /**
  * `lembrar responsável` (reminder spec §3-§5): resolves the bound card's assignee in the org
  * directory and answers with a confirmation (one match), a clarification (several) or an honest
- * reply. Never sends anything -- delivery waits for the confirmation click.
+ * reply. Never sends anything -- delivery waits for the confirmation click. A confirmation or
+ * pick card is backed by a fresh pending record that replaces the slot's previous one (§5.1).
  */
 async function remindAssignee(
   parsed: NonNullable<ReturnType<typeof parseLembrar>>,
   existing: Binding | undefined,
+  slot: Slot,
   deps: HandleDeps,
 ): Promise<Reply> {
   const text = (t: string): Reply => ({ kind: 'text', text: t });
@@ -570,23 +591,34 @@ async function remindAssignee(
   let users: DirectoryUser[];
   try {
     users = await resolveAssignee(name, deps.directory);
-  } catch {
+  } catch (err) {
+    // Log the cause (message carries the HTTP status) and the searched name -- nothing else.
+    console.error('Falha na consulta ao diretório:', err instanceof Error ? err.message : 'erro desconhecido', `nome="${name}"`);
     return text(DIRECTORY_UNAVAILABLE);
   }
   if (users.length === 0) return text(NOT_IN_ORG(name));
-  if (users.length === 1) return confirmReply(users[0]!, existing, parsed.note);
   const key = cardLabel(existing.bundle);
+  const nonce = randomUUID();
+  const record: PendingReminder = {
+    nonce, candidates: users, cardKey: key, createdAt: deps.now(), ...(parsed.note !== undefined ? { note: parsed.note } : {}),
+  };
+  if (users.length === 1) {
+    await deps.pendingReminders.set(slot, { ...record, chosen: 0 });
+    return confirmReply(users[0]!, existing, parsed.note, nonce);
+  }
+  await deps.pendingReminders.set(slot, record);
   return {
     kind: 'card',
-    card: buildReminderPickCard(users, key, parsed.note),
-    fallbackText: renderReminderPick(users, key, parsed.note),
+    card: buildReminderPickCard(users, key, nonce),
+    fallbackText: renderReminderPick(users, key),
   };
 }
 
 /**
- * The pick card's button: answers with the same confirmation card for the chosen person. The
- * payload's card must still be the bound one -- otherwise the summary would describe a different
- * card than the one being confirmed, so a moved-on or expired binding says so (spec §5).
+ * The pick card's button: records the chosen candidate on the pending record and answers the
+ * confirmation card for that person (same nonce). Not one-shot -- picking again re-renders. The
+ * record's card must still be the bound one, otherwise the summary would describe a different card
+ * than the one being confirmed, so a moved-on or expired binding says so (spec §5, §5.1).
  */
 export async function handleReminderPick(
   incoming: RefreshRequest,
@@ -594,60 +626,80 @@ export async function handleReminderPick(
   deps: HandleDeps,
 ): Promise<Reply[]> {
   const payload = parseReminderPayload(data);
-  if (!payload) return [{ kind: 'text', text: SELECTION_INVALID }];
+  if (!payload || payload.index === undefined) return reminderText(SELECTION_INVALID);
+  const slot = sharedSlotFor(incoming.conversationId);
+  const record = await liveReminder(slot, payload.nonce, deps);
   const { existing } = await resolveSlots(incoming, deps);
-  if (!existing || cardLabel(existing.bundle) !== payload.cardKey) return [{ kind: 'text', text: REMINDER_EXPIRED }];
-  const user: DirectoryUser = { id: payload.userId, displayName: payload.userName, mail: payload.userMail };
-  return [confirmReply(user, existing, payload.note)];
+  if (!record || !existing || cardLabel(existing.bundle) !== record.cardKey) return reminderText(REMINDER_EXPIRED);
+  // Only the buttons actually rendered (the capped prefix) are valid picks.
+  const user = payload.index < REMINDER_CANDIDATE_CAP ? record.candidates[payload.index] : undefined;
+  if (!user) return reminderText(SELECTION_INVALID);
+  await deps.pendingReminders.set(slot, { ...record, chosen: payload.index });
+  return [confirmReply(user, existing, record.note, record.nonce)];
 }
 
 /**
  * The confirmation card's Enviar lembrete button (reminder spec §5-§7): the only place anything is
- * sent to a human. The payload's card must still be the bound one; a stale bundle is refetched
- * first and the DM is refused if the card's assignee no longer matches the person the user
- * confirmed -- an extra refusal always beats DMing the wrong person (spec §1). One click, at most
- * one DM, one audit line per attempt (never the DM text or the note).
+ * sent to a human. Recipient, card and note all come from the server-side record (§5.1), never the
+ * payload. The record must name the still-bound card; a stale bundle is refetched first and the DM
+ * is refused if the card's assignee no longer matches the record's recipient -- an extra refusal
+ * always beats DMing the wrong person (spec §1). The record is CONSUMED before the send attempt, so
+ * a re-click, a second group member or an invoke retry can never produce a second DM, and a failed
+ * send is not restored (the user asks again). One audit line per attempt (never the DM text or note).
  */
 export async function handleReminderSend(
   incoming: ReminderClick,
   data: unknown,
   deps: HandleDeps,
 ): Promise<Reply[]> {
-  const text = (t: string): Reply[] => [{ kind: 'text', text: t }];
   const payload = parseReminderPayload(data);
-  if (!payload) return text(SELECTION_INVALID);
+  if (!payload) return reminderText(SELECTION_INVALID);
+  const slot = sharedSlotFor(incoming.conversationId);
+  const record = await liveReminder(slot, payload.nonce, deps);
   const { existing, activeSlot, surface } = await resolveSlots(incoming, deps);
-  if (!existing || cardLabel(existing.bundle) !== payload.cardKey) return text(REMINDER_EXPIRED);
-  if (!deps.sendReminder) return text(UNCONFIGURED_SEND);
+  if (!record || !existing || cardLabel(existing.bundle) !== record.cardKey) return reminderText(REMINDER_EXPIRED);
+  const recipient = record.chosen === undefined ? undefined : record.candidates[record.chosen];
+  if (!recipient) return reminderText(SELECTION_INVALID);
+  if (!deps.sendReminder) return reminderText(UNCONFIGURED_SEND);
   const fresh = await freshBinding(existing, activeSlot, surface, deps);
-  if ('error' in fresh) return text(fresh.error);
+  if ('error' in fresh) return reminderText(fresh.error);
   const { bundle } = fresh.binding;
   const assignee = bundleAssignee(bundle);
-  if (!assignee || !assigneeMatches(assignee, payload.userName)) return text(REMINDER_REASSIGNED);
+  if (!assignee || !assigneeMatches(assignee, recipient.displayName)) return reminderText(REMINDER_REASSIGNED);
 
   const requester = incoming.userName?.trim() || UNKNOWN_REQUESTER;
   const dm = buildReminderDm({
     requester,
-    cardKey: payload.cardKey,
+    cardKey: record.cardKey,
     summary: bundleSummary(bundle),
     status: cardStatus(bundle) ?? undefined,
-    url: jiraLink(payload.cardKey, deps.cfg),
-    ...(payload.note ? { note: payload.note } : {}),
+    url: jiraLink(record.cardKey, deps.cfg),
+    ...(record.note ? { note: record.note } : {}),
   });
+  await deps.pendingReminders.delete(slot); // one-shot: consumed before the send, never restored
   let delivered = true;
   try {
-    await deps.sendReminder.sendDm(payload.userId, dm);
+    await deps.sendReminder.sendDm(recipient.id, dm);
   } catch (err) {
     delivered = false;
     console.error('Falha ao enviar o lembrete:', err instanceof Error ? err.message : 'erro desconhecido');
   }
-  console.log(`[lembrete] solicitante="${requester}" destino=${payload.userId} card=${payload.cardKey} resultado=${delivered ? 'sent' : 'failed'}`);
-  return text(delivered ? REMINDER_SENT(payload.userName) : REMINDER_SEND_FAILED);
+  console.log(`[lembrete] solicitante="${requester}" destino=${recipient.id} card=${record.cardKey} resultado=${delivered ? 'sent' : 'failed'}`);
+  return reminderText(delivered ? REMINDER_SENT(recipient.displayName) : REMINDER_SEND_FAILED);
 }
 
-/** The confirmation card's Cancelar button: nothing was sent, and it says so (never silent). */
-export function handleReminderCancel(): Reply[] {
-  return [{ kind: 'text', text: REMINDER_CANCELLED }];
+/** The confirmation card's Cancelar button: consumes the record (so Enviar can never follow) and says nothing was sent. */
+export async function handleReminderCancel(
+  incoming: Pick<Incoming, 'conversationId'>,
+  data: unknown,
+  deps: HandleDeps,
+): Promise<Reply[]> {
+  const payload = parseReminderPayload(data);
+  if (!payload) return reminderText(SELECTION_INVALID);
+  const slot = sharedSlotFor(incoming.conversationId);
+  if (!(await liveReminder(slot, payload.nonce, deps))) return reminderText(REMINDER_EXPIRED);
+  await deps.pendingReminders.delete(slot);
+  return reminderText(REMINDER_CANCELLED);
 }
 
 /**
@@ -689,7 +741,7 @@ export async function handleMessage(
 
   // 1a. `lembrar responsável`: a whole-message command on the bound card (reminder spec §3).
   const lembrar = parseLembrar(text);
-  if (lembrar) return [await remindAssignee(lembrar, existing, deps)];
+  if (lembrar) return [await remindAssignee(lembrar, existing, sharedSlot, deps)];
 
   // 1b. Explicit search: works with or without a binding and never unbinds.
   const buscarName = parseBuscar(text);
