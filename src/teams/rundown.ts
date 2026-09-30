@@ -22,8 +22,22 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** `DD/MM` in Brazil local time, from the shared datetime formatter (no inline timezone logic). */
 const dayMonth = (iso: string): string => formatDayMonthTime(iso).split(' ')[0];
 
+/** `↔ chamado N` after a Jira key whose Zendesk pair is known (spec §10.4). */
+const pairSuffix = (c: CardCandidate): string => (c.zendeskId ? ` ↔ chamado ${c.zendeskId}` : '');
+
 const cardLine = (c: CardCandidate): string =>
-  `${c.label} — ${c.summary} — ${c.status}, atualizado ${dayMonth(c.updatedAt)}`;
+  `${c.label}${pairSuffix(c)} — ${c.summary} — ${c.status}, atualizado ${dayMonth(c.updatedAt)}`;
+
+/** Section order and titles: Jira cards first, then Zendesk tickets that have no Jira card. */
+const SECTIONS = [
+  { title: 'Cards (Jira)', system: 'jira' },
+  { title: 'Chamados (Zendesk)', system: 'zendesk' },
+] as const;
+
+/** Splits into the non-empty sections, keeping the incoming (newest-first) order inside each. */
+const sectioned = (cards: CardCandidate[]) =>
+  SECTIONS.map((s) => ({ title: s.title, cards: cards.filter((c) => c.ref.system === s.system) }))
+    .filter((s) => s.cards.length > 0);
 
 /** Statuses (normalized) that read as finished. Tenant-tunable. */
 const GOOD_STATUSES = new Set(['done', 'pronto para producao', 'resolvido', 'closed', 'solved']);
@@ -44,10 +58,17 @@ export function statusColor(status: string): StatusColor {
 function cardBlocks(c: CardCandidate): Record<string, unknown>[] {
   const detail = [c.status, c.assignee, `atualizado ${dayMonth(c.updatedAt)}`].filter(Boolean).join(' · ');
   return [
-    { type: 'TextBlock', text: `**${c.label}** — ${c.summary}`, wrap: true, spacing: 'Small' },
+    { type: 'TextBlock', text: `**${c.label}**${pairSuffix(c)} — ${c.summary}`, wrap: true, spacing: 'Small' },
     { type: 'TextBlock', text: detail, wrap: true, isSubtle: true, color: statusColor(c.status), spacing: 'None' },
   ];
 }
+
+/** Card body blocks for `cards`, grouped under bold subtle section headers. */
+const sectionBlocks = (cards: CardCandidate[]): Record<string, unknown>[] =>
+  sectioned(cards).flatMap((s) => [
+    { type: 'TextBlock', text: s.title, wrap: true, weight: 'Bolder', isSubtle: true, spacing: 'Medium' },
+    ...s.cards.flatMap(cardBlocks),
+  ]);
 
 const subtle = (text: string): Record<string, unknown> => ({ type: 'TextBlock', text, wrap: true, isSubtle: true });
 
@@ -87,7 +108,10 @@ export function renderRundown(
 ): string {
   const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
   const lines = [`**${name} — ${countLabel(total)} (coletado às ${time})**`];
-  for (const c of cards.slice(0, RUNDOWN_LINE_CAP)) lines.push(`- ${cardLine(c)}`);
+  // The line cap counts cards across ALL sections (newest first), not per section.
+  for (const s of sectioned(cards.slice(0, RUNDOWN_LINE_CAP))) {
+    lines.push(s.title, ...s.cards.map((c) => `- ${cardLine(c)}`));
+  }
   lines.push(...footerLines(cards, total, collectedAtMs));
   return lines.join('\n');
 }
@@ -114,7 +138,7 @@ export function buildRundownCard(
   const time = collectedAt({ fetchedAt: new Date(collectedAtMs).toISOString() });
   return adaptiveCard([
     { type: 'TextBlock', text: `${name} — ${countLabel(total)}`, wrap: true, weight: 'Bolder' },
-    ...cards.slice(0, RUNDOWN_LINE_CAP).flatMap(cardBlocks),
+    ...sectionBlocks(cards.slice(0, RUNDOWN_LINE_CAP)),
     ...footerLines(cards, total, collectedAtMs).map(subtle),
     subtle(`coletado às ${time}`),
   ]);
@@ -129,7 +153,7 @@ export function buildCandidateCard(
   const shown = cards.slice(0, BUTTON_CAP);
   const body: Record<string, unknown>[] = [
     { type: 'TextBlock', text: `${name} — ${countLabel(total)}`, wrap: true, weight: 'Bolder' },
-    ...cards.flatMap(cardBlocks),
+    ...sectionBlocks(cards),
   ];
   const hidden = cards.length - shown.length;
   if (hidden > 0) body.push(subtle(`mais ${hidden} sem botão — digite o nome`));

@@ -122,7 +122,7 @@ describe('JiraClient', () => {
     const result = await new JiraClient(testConfig, f).searchActiveByText('obra "x" OR project=SEC');
     expect(calls[0]).toContain('text ~ "obra x OR project=SEC"');   // quotes stripped, value stays inside ONE string
     expect(calls[0]).toContain('resolution is EMPTY');
-    expect(calls[0]).toContain('fields=summary,status,updated,assignee');
+    expect(calls[0]).toContain('fields=summary,status,updated,assignee,customfield_10356');
     expect(calls[0]).toContain('maxResults=25');
     expect(result).toEqual([{ issueKey: 'AGL-900', summary: 'Relatório', status: 'Em Teste', updatedAt: '2026-09-28T10:00:00.000-0300' }]);
   });
@@ -138,6 +138,17 @@ describe('JiraClient', () => {
     for (const rows of [await client.searchActiveByText('obra'), await client.searchByZendeskIds(['1', '2', '3'])]) {
       expect(rows.map((r) => r.assignee)).toEqual(['Ana Souza', undefined, undefined]);
     }
+  });
+
+  it('searchActiveByText surfaces the Zendesk id custom field when present, undefined when empty or absent', async () => {
+    const body = { issues: [
+      { id: '1', key: 'AGL-1', fields: { summary: 'a', status: { name: 'x' }, updated: 'u', customfield_10356: '17058' } },
+      { id: '2', key: 'AGL-2', fields: { summary: 'b', status: { name: 'x' }, updated: 'u', customfield_10356: null } },
+      { id: '3', key: 'AGL-3', fields: { summary: 'c', status: { name: 'x' }, updated: 'u' } },
+    ] };
+    const f: typeof fetch = (async () => new Response(JSON.stringify(body), { status: 200 })) as any;
+    const rows = await new JiraClient(testConfig, f).searchActiveByText('obra');
+    expect(rows.map((r) => r.zendeskId)).toEqual(['17058', undefined, undefined]);
   });
 
   it('searchByZendeskIds returns [] without a request for empty input', async () => {

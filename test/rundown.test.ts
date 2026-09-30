@@ -33,7 +33,8 @@ describe('renderRundown', () => {
     const out = renderRundown('Norte', [jira(1, '2026-09-27T12:00:00.000Z')], 1, NOW);
     const lines = out.split('\n');
     expect(lines[0]).toBe('**Norte — 1 cards ativos (coletado às 12:30)**');
-    expect(lines[1]).toBe('- AGL-1 — Resumo 1 — Em Teste, atualizado 27/09');
+    expect(lines[1]).toBe('Cards (Jira)');
+    expect(lines[2]).toBe('- AGL-1 — Resumo 1 — Em Teste, atualizado 27/09');
   });
 
   it('caps lines and reports overflow using the total', () => {
@@ -153,12 +154,13 @@ describe('buildRundownCard', () => {
   it('renders per card a bold-key line and a subtle colored status line with assignee when present', () => {
     const withAssignee = { ...jira(1, '2026-09-27T12:00:00.000Z'), status: 'Done', assignee: 'Ana Souza' };
     const c = build([withAssignee, { ...zen('16467'), status: 'Bloqueado' }]);
-    expect(c.body[1]).toMatchObject({ text: '**AGL-1** — Resumo 1', wrap: true });
-    expect(c.body[2]).toMatchObject({ text: 'Done · Ana Souza · atualizado 27/09', isSubtle: true, color: 'good' });
-    expect(c.body[3].text).toBe('**chamado 16467** — Assunto');
-    expect(c.body[4]).toMatchObject({ isSubtle: true, color: 'attention' });
-    expect(c.body[4].text).not.toContain('undefined');
-    expect(c.body[4].text.split(' · ')).toHaveLength(2);   // no assignee segment
+    // body[1] / body[4] are the section headers (layout changed by the sectioned rendering)
+    expect(c.body[2]).toMatchObject({ text: '**AGL-1** — Resumo 1', wrap: true });
+    expect(c.body[3]).toMatchObject({ text: 'Done · Ana Souza · atualizado 27/09', isSubtle: true, color: 'good' });
+    expect(c.body[5].text).toBe('**chamado 16467** — Assunto');
+    expect(c.body[6]).toMatchObject({ isSubtle: true, color: 'attention' });
+    expect(c.body[6].text).not.toContain('undefined');
+    expect(c.body[6].text.split(' · ')).toHaveLength(2);   // no assignee segment
   });
 
   it('caps cards at RUNDOWN_LINE_CAP and adds the overflow and stale lines as subtle blocks', () => {
@@ -181,9 +183,64 @@ describe('buildRundownCard', () => {
 describe('buildCandidateCard line style', () => {
   it('uses the bold-key line and a colored status line, buttons unchanged', () => {
     const c = buildCandidateCard('Norte', [{ ...jira(1), status: 'Resolvido', assignee: 'Beto' }], 1) as any;
-    expect(c.body[1].text).toBe('**AGL-1** — Resumo 1');
-    expect(c.body[2]).toMatchObject({ isSubtle: true, color: 'good' });
-    expect(c.body[2].text).toContain('Resolvido · Beto · atualizado');
+    expect(c.body[1].text).toBe('Cards (Jira)');   // section header
+    expect(c.body[2].text).toBe('**AGL-1** — Resumo 1');
+    expect(c.body[3]).toMatchObject({ isSubtle: true, color: 'good' });
+    expect(c.body[3].text).toContain('Resolvido · Beto · atualizado');
     expect(c.actions).toHaveLength(1);
+  });
+});
+
+describe('sectioned rendering (spec §10.4)', () => {
+  const paired = { ...jira(1), zendeskId: '17058' };
+  const unpaired = jira(2);
+  const headers = (c: any) => c.body.filter((b: any) => b.weight === 'Bolder' && b.isSubtle).map((b: any) => b.text);
+  const keyLines = (c: any) => c.body.map((b: any) => b.text).filter((t: string) => t.startsWith('**'));
+
+  it('groups Jira then Zendesk, each under a bold subtle header, in both cards', () => {
+    const cards = [zen('16467'), paired, unpaired];   // input order must not matter
+    for (const c of [buildRundownCard('N', cards, 3, NOW), buildCandidateCard('N', cards, 3)] as any[]) {
+      expect(headers(c)).toEqual(['Cards (Jira)', 'Chamados (Zendesk)']);
+      expect(keyLines(c).map((t: string) => t.slice(0, 12))).toEqual(['**AGL-1** ↔ ', '**AGL-2** — ', '**chamado 16']);
+    }
+  });
+
+  it('pairs a Jira line with its chamado; unpaired lines and Zendesk lines stay plain', () => {
+    const c = buildRundownCard('N', [paired, unpaired, zen('16467')], 3, NOW) as any;
+    expect(keyLines(c)).toEqual([
+      '**AGL-1** ↔ chamado 17058 — Resumo 1',
+      '**AGL-2** — Resumo 2',
+      '**chamado 16467** — Assunto',
+    ]);
+  });
+
+  it('omits an empty section: all-Jira and all-Zendesk', () => {
+    const allJira = buildRundownCard('N', [paired], 1, NOW) as any;
+    expect(headers(allJira)).toEqual(['Cards (Jira)']);
+    const allZen = buildCandidateCard('N', [zen('1'), zen('2')], 2) as any;
+    expect(headers(allZen)).toEqual(['Chamados (Zendesk)']);
+  });
+
+  it('the line cap applies across the whole rundown card, not per section', () => {
+    const cards = [...many(RUNDOWN_LINE_CAP), zen('1')];   // Zendesk one falls past the cap
+    const c = buildRundownCard('N', cards, cards.length, NOW) as any;
+    expect(keyLines(c)).toHaveLength(RUNDOWN_LINE_CAP);
+    expect(headers(c)).toEqual(['Cards (Jira)']);
+  });
+
+  it('the text fallback mirrors the grouping, with plain section-name lines and the pair', () => {
+    const lines = renderRundown('N', [zen('16467'), paired, unpaired], 3, NOW).split('\n');
+    expect(lines.slice(1)).toEqual([
+      'Cards (Jira)',
+      '- AGL-1 ↔ chamado 17058 — Resumo 1 — Em Teste, atualizado 28/09',
+      '- AGL-2 — Resumo 2 — Em Teste, atualizado 28/09',
+      'Chamados (Zendesk)',
+      '- chamado 16467 — Assunto — open, atualizado 28/09',
+    ]);
+  });
+
+  it('the text fallback omits an empty section', () => {
+    expect(renderRundown('N', [zen('1')], 1, NOW)).not.toContain('Cards (Jira)');
+    expect(renderRundown('N', [jira(1)], 1, NOW)).not.toContain('Chamados (Zendesk)');
   });
 });

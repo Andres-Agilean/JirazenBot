@@ -78,7 +78,7 @@ export const JIRA_FIELD_LABELS: Record<string, JiraFieldMeta> = {
 
 export interface JiraComment { id: string; author: string; createdAt: string; body: unknown }
 export interface RawChangelogEntry { at: string; by: string; items: { field: string; fromString: string | null; toString: string | null }[] }
-export interface JiraCardSummary { issueKey: string; summary: string; status: string; updatedAt: string; assignee?: string }
+export interface JiraCardSummary { issueKey: string; summary: string; status: string; updatedAt: string; assignee?: string; zendeskId?: string }
 
 interface RawSearchIssue {
   key: string;
@@ -196,9 +196,13 @@ export class JiraClient {
     const sanitized = sanitizeJqlText(text);
     const jql = `text ~ "${sanitized}" AND project in (${this.cfg.allowedProjects.join(',')}) AND resolution is EMPTY ORDER BY updated DESC`;
     const raw = (await this.get(
-      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated,assignee&maxResults=${CARD_FETCH_CAP}`,
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,updated,assignee,${this.cfg.zendeskIdField}&maxResults=${CARD_FETCH_CAP}`,
     )) as { issues?: RawSearchIssue[] };
-    return (raw.issues ?? []).map(toCardSummary);
+    // The Zendesk-id field rides in the same request so text-search cards can show their pair.
+    return (raw.issues ?? []).map((i) => {
+      const zendeskId = i.fields[this.cfg.zendeskIdField];
+      return { ...toCardSummary(i), zendeskId: zendeskId ? String(zendeskId) : undefined };
+    });
   }
 
   async searchByZendeskIds(ticketIds: string[]): Promise<Array<JiraCardSummary & { zendeskId: string }>> {

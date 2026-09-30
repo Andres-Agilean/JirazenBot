@@ -177,6 +177,28 @@ it('carries the Jira assignee onto Jira candidates only (text search and mapped 
   expect(text.cards.map((c) => c.assignee)).toEqual(['Beto', undefined]);
 });
 
+it('Jira candidates carry their Zendesk pair id (batch mapping and text search); Zendesk-only ones do not', async () => {
+  const d = deps({
+    searchOrganizations: async () => [{ id: 1, name: 'Norte' }],
+    openTicketsForOrganization: async () =>
+      [ticket(100, '2026-09-01T00:00:00Z'), ticket(200, '2026-09-20T00:00:00Z')],
+    searchByZendeskIds: async () => [{ issueKey: 'AGL-1', summary: 'S', status: 'Em Teste',
+      updatedAt: '2026-09-21T00:00:00Z', zendeskId: '100' }],
+  });
+  const out = await searchPortfolio('norte', d);
+  if (out.kind !== 'cards') throw new Error('expected cards');
+  expect(out.cards.find((c) => c.label === 'AGL-1')?.zendeskId).toBe('100');
+  expect(out.cards.find((c) => c.label === 'chamado 200')?.zendeskId).toBeUndefined();
+
+  const t = deps({ searchActiveByText: async () => [
+    { issueKey: 'MDO-9', summary: 'x', status: 's', updatedAt: '2026-09-25T00:00:00Z', zendeskId: '17058' },
+    { issueKey: 'MDO-8', summary: 'y', status: 's', updatedAt: '2026-09-24T00:00:00Z' },
+  ] });
+  const text = await searchPortfolio('obra', t);
+  if (text.kind !== 'cards') throw new Error('expected cards');
+  expect(text.cards.map((c) => c.zendeskId)).toEqual(['17058', undefined]);
+});
+
 it('two orgs with the very same name stay a choice', async () => {
   const d = deps({ searchOrganizations: async () => [{ id: 1, name: 'Norte' }, { id: 2, name: 'norte' }] });
   expect((await searchPortfolio('norte', d)).kind).toBe('orgs');
