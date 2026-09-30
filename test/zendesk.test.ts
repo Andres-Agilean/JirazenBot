@@ -156,5 +156,19 @@ describe('ZendeskClient', () => {
       const f = makeFetch({ '/api/v2/search.json': { status: 500 } });
       await expect(new ZendeskClient(testConfig, f).openTicketsForOrganization(42)).rejects.toThrow(/Zendesk 500/);
     });
+
+    it('pins the query string with all required parameters', async () => {
+      const calls: string[] = [];
+      const f: typeof fetch = (async (url: any) => {
+        calls.push(String(url));
+        return new Response(JSON.stringify({ results: [] }), { status: 200 });
+      }) as any;
+      await new ZendeskClient(testConfig, f).openTicketsForOrganization(42);
+      const url = calls[0];
+      expect(url).toContain('query=type%3Aticket%20organization_id%3A42%20status%3Csolved');
+      expect(url).toContain('sort_by=updated_at');
+      expect(url).toContain('sort_order=desc');
+      expect(url).toContain(`per_page=${CARD_FETCH_CAP}`);
+    });
   });
 });

@@ -117,7 +117,7 @@ export class ZendeskClient {
   async openTicketsForOrganization(orgId: number): Promise<ZendeskTicketSummary[]> {
     const query = `type:ticket organization_id:${orgId} status<solved`;
     const encoded = encodeURIComponent(query);
-    const response = (await this.get(`/api/v2/search.json?query=${encoded}&sort_by=updated_at&sort_order=desc&per_page=25`)) as {
+    const response = (await this.get(`/api/v2/search.json?query=${encoded}&sort_by=updated_at&sort_order=desc&per_page=${CARD_FETCH_CAP}`)) as {
       results: Array<{ id: number; subject: string; status: string; updated_at: string }>;
     };
     return response.results.slice(0, CARD_FETCH_CAP).map((ticket) => ({
