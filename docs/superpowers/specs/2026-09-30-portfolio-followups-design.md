@@ -193,6 +193,27 @@ da dalle?" with a card bound went to the card, which could only say the bundle h
   `buscar`, follow-up patterns (`quantos?`, expand, distribution), exact-label selection,
   references. The confirm card slots in where "bound card wins free-form" was the final answer.
 
+### 11.1 Loose shapes join the confirm path (owner screenshots 10:33, 2026-09-30)
+
+"Qual o status da Flora?" while bound went straight to the card: §11 allowed only ANCHORED
+shapes, a ruling made before the confirm card existed, when a false positive meant silently
+stealing the question. The interstitial changes the cost of a false positive to one click, so:
+
+- The bound-state fallthrough now runs the detector WITH the loose shapes
+  (`allowLoose: true`). Loose matches raise the same confirm card. The §10.4 cold-start gate is
+  unchanged for the UNBOUND path (with a portfolio stored, free-form still goes to
+  Claude-over-portfolio, which can genuinely answer about items inside the context).
+- New loose shape (all the usual states/gates): `quero (saber|ver) [mais] (sobre|de|do|da|dos|das)
+  <nome>` — "quero saber sobre a Flora". No leading-negation handling: "não quero saber sobre X"
+  must not match, so the shape is anchored at `^quero`.
+- **Generic-tail guard** on ALL loose shapes, every state: a name that is a bare generic noun is
+  a question about the current work item or an underspecified query, never a switch. Exported,
+  tenant-tunable stop set (normalized, singular+plural where sensible): card, chamado, ticket,
+  atividade, projeto, obra, empresa, cliente, organizacao, incidente, problema, erro, bug, prazo,
+  status, andamento, situacao, historico, responsavel, descricao, resumo, resto, resultado,
+  pendencia, demanda, tudo, isso, ele, ela, eles, elas. Multi-word names are exempt (the guard
+  applies to single-token names only: "obra flora" is a name, "obra" is not).
+
 ## 12. Addendum — help-text rendering fixes (owner screenshots, 2026-09-30)
 
 `buscar <nome>` rendered as literal `&lt;nome&gt;` in Teams, and the **Comandos** lines collapse
