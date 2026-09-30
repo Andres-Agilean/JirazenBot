@@ -1189,6 +1189,64 @@ describe('busca de portfólio', () => {
       expect(reply.fallbackText).not.toContain('e mais');
     });
 
+    it('skips the history write when the set was replaced or cleared during the Claude call', async () => {
+      const { deps } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      const replacement = { ...(await deps.candidates.get(shared))!, name: 'OUTRA', createdAt: T0 + 5 };
+      deps.answerPortfolioFn = async () => {
+        await deps.candidates.set(shared, replacement); // a search landed mid-call
+        return { text: 'r', model: 'm', usage };
+      };
+      const replies = await handleMessage(dm('qual é a mais antiga?'), deps);
+      expect(textOf(replies[0])).toContain('r');
+      expect(await deps.candidates.get(shared)).toEqual(replacement); // not resurrected/clobbered
+
+      deps.answerPortfolioFn = async () => {
+        await deps.candidates.delete(shared); // a selection cleared it
+        return { text: 'r2', model: 'm', usage };
+      };
+      await handleMessage(dm('outra pergunta?'), deps);
+      expect(await deps.candidates.get(shared)).toBeUndefined();
+    });
+
+    it('history keeps the RAW answer; card body and fallbackText carry compressed citations', async () => {
+      const { deps } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      const raw = 'veja [comentário jira 41713] [estatísticas]';
+      deps.answerPortfolioFn = async () => ({ text: raw, model: 'm', usage });
+      const reply = (await handleMessage(dm('qual é a mais antiga?'), deps))[0];
+      if (reply.kind !== 'card') throw new Error('unreachable');
+      const stored = (await deps.candidates.get(shared))!.history;
+      expect(stored.at(-1)).toEqual({ role: 'assistant', text: raw });
+      expect(reply.fallbackText).toContain('[jira 41713]');
+      expect(reply.fallbackText).toContain('[estatísticas]');
+      expect(reply.fallbackText).not.toContain('comentário jira');
+      const body = JSON.stringify(reply.card);
+      expect(body).toContain('[jira 41713]');
+      expect(body).toContain('[estatísticas]');
+      expect(body).not.toContain('comentário jira');
+    });
+
+    it('"todos os de zendesk" and "mostra tudo" expand; the OTHER section stays capped', async () => {
+      const jira = Array.from({ length: SECTION_LINE_CAP + 2 }, (_, i) => jiraCard(`AGL-${100 + i}`, `J${i}`));
+      const zen = Array.from({ length: SECTION_LINE_CAP + 2 }, (_, i): CardCandidate => ({
+        ref: { system: 'zendesk', ticketId: `${500 + i}`, explicit: true },
+        label: `chamado ${500 + i}`, summary: `Z${i}`, status: 'open', updatedAt: '2026-09-20T10:00:00.000Z',
+      }));
+      const { deps } = portfolioDeps(cardsOutcome([...jira, ...zen]));
+      await handleMessage(dm('buscar norte'), deps);
+
+      const z = (await handleMessage(dm('todos os de zendesk'), deps))[0];
+      if (z.kind !== 'card') throw new Error('unreachable');
+      for (const c of zen) expect(z.fallbackText).toContain(c.label);
+      expect(z.fallbackText).toContain(jira[0].label);
+      expect(z.fallbackText).toContain('e mais 2'); // jira section still capped
+
+      const all = (await handleMessage(dm('mostra tudo'), deps))[0];
+      for (const c of [...jira, ...zen]) expect(textOf(all)).toContain(c.label);
+      expect(textOf(all)).not.toContain('e mais');
+    });
+
     it('unbound + no portfolio + free-form is still NOTHING_BOUND, and never calls Claude', async () => {
       const { deps, calls } = portfolioDeps();
       const replies = await handleMessage(dm('qual é a mais antiga?'), deps);

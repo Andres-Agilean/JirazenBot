@@ -413,7 +413,14 @@ async function askPortfolio(
     { role: 'user' as const, text: question },
     { role: 'assistant' as const, text: result.text },
   ].slice(-MAX_HISTORY_TURNS);
-  await deps.candidates.set(sharedSlot, { ...set, history });
+  // Defense in depth: app.ts already serializes text and button paths per conversation
+  // (runExclusive), so a same-conversation race cannot interleave today. Still, write back only if
+  // the live set is the one we answered over -- otherwise a search/selection that replaced it
+  // during the Claude call would be clobbered by this stale snapshot. The answer still goes out.
+  const live = await deps.candidates.get(sharedSlot);
+  if (live && live.createdAt === set.createdAt && live.name === set.name) {
+    await deps.candidates.set(sharedSlot, { ...live, history });
+  }
 
   const displayText = compressCitations(result.text);
   const fallbackText = `${displayText}\n\n${portfolioFooter(set.name, set.collectedAtMs)}`;
