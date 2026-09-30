@@ -116,6 +116,8 @@ describe('detectPortfolioQuery loose bare-name shapes (spec §10.4)', () => {
     'qual o status do https://x.zendesk.com/agent/tickets/1?',
     'como está atrasada a obra?',
     'me diga qual o status da dalle',
+    'como está a?',
+    'como está a',
   ])('returns null for %s', (text) => {
     expect(detectPortfolioQuery(text)).toBeNull();
   });

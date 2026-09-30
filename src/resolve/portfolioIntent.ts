@@ -11,6 +11,8 @@ export interface PortfolioQuery {
 }
 
 const MAX_NAME_LENGTH = 60;
+/** Shortest name a loose bare-name shape may search for (rules out a stray article). */
+const MIN_NAME_LENGTH = 2;
 
 /** The entity words that anchor a vague query (spec §4: empresa/cliente via Zendesk, obra/projeto via Jira text). */
 const KIND = /\b(?:empresa|cliente|obra|projeto)\b/;
@@ -25,7 +27,7 @@ const STOP_NAMES = new Set(['atrasou', 'atrasada', 'parou', 'parada', 'anda', 'e
 const PLURAL_KIND = /\b(?:cards|atividades|chamados|tickets|pendencias|demandas)\b/;
 
 const NAME_AFTER_PLURAL = new RegExp(`${PLURAL_KIND.source}\\s+(.+)$`);
-const NAME_AFTER_KIND =new RegExp(`${KIND.source}\\s+(.+)$`);
+const NAME_AFTER_KIND = new RegExp(`${KIND.source}\\s+(.+)$`);
 
 /**
  * Whole-message bare-name shapes, matched on folded text (spec §10.4): "qual o status da X",
@@ -44,7 +46,7 @@ const REFERENCE_SHAPED: readonly RegExp[] = [
   /http/,
 ];
 
-const BUSCAR_PATTERN =new RegExp(`^${BUSCAR_COMMAND}\\s+(.+)$`);
+const BUSCAR_PATTERN = new RegExp(`^${BUSCAR_COMMAND}\\s+(.+)$`);
 
 /**
  * `text` (NFC, so composed accents are one code unit) with its normalized twin plus, for every
@@ -100,6 +102,8 @@ export function detectPortfolioQuery(text: string): PortfolioQuery | null {
   if (STOP_NAMES.has(firstWord)) return null;
   // A loose shape must not swallow a question about one specific card.
   if (loose && REFERENCE_SHAPED.some((shape) => shape.test(normalizedName))) return null;
+  // ...nor trigger a vendor search for a stray article ("como está a").
+  if (loose && normalizedName.length < MIN_NAME_LENGTH) return null;
 
   return { name, mode: singular && CARD_SHAPE.test(fold.folded) ? 'candidates' : 'rundown' };
 }
