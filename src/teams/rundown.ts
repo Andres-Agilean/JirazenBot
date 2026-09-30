@@ -23,7 +23,7 @@ export const SELECT_ACTION = 'selecionar';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** `DD/MM` in Brazil local time, from the shared datetime formatter (no inline timezone logic). */
-const dayMonth = (iso: string): string => formatDayMonthTime(iso).split(' ')[0];
+export const dayMonth =(iso: string): string => formatDayMonthTime(iso).split(' ')[0];
 
 /** A candidate's own key as a markdown link: `[QZ-306](jira url)` / `[chamado 17044](zendesk url)`. */
 const keyLink = (c: CardCandidate, cfg: Config): string =>
