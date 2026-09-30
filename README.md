@@ -139,6 +139,12 @@ unauthenticated traffic.
 Vague questions like "qual o status da empresa X?" work without a bound card — the bot searches
 and shows the matching atividades abertas.
 
+After a rundown you can ask follow-ups about that portfolio: `quantos?` answers with exact counts
+(optionally filtered by status, e.g. `quantos bloqueados?`); `todos os de jira` / `todos os de zendesk`
+/ `mostra tudo` re-render the rundown uncapped; free-form questions like "quem é responsável pela
+maioria?" are answered grounded only in that portfolio's data. Asking about another company switches context;
+follow-ups stay on the current one.
+
 In a channel every message must @mention the bot — that is a Teams constraint, not a choice. A
 bare number mid-conversation is treated as a question, never as a card switch, so "vimos 12 casos
 desses" cannot silently move you to ticket 12.

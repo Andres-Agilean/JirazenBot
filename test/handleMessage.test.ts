@@ -865,6 +865,10 @@ describe('busca de portfólio', () => {
     expect(HELP_TEXT).toContain('`buscar <nome>`');
   });
 
+  it('HELP_TEXT mentions portfolio follow-up affordances', () => {
+    expect(HELP_TEXT).toContain('`quantos?`');
+  });
+
   it('handleSelect binds with no candidate set present', async () => {
     const { deps, loaded } = makeDeps();
     const replies = await handleSelect(req, { system: 'jira', id: 'AGL-11' }, deps);
