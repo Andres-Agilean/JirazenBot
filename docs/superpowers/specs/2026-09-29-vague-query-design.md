@@ -152,3 +152,10 @@ persisting candidate sets beyond the binding store's lifetime.
    the existing batch mapping, and `searchActiveByText` additionally requests the Zendesk-id
    custom field so text-search results pair too (same single request; §6a intact). The plain-text
    fallback mirrors the grouping. Labels, buttons and typed selection are unchanged.
+5. **Card prominence + actionable overflow (owner, 2026-09-30, round 3):** the company card's
+   title uses the MATCHED organization's real name (e.g. "DALLÉ CONSTRUTORA") when the org path
+   resolved — the typed query only for text search — rendered prominent (Large/Bolder), never
+   subtle. Section headers are bold, default size, with separators. Paired lines bold the whole
+   pair: `**QZ-306 ↔ chamado 17044** — summary`. The overflow line names the remaining
+   candidates' labels (`e mais 2: QZ-298, chamado 16694`) so every card is reachable by typing —
+   never an unanchored "pergunte por um deles".
