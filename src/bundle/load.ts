@@ -36,3 +36,18 @@ export function loadCardBundle(
   const resolver = buildResolver(cfg, jira);
   return assembleBundle(ref, { jira, zendesk, resolver }, surface, undefined, cfg.bundleTokenBudget);
 }
+
+/**
+ * Variant of loadCardBundle that accepts pre-constructed clients for callers that need to share
+ * them (e.g., serve.ts sharing clients between loadCardBundle and searchPortfolio).
+ */
+export function loadCardBundleWithClients(
+  ref: CardRef,
+  cfg: Config,
+  surface: Surface,
+  jira: JiraClient,
+  zendesk: ZendeskClient,
+): Promise<AssembleResult> {
+  const resolver = buildResolver(cfg, jira);
+  return assembleBundle(ref, { jira, zendesk, resolver }, surface, undefined, cfg.bundleTokenBudget);
+}

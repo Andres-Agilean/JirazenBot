@@ -3,7 +3,7 @@ import { loadConfig } from '@/config.js';
 import { createTeamsApp } from '@/teams/app.js';
 import { resolveAuthMode, type AuthMode } from '@/teams/authMode.js';
 import { InMemoryBindingStore } from '@/teams/bindings.js';
-import { loadCardBundle } from '@/bundle/load.js';
+import { loadCardBundleWithClients } from '@/bundle/load.js';
 import { answer } from '@/claude/answer.js';
 import { createAnthropicClient } from '@/claude/client.js';
 import type { HandleDeps } from '@/teams/handleMessage.js';
@@ -29,23 +29,22 @@ try {
 
 const client = createAnthropicClient(cfg);
 
-// Read-only search clients, built once and shared by every message. Bundle loading keeps its own
-// clients (loadCardBundle), untouched.
-const searchClients: SearchDeps = (() => {
-  const jira = new JiraClient(cfg);
-  const zendesk = new ZendeskClient(cfg);
-  return {
-    searchOrganizations: (name) => zendesk.searchOrganizations(name),
-    openTicketsForOrganization: (orgId) => zendesk.openTicketsForOrganization(orgId),
-    searchActiveByText: (text) => jira.searchActiveByText(text),
-    searchByZendeskIds: (ids) => jira.searchByZendeskIds(ids),
-  };
-})();
+// Shared read-only clients, built once and reused by both bundle loading and search paths.
+const jira = new JiraClient(cfg);
+const zendesk = new ZendeskClient(cfg);
+
+// SearchDeps adapts the client methods for the search pipeline.
+const searchClients: SearchDeps = {
+  searchOrganizations: (name) => zendesk.searchOrganizations(name),
+  openTicketsForOrganization: (orgId) => zendesk.openTicketsForOrganization(orgId),
+  searchActiveByText: (text) => jira.searchActiveByText(text),
+  searchByZendeskIds: (ids) => jira.searchByZendeskIds(ids),
+};
 const searchCache = createSearchCache();
 
 const deps: HandleDeps = {
   store: new InMemoryBindingStore(),
-  loadBundle: (ref, surface) => loadCardBundle(ref, cfg, surface),
+  loadBundle: (ref, surface) => loadCardBundleWithClients(ref, cfg, surface, jira, zendesk),
   answerFn: (bundle, question, history) =>
     answer(bundle, question, history, {
       client,

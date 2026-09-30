@@ -132,8 +132,12 @@ unauthenticated traffic.
 | `QZ-252 quem validou?` | Answers that question; in a thread, binds it to **you** only |
 | any question | Answered against the currently bound card |
 | `atualizar` | Refetches the card (the **Atualizar** button does the same) |
+| `buscar <nome>` | Procura cards ativos por empresa, cliente ou obra |
 | `voltar` | Rejoins the thread's card after you split off |
 | `ajuda` | Usage text |
+
+Vague questions like "qual o status da empresa X?" work without a bound card — the bot searches
+and offers the matching cards.
 
 In a channel every message must @mention the bot — that is a Teams constraint, not a choice. A
 bare number mid-conversation is treated as a question, never as a card switch, so "vimos 12 casos
