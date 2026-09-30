@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ZendeskClient } from '@/fetch/zendesk.js';
+import { ZendeskClient, ORG_RESULT_CAP, CARD_FETCH_CAP } from '@/fetch/zendesk.js';
 import { NotFoundError } from '@/fetch/errors.js';
 import { fixture, makeFetch, testConfig } from './helpers.js';
 
@@ -114,5 +114,47 @@ describe('ZendeskClient', () => {
   it('throws NotFoundError for deleted/unknown tickets', async () => {
     const zd = new ZendeskClient(testConfig, makeFetch(routes));
     await expect(zd.getTicket('99999')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  describe('searchOrganizations', () => {
+    it('returns id+name capped at ORG_RESULT_CAP', async () => {
+      const orgs = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, name: `Org ${i + 1}`, extra: 'x' }));
+      const f = makeFetch({ '/api/v2/organizations/autocomplete.json': { organizations: orgs } });
+      const client = new ZendeskClient(testConfig, f);
+      const result = await client.searchOrganizations('org');
+      expect(result).toHaveLength(ORG_RESULT_CAP);
+      expect(result[0]).toEqual({ id: 1, name: 'Org 1' });
+    });
+
+    it('URL-encodes the name', async () => {
+      const calls: string[] = [];
+      const f: typeof fetch = (async (url: any) => {
+        calls.push(String(url));
+        return new Response(JSON.stringify({ organizations: [] }), { status: 200 });
+      }) as any;
+      await new ZendeskClient(testConfig, f).searchOrganizations('norte & construtora');
+      expect(calls[0]).toContain('name=norte%20%26%20construtora');
+    });
+  });
+
+  describe('openTicketsForOrganization', () => {
+    it('maps search results to summaries, capped', async () => {
+      const results = Array.from({ length: 30 }, (_, i) => ({
+        id: 1000 + i,
+        subject: `Ticket ${i}`,
+        status: 'open',
+        updated_at: '2026-09-29T10:00:00Z',
+        result_type: 'ticket',
+      }));
+      const f = makeFetch({ '/api/v2/search.json': { results } });
+      const tickets = await new ZendeskClient(testConfig, f).openTicketsForOrganization(42);
+      expect(tickets).toHaveLength(CARD_FETCH_CAP);
+      expect(tickets[0]).toEqual({ ticketId: '1000', subject: 'Ticket 0', status: 'open', updatedAt: '2026-09-29T10:00:00Z' });
+    });
+
+    it('propagates HTTP errors as the client\'s typed error (existing httpStatusError path)', async () => {
+      const f = makeFetch({ '/api/v2/search.json': { status: 500 } });
+      await expect(new ZendeskClient(testConfig, f).openTicketsForOrganization(42)).rejects.toThrow(/Zendesk 500/);
+    });
   });
 });

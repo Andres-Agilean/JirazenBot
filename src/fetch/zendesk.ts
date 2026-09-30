@@ -5,6 +5,24 @@ import { detectJiraMirror, type JiraMirrorMatch } from './jiraMirror.js';
 // Zendesk comments API page size. Kept as a named constant rather than a repeated literal.
 export const COMMENT_PAGE_SIZE = 100;
 
+// Organization autocomplete results cap.
+export const ORG_RESULT_CAP = 5;
+
+// Card fetch cap for open tickets per organization.
+export const CARD_FETCH_CAP = 25;
+
+export interface ZendeskOrg {
+  id: number;
+  name: string;
+}
+
+export interface ZendeskTicketSummary {
+  ticketId: string;
+  subject: string;
+  status: string;
+  updatedAt: string;
+}
+
 export interface ZendeskComment {
   id: number;
   author: string;
@@ -83,5 +101,30 @@ export class ZendeskClient {
         })),
       olderCommentsOmitted: c.meta != null ? c.meta.has_more === true : (c.next_page != null || c.links?.next != null),
     };
+  }
+
+  async searchOrganizations(name: string): Promise<ZendeskOrg[]> {
+    const encoded = encodeURIComponent(name);
+    const response = (await this.get(`/api/v2/organizations/autocomplete.json?name=${encoded}`)) as {
+      organizations: Array<{ id: number; name: string }>;
+    };
+    return response.organizations.slice(0, ORG_RESULT_CAP).map((org) => ({
+      id: org.id,
+      name: org.name,
+    }));
+  }
+
+  async openTicketsForOrganization(orgId: number): Promise<ZendeskTicketSummary[]> {
+    const query = `type:ticket organization_id:${orgId} status<solved`;
+    const encoded = encodeURIComponent(query);
+    const response = (await this.get(`/api/v2/search.json?query=${encoded}&sort_by=updated_at&sort_order=desc&per_page=25`)) as {
+      results: Array<{ id: number; subject: string; status: string; updated_at: string }>;
+    };
+    return response.results.slice(0, CARD_FETCH_CAP).map((ticket) => ({
+      ticketId: String(ticket.id),
+      subject: ticket.subject,
+      status: ticket.status,
+      updatedAt: ticket.updated_at,
+    }));
   }
 }
