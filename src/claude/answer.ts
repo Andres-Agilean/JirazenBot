@@ -1,4 +1,5 @@
 import { SYSTEM_PROMPT, buildMessages, CACHE_CONTROL } from './prompt.js';
+import { PORTFOLIO_SYSTEM_PROMPT, buildPortfolioMessages } from './portfolioPrompt.js';
 import type { AnthropicLike, Answer, Turn } from './types.js';
 import type { CardBundle } from '@/bundle/types.js';
 
@@ -37,13 +38,36 @@ export async function answer(
   history: Turn[],
   deps: AnswerDeps,
 ): Promise<Answer> {
+  return requestAnswer(SYSTEM_PROMPT, buildMessages(bundle, question, history), deps);
+}
+
+/** Portfolio Q&A: same request core as `answer`, different prompt and context. */
+export async function answerPortfolio(
+  rendered: string,
+  question: string,
+  history: Turn[],
+  deps: AnswerDeps,
+): Promise<Answer> {
+  return requestAnswer(
+    PORTFOLIO_SYSTEM_PROMPT,
+    buildPortfolioMessages(rendered, question, history),
+    deps,
+  );
+}
+
+/** The single client call, empty-text guard and truncation marking shared by both paths. */
+async function requestAnswer(
+  systemPrompt: string,
+  messages: unknown[],
+  deps: AnswerDeps,
+): Promise<Answer> {
   const response = await deps.client.messages.create({
     model: deps.model,
     max_tokens: deps.maxTokens,
     thinking: THINKING,
     output_config: { effort: CLAUDE_EFFORT },
-    system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: CACHE_CONTROL }],
-    messages: buildMessages(bundle, question, history),
+    system: [{ type: 'text', text: systemPrompt, cache_control: CACHE_CONTROL }],
+    messages,
   });
 
   let text = response.content

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { answer, TRUNCATION_NOTICE, type AnswerDeps } from '@/claude/answer.js';
+import { answer, answerPortfolio, TRUNCATION_NOTICE, type AnswerDeps } from '@/claude/answer.js';
+import { PORTFOLIO_SYSTEM_PROMPT, buildPortfolioMessages } from '@/claude/portfolioPrompt.js';
 import { SYSTEM_PROMPT } from '@/claude/prompt.js';
 import type { AnthropicResponse, AnthropicLike } from '@/claude/types.js';
 import type { CardBundle } from '@/bundle/types.js';
@@ -152,5 +153,46 @@ describe('answer', () => {
     });
     const result = await answer(bundle, 'Qual o status?', [], deps(client));
     expect(result.text).toBe('Está em teste.');
+  });
+});
+
+describe('answerPortfolio', () => {
+  it('sends the portfolio prompt and messages with exactly two cache breakpoints', async () => {
+    const { client, calls } = fakeClient();
+    await answerPortfolio('[estatísticas]\ntotal: 1', 'Quantos?', [], deps(client));
+    const system = calls[0].system as any[];
+    expect(system[0].text).toBe(PORTFOLIO_SYSTEM_PROMPT);
+    expect(system[0].text).not.toBe(SYSTEM_PROMPT);
+    expect(calls[0].messages).toEqual(
+      buildPortfolioMessages('[estatísticas]\ntotal: 1', 'Quantos?', []),
+    );
+    expect(JSON.stringify(calls[0]).match(/"cache_control"/g)).toHaveLength(2);
+  });
+
+  it('shares model, thinking, effort and no sampling params with answer', async () => {
+    const { client, calls } = fakeClient();
+    await answerPortfolio('ctx', 'q', [], deps(client));
+    expect(calls[0].model).toBe('claude-sonnet-5');
+    expect(calls[0].max_tokens).toBe(2048);
+    expect(calls[0].thinking).toEqual({ type: 'adaptive' });
+    expect(calls[0].output_config).toEqual({ effort: 'low' });
+    expect(calls[0]).not.toHaveProperty('temperature');
+    expect(calls[0]).not.toHaveProperty('tools');
+  });
+
+  it('throws the pt-BR error on empty text', async () => {
+    const { client } = fakeClient({ content: [{ type: 'thinking', text: '' }] });
+    await expect(answerPortfolio('ctx', 'q', [], deps(client))).rejects.toThrow(/sem texto/i);
+  });
+
+  it('appends the truncation notice on max_tokens and flattens usage', async () => {
+    const { client } = fakeClient({
+      content: [{ type: 'text', text: 'Parcial' }],
+      stop_reason: 'max_tokens',
+      usage: { input_tokens: 5, output_tokens: 6, cache_read_input_tokens: 7 },
+    });
+    const result = await answerPortfolio('ctx', 'q', [], deps(client));
+    expect(result.text).toBe(`Parcial${TRUNCATION_NOTICE}`);
+    expect(result.usage).toEqual({ input: 5, output: 6, cacheRead: 7, cacheWrite: 0 });
   });
 });

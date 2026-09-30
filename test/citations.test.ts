@@ -100,4 +100,26 @@ describe('compressCitations', () => {
     const text = '**Sem citação** - item [1] e [outro] (campo) comentário jira 5';
     expect(compressCitations(text)).toBe(text);
   });
+
+  describe('portfolio labels pass through untouched', () => {
+    const text = '[QZ-306] e [estatísticas] e [chamado 17063]';
+    const collidingBundle = {
+      fetchedAt: '2026-08-14T17:32:00.000Z',
+      surface: 'dm',
+      jira: {
+        issueId: '17063', issueKey: 'QZ-306', fields: {}, statusHistory: [],
+        comments: [{ id: '17063', author: 'a', createdAt: '2026-08-11T17:34:00Z', body: 'x' }],
+      },
+      resolution: { via: 'direct_only', ambiguous: false },
+      truncationNotes: [],
+    } as CardBundle;
+
+    it('leaves them unchanged without a bundle', () => {
+      expect(compressCitations(text)).toBe(text);
+    });
+
+    it('leaves them unchanged with a bundle whose ids collide', () => {
+      expect(compressCitations(text, collidingBundle)).toBe(text);
+    });
+  });
 });
