@@ -733,7 +733,7 @@ describe('busca de portfólio', () => {
     expect(searched).toEqual(['Norte']);
     expect(replies).toHaveLength(1);
     expect(replies[0].kind).toBe('card');
-    expect(textOf(replies[0])).toContain('cards ativos');
+    expect(textOf(replies[0])).toContain('atividades abertas');
   });
 
   it('a genuine question with a binding and empresa/obra wording reaches answerFn untouched', async () => {
@@ -770,10 +770,10 @@ describe('busca de portfólio', () => {
     const { deps, loaded } = withSearch(cardsOutcome(two));
     const replies = await handleMessage(dm('como estão os projetos da empresa Norte'), deps);
     expect(replies[0].kind).toBe('card');
-    expect(textOf(replies[0])).toContain('2 cards ativos');
+    expect(textOf(replies[0])).toContain('2 atividades abertas');
     const reply = replies[0];
     if (reply.kind !== 'card') throw new Error('unreachable');
-    expect(reply.fallbackText).toBe(renderRundown('norte', two, 2, T0));
+    expect(reply.fallbackText).toBe(renderRundown('norte', two, 2, T0, testConfig));
     expect((reply.card as { actions?: unknown }).actions).toBeUndefined();   // a rundown never offers buttons
     expect(loaded).toHaveLength(0);
     expect((await deps.candidates.get(shared))?.candidates).toHaveLength(2);
@@ -915,7 +915,7 @@ describe('busca de portfólio', () => {
     const cardReply = (await handleMessage(dm('buscar dalle'), deps))[0];
     if (cardReply.kind !== 'card') throw new Error('unreachable');
     expect(cardReply.fallbackText.startsWith('**DALLÉ CONSTRUTORA — ')).toBe(true);
-    expect(JSON.stringify(cardReply.card)).toContain('DALLÉ CONSTRUTORA — 2 cards ativos');
+    expect(JSON.stringify(cardReply.card)).toContain('DALLÉ CONSTRUTORA — 2 atividades abertas');
     expect((await deps.candidates.get(shared))?.name).toBe('DALLÉ CONSTRUTORA');
 
     const rundown = (await handleMessage(dm('como estao os cards da dalle?'), deps))[0];
@@ -927,7 +927,7 @@ describe('busca de portfólio', () => {
     await handleMessage(dm('QZ-252'), deps);
     const reply = (await handleMessage(dm('buscar norte'), deps))[0];
     if (reply.kind !== 'card') throw new Error('unreachable');
-    expect(JSON.stringify(reply.card)).toContain('NORTE CONSTRUTORA — 1 cards ativos');
+    expect(JSON.stringify(reply.card)).toContain('NORTE CONSTRUTORA — 1 atividades abertas');
     expect((await deps.candidates.get(shared))?.name).toBe('NORTE CONSTRUTORA');
   });
 

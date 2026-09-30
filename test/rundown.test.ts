@@ -5,6 +5,7 @@ import {
 } from '@/teams/rundown.js';
 import { CARD_FETCH_CAP } from '@/fetch/zendesk.js';
 import type { CardCandidate } from '@/teams/search.js';
+import { testConfig } from './helpers.js';
 
 const NOW = Date.parse('2026-09-29T15:30:00.000Z'); // 12:30 in America/Sao_Paulo
 const DAY = 24 * 60 * 60 * 1000;
@@ -22,6 +23,16 @@ const zen = (id: string): CardCandidate => ({
 });
 const many = (n: number) => Array.from({ length: n }, (_, i) => jira(i + 1));
 
+/** The markdown links the renderers must produce for testConfig's tenant. */
+const J = (key: string) => `[${key}](https://your-tenant.atlassian.net/browse/${key})`;
+const Z = (id: string) => `[chamado ${id}](https://your-subdomain.zendesk.com/agent/tickets/${id})`;
+
+/** The bold key+summary TextBlock texts of a card, in order. */
+const keyLines = (c: any): string[] => c.body.map((b: any) => b.text).filter((t: string) => t?.startsWith('**'));
+
+const run = (name: string, cards: CardCandidate[], total = cards.length) =>
+  renderRundown(name, cards, total, NOW, testConfig);
+
 describe('caps', () => {
   it('are the specified values', () => {
     expect([RUNDOWN_LINE_CAP, BUTTON_CAP, STALE_AFTER_DAYS, SELECT_ACTION]).toEqual([8, 6, 14, 'selecionar']);
@@ -29,54 +40,53 @@ describe('caps', () => {
 });
 
 describe('renderRundown', () => {
-  it('renders the bold header with total and Sao Paulo time, and verbatim lines', () => {
-    const out = renderRundown('Norte', [jira(1, '2026-09-27T12:00:00.000Z')], 1, NOW);
-    const lines = out.split('\n');
-    expect(lines[0]).toBe('**Norte — 1 cards ativos (coletado às 12:30)**');
+  it('renders the bold header with total and Sao Paulo time, and linked lines', () => {
+    const lines = run('Norte', [jira(1, '2026-09-27T12:00:00.000Z')]).split('\n');
+    expect(lines[0]).toBe('**Norte — 1 atividades abertas (coletado às 12:30)**');
     expect(lines[1]).toBe('Cards (Jira)');
-    expect(lines[2]).toBe('- AGL-1 — Resumo 1 — Em Teste, atualizado 27/09');
+    expect(lines[2]).toBe(`- ${J('AGL-1')} — Resumo 1 — Em Teste, atualizado 27/09`);
   });
 
-  it('caps lines and reports overflow using the total', () => {
-    const out = renderRundown('Norte', many(12), 12, NOW);
+  it('caps lines at RUNDOWN_LINE_CAP and names the hidden ones in the section', () => {
+    const out = run('Norte', many(12));
     expect(out.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(RUNDOWN_LINE_CAP);
-    expect(out).toContain('e mais 4: AGL-9, AGL-10, AGL-11, AGL-12');
-    expect(out).toContain('12 cards ativos');
+    expect(out).toContain(`e mais 4: ${['AGL-9', 'AGL-10', 'AGL-11', 'AGL-12'].map(J).join(', ')}`);
+    expect(out).toContain('12 atividades abertas');
   });
 
   it('says "25+" instead of an exact count once the fetch cap is reached', () => {
-    const capped = renderRundown('Norte', many(8), CARD_FETCH_CAP, NOW);
-    expect(capped.split('\n')[0]).toBe(
-      `**Norte — ${CARD_FETCH_CAP}+ cards ativos (mostrando os mais recentes) (coletado às 12:30)**`,
+    expect(run('Norte', many(8), CARD_FETCH_CAP).split('\n')[0]).toBe(
+      `**Norte — ${CARD_FETCH_CAP}+ atividades abertas (mostrando as mais recentes) (coletado às 12:30)**`,
     );
-    const exact = renderRundown('Norte', many(8), CARD_FETCH_CAP - 1, NOW);
-    expect(exact.split('\n')[0]).toBe(`**Norte — ${CARD_FETCH_CAP - 1} cards ativos (coletado às 12:30)**`);
+    expect(run('Norte', many(8), CARD_FETCH_CAP - 1).split('\n')[0]).toBe(
+      `**Norte — ${CARD_FETCH_CAP - 1} atividades abertas (coletado às 12:30)**`,
+    );
   });
 
   it('has no overflow line at exactly the cap', () => {
-    expect(renderRundown('N', many(RUNDOWN_LINE_CAP), RUNDOWN_LINE_CAP, NOW)).not.toContain('e mais');
+    expect(run('N', many(RUNDOWN_LINE_CAP))).not.toContain('e mais');
   });
 
-  it('adds a stale line when the oldest card is older than the threshold', () => {
+  it('adds a linked stale line at the card foot when the oldest card is past the threshold', () => {
     const old = jira(9, iso(NOW - (STALE_AFTER_DAYS + 1) * DAY));
-    const out = renderRundown('N', [jira(1), old], 2, NOW);
-    expect(out.split('\n').at(-1)).toBe('parado há mais tempo: AGL-9, sem atualização desde 14/09');
+    expect(run('N', [jira(1), old]).split('\n').at(-1)).toBe(
+      `parado há mais tempo: ${J('AGL-9')}, sem atualização desde 14/09`,
+    );
   });
 
   it('omits the stale line at exactly the threshold', () => {
-    const edge = jira(9, iso(NOW - STALE_AFTER_DAYS * DAY));
-    expect(renderRundown('N', [jira(1), edge], 2, NOW)).not.toContain('parado há');
+    expect(run('N', [jira(1), jira(9, iso(NOW - STALE_AFTER_DAYS * DAY))])).not.toContain('parado há');
   });
 
   it('finds the stale card even beyond the line cap', () => {
     const cards = [...many(9), jira(99, iso(NOW - 30 * DAY))];
-    expect(renderRundown('N', cards, 10, NOW)).toContain('parado há mais tempo: AGL-99');
+    expect(run('N', cards)).toContain(`parado há mais tempo: ${J('AGL-99')}`);
   });
 });
 
 describe('buildCandidateCard', () => {
   const card = (cs: CardCandidate[], total = cs.length) =>
-    buildCandidateCard('Norte', cs, total) as any;
+    buildCandidateCard('Norte', cs, total, testConfig) as any;
 
   it('is a plain Adaptive Card with a line per candidate', () => {
     const c = card([jira(1), zen('16467')]);
@@ -95,6 +105,7 @@ describe('buildCandidateCard', () => {
     ]);
     expect(c.actions[0].type).toBe('Action.Execute');
     expect(c.actions[0].verb).toBe(SELECT_ACTION);
+    expect(c.actions[0].title).toBe('AGL-1');   // button titles stay plain labels
   });
 
   it('caps buttons and notes the overflow', () => {
@@ -105,9 +116,9 @@ describe('buildCandidateCard', () => {
 
   it('the card title uses the same capped count wording', () => {
     expect(card(many(3), CARD_FETCH_CAP).body[0].text).toBe(
-      `Norte — ${CARD_FETCH_CAP}+ cards ativos (mostrando os mais recentes)`,
+      `Norte — ${CARD_FETCH_CAP}+ atividades abertas (mostrando as mais recentes)`,
     );
-    expect(card(many(3), 3).body[0].text).toBe('Norte — 3 cards ativos');
+    expect(card(many(3), 3).body[0].text).toBe('Norte — 3 atividades abertas');
   });
 
   it('no overflow note at exactly the button cap', () => {
@@ -140,52 +151,51 @@ describe('statusColor', () => {
 });
 
 describe('buildRundownCard', () => {
-  const build = (cs: CardCandidate[], total = cs.length) => buildRundownCard('Dalle', cs, total, NOW) as any;
-  const texts = (c: any) => c.body.map((b: any) => b.text);
+  const build = (cs: CardCandidate[], total = cs.length) =>
+    buildRundownCard('Dalle', cs, total, NOW, testConfig) as any;
+  const texts = (c: any): string[] => c.body.map((b: any) => b.text);
 
   it('is a plain Adaptive Card with a bold count title and no buttons', () => {
     const c = build([jira(1)]);
     expect(c.type).toBe('AdaptiveCard');
     expect(c.version).toBe('1.5');
     expect(c.actions).toBeUndefined();
-    expect(c.body[0]).toMatchObject({ type: 'TextBlock', weight: 'Bolder', size: 'Large', text: 'Dalle — 1 cards ativos' });
+    expect(c.body[0]).toMatchObject({ type: 'TextBlock', weight: 'Bolder', size: 'Large', text: 'Dalle — 1 atividades abertas' });
     expect(c.body[0].isSubtle).toBeUndefined();
   });
 
-  it('renders per card a bold-key line and a subtle colored status line with assignee when present', () => {
+  it('renders per card a bold linked-key line and a subtle colored status line with assignee when present', () => {
     const withAssignee = { ...jira(1, '2026-09-27T12:00:00.000Z'), status: 'Done', assignee: 'Ana Souza' };
     const c = build([withAssignee, { ...zen('16467'), status: 'Bloqueado' }]);
-    // body[1] / body[4] are the section headers (layout changed by the sectioned rendering)
-    expect(c.body[2]).toMatchObject({ text: '**AGL-1** — Resumo 1', wrap: true });
+    // body[1] / body[4] are the section headers
+    expect(c.body[2]).toMatchObject({ text: `**${J('AGL-1')}** — Resumo 1`, wrap: true });
     expect(c.body[3]).toMatchObject({ text: 'Done · Ana Souza · atualizado 27/09', isSubtle: true, color: 'good' });
-    expect(c.body[5].text).toBe('**chamado 16467** — Assunto');
+    expect(c.body[5].text).toBe(`**${Z('16467')}** — Assunto`);
     expect(c.body[6]).toMatchObject({ isSubtle: true, color: 'attention' });
     expect(c.body[6].text).not.toContain('undefined');
     expect(c.body[6].text.split(' · ')).toHaveLength(2);   // no assignee segment
   });
 
-  it('caps cards at RUNDOWN_LINE_CAP and adds the overflow and stale lines as subtle blocks', () => {
-    const old = jira(99, iso(NOW - 30 * DAY));
-    const c = build([...many(RUNDOWN_LINE_CAP), old], RUNDOWN_LINE_CAP + 1);
-    expect(texts(c).filter((t: string) => t.startsWith('**AGL-'))).toHaveLength(RUNDOWN_LINE_CAP);
-    const overflow = c.body.find((b: any) => b.text?.startsWith('e mais'));
-    expect(overflow).toMatchObject({ text: 'e mais 1: AGL-99', isSubtle: true });
-    const stale = c.body.find((b: any) => b.text?.startsWith('parado há'));
-    expect(stale).toMatchObject({ text: 'parado há mais tempo: AGL-99, sem atualização desde 30/08', isSubtle: true });
-  });
-
   it('uses the capped count wording at the fetch cap', () => {
     expect(build(many(2), CARD_FETCH_CAP).body[0].text).toBe(
-      `Dalle — ${CARD_FETCH_CAP}+ cards ativos (mostrando os mais recentes)`,
+      `Dalle — ${CARD_FETCH_CAP}+ atividades abertas (mostrando as mais recentes)`,
     );
+  });
+
+  it('keeps the stale line global, as a subtle block at the card foot', () => {
+    const cards = [...many(RUNDOWN_LINE_CAP), jira(99, iso(NOW - 30 * DAY))];
+    const c = build(cards);
+    expect(c.body.at(-2)).toMatchObject({
+      text: `parado há mais tempo: ${J('AGL-99')}, sem atualização desde 30/08`, isSubtle: true,
+    });
   });
 });
 
 describe('buildCandidateCard line style', () => {
-  it('uses the bold-key line and a colored status line, buttons unchanged', () => {
-    const c = buildCandidateCard('Norte', [{ ...jira(1), status: 'Resolvido', assignee: 'Beto' }], 1) as any;
+  it('uses the bold linked-key line and a colored status line, buttons unchanged', () => {
+    const c = buildCandidateCard('Norte', [{ ...jira(1), status: 'Resolvido', assignee: 'Beto' }], 1, testConfig) as any;
     expect(c.body[1].text).toBe('Cards (Jira)');   // section header
-    expect(c.body[2].text).toBe('**AGL-1** — Resumo 1');
+    expect(c.body[2].text).toBe(`**${J('AGL-1')}** — Resumo 1`);
     expect(c.body[3]).toMatchObject({ isSubtle: true, color: 'good' });
     expect(c.body[3].text).toContain('Resolvido · Beto · atualizado');
     expect(c.actions).toHaveLength(1);
@@ -196,52 +206,38 @@ describe('sectioned rendering (spec §10.4)', () => {
   const paired = { ...jira(1), zendeskId: '17058' };
   const unpaired = jira(2);
   const headers = (c: any) => c.body.filter((b: any) => b.separator === true).map((b: any) => b.text);
-  const keyLines = (c: any) => c.body.map((b: any) => b.text).filter((t: string) => t.startsWith('**'));
+  const both = (cards: CardCandidate[]) =>
+    [buildRundownCard('N', cards, cards.length, NOW, testConfig), buildCandidateCard('N', cards, cards.length, testConfig)] as any[];
 
-  it('groups Jira then Zendesk, each under a bold subtle header, in both cards', () => {
-    const cards = [zen('16467'), paired, unpaired];   // input order must not matter
-    for (const c of [buildRundownCard('N', cards, 3, NOW), buildCandidateCard('N', cards, 3)] as any[]) {
+  it('groups Jira then Zendesk, each under a bold header, in both cards', () => {
+    for (const c of both([zen('16467'), paired, unpaired])) {   // input order must not matter
       expect(headers(c)).toEqual(['Cards (Jira)', 'Chamados (Zendesk)']);
-      expect(keyLines(c).map((t: string) => t.slice(0, 12))).toEqual(['**AGL-1 ↔ ch', '**AGL-2** — ', '**chamado 16']);
+      expect(keyLines(c).map((t) => t.split(' — ')[1])).toEqual(['Resumo 1', 'Resumo 2', 'Assunto']);
     }
   });
 
-  it('pairs a Jira line with its chamado; unpaired lines and Zendesk lines stay plain', () => {
-    const c = buildRundownCard('N', [paired, unpaired, zen('16467')], 3, NOW) as any;
+  it('bolds and links the whole pair; unpaired and Zendesk lines link their single key', () => {
+    const c = buildRundownCard('N', [paired, unpaired, zen('16467')], 3, NOW, testConfig) as any;
     expect(keyLines(c)).toEqual([
-      '**AGL-1 ↔ chamado 17058** — Resumo 1',
-      '**AGL-2** — Resumo 2',
-      '**chamado 16467** — Assunto',
+      `**${J('AGL-1')} ↔ ${Z('17058')}** — Resumo 1`,
+      `**${J('AGL-2')}** — Resumo 2`,
+      `**${Z('16467')}** — Assunto`,
     ]);
+  });
+
+  it('a paired line contains both hrefs', () => {
+    const line = keyLines(buildCandidateCard('N', [paired], 1, testConfig) as any)[0];
+    expect(line).toContain('(https://your-tenant.atlassian.net/browse/AGL-1)');
+    expect(line).toContain('(https://your-subdomain.zendesk.com/agent/tickets/17058)');
   });
 
   it('omits an empty section: all-Jira and all-Zendesk', () => {
-    const allJira = buildRundownCard('N', [paired], 1, NOW) as any;
-    expect(headers(allJira)).toEqual(['Cards (Jira)']);
-    const allZen = buildCandidateCard('N', [zen('1'), zen('2')], 2) as any;
-    expect(headers(allZen)).toEqual(['Chamados (Zendesk)']);
-  });
-
-  it('the line cap applies across the whole rundown card, not per section', () => {
-    const cards = [...many(RUNDOWN_LINE_CAP), zen('1')];   // Zendesk one falls past the cap
-    const c = buildRundownCard('N', cards, cards.length, NOW) as any;
-    expect(keyLines(c)).toHaveLength(RUNDOWN_LINE_CAP);
-    expect(headers(c)).toEqual(['Cards (Jira)']);
-  });
-
-  it('the text fallback mirrors the grouping, with plain section-name lines and the pair', () => {
-    const lines = renderRundown('N', [zen('16467'), paired, unpaired], 3, NOW).split('\n');
-    expect(lines.slice(1)).toEqual([
-      'Cards (Jira)',
-      '- AGL-1 ↔ chamado 17058 — Resumo 1 — Em Teste, atualizado 28/09',
-      '- AGL-2 — Resumo 2 — Em Teste, atualizado 28/09',
-      'Chamados (Zendesk)',
-      '- chamado 16467 — Assunto — open, atualizado 28/09',
-    ]);
+    expect(headers(buildRundownCard('N', [paired], 1, NOW, testConfig))).toEqual(['Cards (Jira)']);
+    expect(headers(buildCandidateCard('N', [zen('1'), zen('2')], 2, testConfig))).toEqual(['Chamados (Zendesk)']);
   });
 
   it('title is Large+Bolder and not subtle; section headers are Bolder, default size, separated, not subtle', () => {
-    for (const c of [buildRundownCard('N', [paired, zen('1')], 2, NOW), buildCandidateCard('N', [paired, zen('1')], 2)] as any[]) {
+    for (const c of both([paired, zen('1')])) {
       expect(c.body[0]).toMatchObject({ weight: 'Bolder', size: 'Large' });
       expect(c.body[0].isSubtle).toBeUndefined();
       const hs = c.body.filter((b: any) => b.separator === true);
@@ -254,39 +250,70 @@ describe('sectioned rendering (spec §10.4)', () => {
     }
   });
 
-  it('bolds the whole pair', () => {
-    const c = buildCandidateCard('N', [paired], 1) as any;
-    expect(c.body[2].text).toBe('**AGL-1 ↔ chamado 17058** — Resumo 1');
-  });
-
-  describe('named overflow (rundown)', () => {
-    const overflowOf = (cards: CardCandidate[], total = cards.length) =>
-      (buildRundownCard('N', cards, total, NOW) as any).body.find((b: any) => b.text?.startsWith('e mais'));
-
-    it('lists the labels of every candidate beyond the cap, in the card and the text', () => {
-      const cards = [...many(RUNDOWN_LINE_CAP), zen('16694'), jira(77)];
-      expect(overflowOf(cards)).toMatchObject({ text: 'e mais 2: chamado 16694, AGL-77', isSubtle: true });
-      expect(renderRundown('N', cards, cards.length, NOW)).toContain('e mais 2: chamado 16694, AGL-77');
-    });
-
-    it('lists at most 10 labels, then an ellipsis', () => {
-      const cards = many(RUNDOWN_LINE_CAP + 12);
-      const expected = many(RUNDOWN_LINE_CAP + 12).slice(RUNDOWN_LINE_CAP, RUNDOWN_LINE_CAP + 10).map((c) => c.label).join(', ');
-      expect(overflowOf(cards).text).toBe(`e mais 12: ${expected}, …`);
-      expect(renderRundown('N', cards, cards.length, NOW)).toContain(`e mais 12: ${expected}, …`);
-    });
-
-    it('exactly 10 beyond the cap has no ellipsis', () => {
-      expect(overflowOf(many(RUNDOWN_LINE_CAP + 10)).text).not.toContain('…');
-    });
-
-    it('never says "pergunte por um deles"', () => {
-      expect(renderRundown('N', many(RUNDOWN_LINE_CAP + 3), RUNDOWN_LINE_CAP + 3, NOW)).not.toContain('pergunte');
-    });
+  it('the text fallback mirrors the grouping with linked keys and the linked pair', () => {
+    const lines = run('N', [zen('16467'), paired, unpaired]).split('\n');
+    expect(lines.slice(1)).toEqual([
+      'Cards (Jira)',
+      `- ${J('AGL-1')} ↔ ${Z('17058')} — Resumo 1 — Em Teste, atualizado 28/09`,
+      `- ${J('AGL-2')} — Resumo 2 — Em Teste, atualizado 28/09`,
+      'Chamados (Zendesk)',
+      `- ${Z('16467')} — Assunto — open, atualizado 28/09`,
+    ]);
   });
 
   it('the text fallback omits an empty section', () => {
-    expect(renderRundown('N', [zen('1')], 1, NOW)).not.toContain('Cards (Jira)');
-    expect(renderRundown('N', [jira(1)], 1, NOW)).not.toContain('Chamados (Zendesk)');
+    expect(run('N', [zen('1')])).not.toContain('Cards (Jira)');
+    expect(run('N', [jira(1)])).not.toContain('Chamados (Zendesk)');
+  });
+});
+
+describe('per-section overflow (spec §10.6)', () => {
+  const overflows = (c: any): string[] => c.body.map((b: any) => b.text).filter((t: string) => t.startsWith('e mais'));
+  const card = (cards: CardCandidate[]) => buildRundownCard('Dalle', cards, cards.length, NOW, testConfig) as any;
+  const linked = (labels: string[]) => labels.map((l) => (l.startsWith('chamado') ? Z(l.slice(8)) : J(l))).join(', ');
+
+  it('dalle-like: 7 Jira + 3 Zendesk under the global cap of 8 -> 7 Jira, 1 Zendesk, Zendesk overflows by 2', () => {
+    const cards = [zen('101'), zen('102'), zen('103'), ...many(7)];   // Zendesk newer/first in input
+    const c = card(cards);
+    expect(keyLines(c)).toHaveLength(RUNDOWN_LINE_CAP);
+    expect(keyLines(c).filter((t) => t.includes('/browse/'))).toHaveLength(7);
+    expect(keyLines(c).filter((t) => t.includes('/agent/tickets/'))).toHaveLength(1);
+    expect(overflows(c)).toEqual([`e mais 2: ${linked(['chamado 102', 'chamado 103'])}`]);
+    // the overflow line sits right after its own section's lines, before nothing else
+    const texts: string[] = c.body.map((b: any) => b.text);
+    expect(texts.indexOf(overflows(c)[0])).toBeGreaterThan(texts.indexOf('Chamados (Zendesk)'));
+
+    const lines = renderRundown('Dalle', cards, cards.length, NOW, testConfig).split('\n');
+    expect(lines.filter((l) => l.startsWith('- '))).toHaveLength(RUNDOWN_LINE_CAP);
+    expect(lines.filter((l) => l.startsWith('e mais'))).toEqual(overflows(c));
+    expect(lines.at(-1)).toBe(overflows(c)[0]);
+  });
+
+  it('a Jira overflow: 10 Jira + 2 Zendesk -> Jira shows 8 and overflows by 2; Zendesk section shows only its overflow', () => {
+    const c = card([...many(10), zen('1'), zen('2')]);
+    expect(keyLines(c)).toHaveLength(RUNDOWN_LINE_CAP);
+    expect(overflows(c)).toEqual([
+      `e mais 2: ${linked(['AGL-9', 'AGL-10'])}`,
+      `e mais 2: ${linked(['chamado 1', 'chamado 2'])}`,
+    ]);
+    const texts: string[] = c.body.map((b: any) => b.text);
+    expect(texts.indexOf('Chamados (Zendesk)')).toBeGreaterThan(texts.indexOf(overflows(c)[0]));
+    expect(c.body.filter((b: any) => b.text?.startsWith('e mais')).every((b: any) => b.isSubtle)).toBe(true);
+  });
+
+  it('no mixed card-foot overflow: nothing hidden means no overflow line at all', () => {
+    expect(overflows(card([...many(5), zen('1')]))).toEqual([]);
+  });
+
+  it('lists at most 10 labels per section, then an ellipsis', () => {
+    const c = card(many(RUNDOWN_LINE_CAP + 12));
+    const expected = linked(many(RUNDOWN_LINE_CAP + 12).slice(RUNDOWN_LINE_CAP, RUNDOWN_LINE_CAP + 10).map((x) => x.label));
+    expect(overflows(c)).toEqual([`e mais 12: ${expected}, …`]);
+    expect(run('N', many(RUNDOWN_LINE_CAP + 12))).toContain(`e mais 12: ${expected}, …`);
+  });
+
+  it('exactly 10 hidden has no ellipsis, and the old wording is gone', () => {
+    expect(overflows(card(many(RUNDOWN_LINE_CAP + 10)))[0]).not.toContain('…');
+    expect(run('N', many(RUNDOWN_LINE_CAP + 3))).not.toContain('pergunte');
   });
 });

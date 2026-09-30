@@ -361,10 +361,10 @@ async function offerCandidates(
   deps: HandleDeps,
 ): Promise<Reply> {
   await deps.candidates.set(sharedSlot, { name, candidates: cards, createdAt: deps.now() });
-  const rundown = renderRundown(name, cards, total, deps.now());
+  const rundown = renderRundown(name, cards, total, deps.now(), deps.cfg);
   const card = mode === 'rundown'
-    ? buildRundownCard(name, cards, total, deps.now())
-    : buildCandidateCard(name, cards, total);
+    ? buildRundownCard(name, cards, total, deps.now(), deps.cfg)
+    : buildCandidateCard(name, cards, total, deps.cfg);
   return { kind: 'card', card, fallbackText: rundown };
 }
 

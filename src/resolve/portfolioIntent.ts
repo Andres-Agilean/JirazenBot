@@ -17,7 +17,7 @@ const KIND = /\b(?:empresa|cliente|obra|projeto)\b/;
 /** Words that mark the question as being about one card, not a portfolio (spec §5). */
 const CARD_SHAPE = /\b(?:problema|erro|bug|card|chamado|ticket|incidente)\b/;
 /** Leading connectives between the kind word and the name. */
-const CONNECTIVE = /^(?:d[aeo]s?\s+)?/;
+const CONNECTIVE = /^(?:(?:d[aeo]s?|n[ao]s?|em)\s+)?/;
 /** Names that are almost certainly a verb/stray word, not an entity (false-positive guard). */
 const STOP_NAMES = new Set(['atrasou', 'atrasada', 'parou', 'parada', 'anda', 'esta', 'estao']);
 

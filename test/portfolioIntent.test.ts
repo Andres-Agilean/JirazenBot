@@ -26,6 +26,22 @@ describe('detectPortfolioQuery', () => {
     expect(detectPortfolioQuery(text)).toEqual({ name, mode: 'rundown' });
   });
 
+  it.each([
+    ['qual o status das atividades no Jardins de Potengi?', 'Jardins de Potengi'],
+    ['como estao as atividades na Dalle', 'Dalle'],
+    ['atividades nos Jardins de Potengi', 'Jardins de Potengi'],
+    ['atividades nas Obras Norte', 'Obras Norte'],
+    ['como estao as atividades em São Bento?', 'São Bento'],
+    ['status do projeto em Jaguaribe', 'Jaguaribe'],
+  ])('na/no/nas/nos/em connectives are stripped after the anchor: %s', (text, name) => {
+    expect(detectPortfolioQuery(text)).toEqual({ name, mode: 'rundown' });
+  });
+
+  it('a name that merely starts with a connective-like word keeps it', () => {
+    expect(detectPortfolioQuery('empresa Nova Era')?.name).toBe('Nova Era');
+    expect(detectPortfolioQuery('empresa Emplacar')?.name).toBe('Emplacar');
+  });
+
   it('plural anchors never flip to candidates (chamados/tickets are not CARD_SHAPE)', () => {
     expect(detectPortfolioQuery('erro nos chamados da Dalle')?.mode).toBe('rundown');
   });
