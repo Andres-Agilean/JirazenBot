@@ -173,6 +173,33 @@ Users hop contexts rapidly — company A → project B → follow-up on B → co
    remains available through the anchored shapes ("empresa norte", plural anchors) and `buscar`;
    the loose shapes serve the cold-start state the owner's screenshot showed.
 
+## 11. Addendum — confirm-to-switch while bound (owner decision, 2026-09-30)
+
+Resolves the §9-deferred routing question after the owner hit it live ("como estao as atividades
+da dalle?" with a card bound went to the card, which could only say the bundle has no Dallé).
+
+- While a card is bound, a free-form message that matches the detector's **anchored** shapes
+  (entity word or plural subject + name — never the loose §10.4 shapes, which stay cold-start
+  only) no longer goes to the bound card directly. The bot replies with a small confirm card:
+  "**Você quer ver as atividades de <nome>?**" with two `Action.Execute` buttons —
+  `Buscar <nome>` (runs the search exactly as the typed `buscar <nome>`: same slot semantics,
+  does not unbind unless the user then selects) and `Continuar no <card label>` (sends the
+  ORIGINAL message text to the bound card's answer path, so the user never retypes).
+- Rationale: bound-card-wins existed because entity words match mid-sentence and genuine card
+  questions ("o problema da obra Flora persiste?") must not be silently stolen. The confirm card
+  makes a false positive cost one click in either direction and keeps every path non-silent.
+  Such a mid-sentence match SHOWING the interstitial is accepted behavior, pinned in tests.
+- Everything that already worked while bound is unchanged and keeps precedence: commands,
+  `buscar`, follow-up patterns (`quantos?`, expand, distribution), exact-label selection,
+  references. The confirm card slots in where "bound card wins free-form" was the final answer.
+
+## 12. Addendum — help-text rendering fixes (owner screenshots, 2026-09-30)
+
+`buscar <nome>` rendered as literal `&lt;nome&gt;` in Teams, and the **Comandos** lines collapse
+into one flowing paragraph (single `\n` is not a line break in Teams markdown). Drop the angle
+brackets (pt-BR phrasing without `<>`), and separate command lines so each renders on its own
+line.
+
 ## 5a. Selection tightening (consequence of §5, controller-ruled)
 
 Once free-form text over a portfolio reaches Claude, substring-based typed selection would steal
