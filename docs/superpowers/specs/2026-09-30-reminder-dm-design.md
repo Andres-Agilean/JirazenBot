@@ -89,9 +89,10 @@ double-send), and it forces the recipient id to be trusted from the client paylo
   client payload can no longer name a recipient or smuggle an uncapped note.
 - A pick click looks up the record by nonce and sets the chosen candidate (not one-shot — picking
   again re-renders the confirmation). **Enviar and Cancelar CONSUME the record atomically**
-  (within the conversation's existing serialization) before any send: a missing nonce →
-  `REMINDER_EXPIRED`; an already-consumed one → a distinct pt-BR "já tratado" reply. After
-  Cancelar, Enviar on the same card can never send.
+  (within the conversation's existing serialization) before any send: a missing, expired or
+  already-consumed nonce → `REMINDER_EXPIRED` (consumed and expired are indistinguishable
+  without tombstones, which are deliberately not kept — one reply covers both). After Cancelar,
+  Enviar on the same card can never send.
 - The reassignment re-check (§5/Task-4 ruling) now compares the fresh Jira assignee against the
   RECORD's recipient displayName; the receipt names the record's recipient.
 
