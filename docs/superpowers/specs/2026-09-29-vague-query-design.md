@@ -146,3 +146,9 @@ persisting candidate sets beyond the binding store's lifetime.
 3. **Assignee joins the search results** where it costs nothing extra: `assignee` added to the
    fields of both Jira search queries (same single requests); `CardCandidate.assignee?: string`;
    shown when present, omitted for Zendesk-only lines (a users lookup would break the §6a budget).
+4. **Sectioned company card (owner, 2026-09-30):** the rundown/candidate card splits into two
+   sections — "Cards (Jira)" and "Chamados (Zendesk)" — each omitted when empty. Jira lines show
+   their Zendesk pair when known: `**QZ-310** ↔ chamado 17058 — <summary>`. The pair id comes from
+   the existing batch mapping, and `searchActiveByText` additionally requests the Zendesk-id
+   custom field so text-search results pair too (same single request; §6a intact). The plain-text
+   fallback mirrors the grouping. Labels, buttons and typed selection are unchanged.
