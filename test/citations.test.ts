@@ -110,6 +110,11 @@ describe('compressCitations', () => {
       ['são 5 [estatisticas].', 'são 5.'],
       ['Distribuição, conforme [estatisticas]: ok', 'Distribuição: ok'],
       ['veja [estatísticas] e [QZ-306]', 'veja e [QZ-306]'],
+      // Leftover punctuation at a line start (incl. behind a bold opener) is tidied; casing is not touched.
+      ['Conforme [estatísticas], são 5 abertas.', 'são 5 abertas.'],
+      ['**Conforme [estatísticas], são 5 abertas**', '**são 5 abertas**'],
+      ['Resumo\n**Segundo o bloco [estatísticas]: são 5**', 'Resumo\n**são 5**'],
+      ['Distribuição por responsável, conforme [estatísticas]: João 2', 'Distribuição por responsável: João 2'],
     ])('%s', (input, expected) => {
       expect(compressCitations(input)).toBe(expected);
     });

@@ -51,8 +51,12 @@ export function compressCitations(text: string, bundle?: CardBundle): string {
     .replace(STATS_LABEL, (_match, before: string, after: string, punct: string, offset: number, whole: string) => {
       if (punct) return punct;
       return before || after ? (offset + _match.length >= whole.length ? '' : ' ') : '';
-    });
+    })
+    .replace(LEADING_PUNCTUATION, '$1$2');
 }
+
+/** Punctuation stranded at a line start (optionally behind a `**` opener) once a leading label phrase is gone. */
+const LEADING_PUNCTUATION = /(^|\n)([ \t]*(?:\*{1,2}[ \t]*)?)[:;,][ \t]+/g;
 
 /**
  * The `[estatísticas]` block label is internal (spec §13, amending §5's passthrough): the prompt
