@@ -250,6 +250,13 @@ Three connected findings from the live session:
 - **Distribution verbs widened:** organiza/organizar/organize, agrupa/agrupar/agrupe,
   separa/separar/separe join the §10.3 verb set — "organize por status" is a distribution
   request, not free-form text ("organize" reached the bound card's Claude live).
+- **`[estatísticas]` never reaches the user (owner screenshot 11:03).** Amends §5's
+  passthrough rule for this one label: `compressCitations` strips it at DISPLAY time —
+  `,? (conforme|segundo)( o bloco)? \[estatísticas\]` disappears whole (so "Distribuição por
+  responsável, conforme [estatísticas]:" reads "Distribuição por responsável:"), and any
+  remaining bare `[estatísticas]` is removed with whitespace tidied. Candidate-label citations
+  (`[QZ-306]`, `[chamado 17063]`) keep passing through unharmed. Prompt and eval untouched:
+  the model keeps emitting the label (mustCite matches raw output); only display changes.
 
 ## 12. Addendum — help-text rendering fixes (owner screenshots, 2026-09-30)
 
