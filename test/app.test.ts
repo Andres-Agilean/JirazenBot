@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleActivity, handleCardAction, UNEXPECTED_ERROR_REPLY, UNKNOWN_INVOKE_ACTION_REPLY } from '@/teams/app.js';
-import { NO_TEXT_RECEIVED, type HandleDeps } from '@/teams/handleMessage.js';
+import { NO_TEXT_RECEIVED, SELECTION_INVALID, handleSelect, type HandleDeps } from '@/teams/handleMessage.js';
 import { InMemoryBindingStore, type Binding, type BindingStore, type Slot } from '@/teams/bindings.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
 import { REFRESH_ACTION } from '@/teams/cards.js';
+import { SELECT_ACTION } from '@/teams/rundown.js';
 import { testConfig } from './helpers.js';
 
 function makeDeps(over: Partial<HandleDeps> = {}): HandleDeps {
@@ -190,7 +191,7 @@ describe('handleCardAction: never goes silent on an unexpected failure (spec §6
 
     await handleCardAction(
       async (a) => { sent.push(a); return undefined; },
-      REFRESH_ACTION, 'c', 'personal', 'u', deps,
+      REFRESH_ACTION, undefined, 'c', 'personal', 'u', deps,
     );
 
     expect(sent).toHaveLength(1);
@@ -210,7 +211,7 @@ describe('handleCardAction: routes on the invoke verb (spec §7, review finding:
 
     await handleCardAction(
       async (a) => { sent.push(a); return undefined; },
-      REFRESH_ACTION, 'c', 'personal', 'u', deps,
+      REFRESH_ACTION, undefined, 'c', 'personal', 'u', deps,
     );
 
     expect(sent).toHaveLength(1);
@@ -223,7 +224,7 @@ describe('handleCardAction: routes on the invoke verb (spec §7, review finding:
 
     await handleCardAction(
       async (a) => { sent.push(a); return undefined; },
-      'algumaOutraAcao', 'c', 'personal', 'u', deps,
+      'algumaOutraAcao', undefined, 'c', 'personal', 'u', deps,
     );
 
     expect(sent).toEqual([UNKNOWN_INVOKE_ACTION_REPLY]);
@@ -235,10 +236,92 @@ describe('handleCardAction: routes on the invoke verb (spec §7, review finding:
 
     await handleCardAction(
       async (a) => { sent.push(a); return undefined; },
-      undefined, 'c', 'personal', 'u', deps,
+      undefined, undefined, 'c', 'personal', 'u', deps,
     );
 
     expect(sent).toEqual([UNKNOWN_INVOKE_ACTION_REPLY]);
+  });
+
+  it('routes SELECT_ACTION with valid data to handleSelect, flowing to a bind attempt', async () => {
+    const sent: unknown[] = [];
+    const store = new InMemoryBindingStore(() => 0);
+    const loadBundleCalls: unknown[] = [];
+    const deps = cardDeps({
+      store,
+      loadBundle: async (ref) => {
+        loadBundleCalls.push(ref);
+        return {
+          status: 'ok',
+          bundle: {
+            fetchedAt: '2026-08-13T17:32:00.000Z',
+            surface: 'dm',
+            jira: { issueId: '1', issueKey: 'AGL-900', fields: {}, comments: [], statusHistory: [] },
+            resolution: { via: 'direct_only', ambiguous: false },
+            truncationNotes: [],
+          },
+        };
+      },
+    });
+
+    await handleCardAction(
+      async (a) => { sent.push(a); return undefined; },
+      SELECT_ACTION,
+      { system: 'jira', id: 'AGL-900' },
+      'c', 'personal', 'u', deps,
+    );
+
+    // handleSelect should have called loadBundle with the explicit ref
+    expect(loadBundleCalls).toHaveLength(1);
+    expect(loadBundleCalls[0]).toEqual({
+      system: 'jira',
+      issueKey: 'AGL-900',
+      explicit: true,
+    });
+    // Should send a reply (either text or card)
+    expect(sent.length).toBeGreaterThan(0);
+  });
+
+  it('replies with SELECTION_INVALID when SELECT_ACTION has garbage payload', async () => {
+    const sent: unknown[] = [];
+    const deps = makeDeps();
+
+    await handleCardAction(
+      async (a) => { sent.push(a); return undefined; },
+      SELECT_ACTION,
+      { system: 'invalid', id: '' },
+      'c', 'personal', 'u', deps,
+    );
+
+    expect(sent).toEqual([SELECTION_INVALID]);
+  });
+
+  it('never goes silent when handleSelect throws unexpectedly', async () => {
+    const sent: unknown[] = [];
+    const deps = makeDeps({ store: throwingStore() });
+
+    await handleCardAction(
+      async (a) => { sent.push(a); return undefined; },
+      SELECT_ACTION,
+      { system: 'jira', id: 'AGL-900' },
+      'c', 'personal', 'u', deps,
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toBe(UNEXPECTED_ERROR_REPLY);
+  });
+
+  it('names both known actions in UNKNOWN_INVOKE_ACTION_REPLY for updated wording', async () => {
+    const sent: unknown[] = [];
+    const deps = makeDeps();
+
+    await handleCardAction(
+      async (a) => { sent.push(a); return undefined; },
+      'unknownVerb', undefined, 'c', 'personal', 'u', deps,
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(String(sent[0])).toContain('Atualizar');
+    expect(String(sent[0])).toContain('seleção de card');
   });
 });
 

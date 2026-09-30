@@ -1,9 +1,10 @@
 import { App, type AppOptions, type IPlugin } from '@microsoft/teams.apps';
 import { REFRESH_ACTION } from './cards.js';
-import { handleMessage, handleRefresh, NO_TEXT_RECEIVED, type HandleDeps } from './handleMessage.js';
+import { handleMessage, handleRefresh, handleSelect, NO_TEXT_RECEIVED, type HandleDeps } from './handleMessage.js';
 import { appOptionsForAuthMode, type AuthMode, type TeamsAppAuthOptions } from './authMode.js';
 import { botMentions, stripMentions, type MentionLike } from './mentions.js';
 import { runExclusive } from './serialize.js';
+import { SELECT_ACTION } from './rundown.js';
 import type { Reply } from './reply.js';
 
 export const UNEXPECTED_ERROR_REPLY = 'Algo deu errado do meu lado. Tente novamente em instantes.';
@@ -125,53 +126,68 @@ export async function handleActivity(
 }
 
 /**
- * Reply for any Action.Execute invoke whose verb is not the known Refresh verb (spec §7, review
+ * Reply for any Action.Execute invoke whose verb is not the known Refresh or Select verb (spec §7, review
  * finding: Minor 5). The SDK's CARD_ACTION_ROUTE dispatches EVERY Action.Execute here regardless
  * of verb, and until this fix the handler never read the verb at all -- harmless with exactly one
  * button, but silently treating any future second button's press as Refresh the moment one ships.
  * Names what the bot understood rather than the unrecognised verb, per spec §7's wording.
  */
 export const UNKNOWN_INVOKE_ACTION_REPLY =
-  'Não reconheço essa ação. A única ação que sei executar por aqui é "Atualizar" '
-  + '(buscar os dados mais recentes do card).';
+  'Não reconheço essa ação. Por aqui sei executar "Atualizar" (buscar os dados mais recentes do card) '
+  + 'e a seleção de card dos resultados de busca.';
 
 /**
- * The testable core of the Refresh invoke handler (spec §6): mirrors handleActivity's
+ * The testable core of the Refresh and Select invoke handlers (spec §6): mirrors handleActivity's
  * never-goes-silent guarantee (spec §8) for the button path. Without this, an unexpected
- * failure inside handleRefresh (e.g. the store rejecting) would leave the invoke callback
- * rejecting -- nothing sent, no apology, and the user pressing Atualizar into silence.
+ * failure inside handleRefresh or handleSelect (e.g. the store rejecting) would leave the invoke callback
+ * rejecting -- nothing sent, no apology, and the user pressing a button into silence.
  *
- * `verb` is read off the invoke activity by the caller (createTeamsApp) and routed here so the
+ * `verb` and `data` are read off the invoke activity by the caller (createTeamsApp) and routed here so the
  * verb check itself is covered by this file's offline tests rather than living un-testably inside
  * the SDK callback (review finding: Minor 5).
  */
 export async function handleCardAction(
   send: SendFn,
   verb: string | undefined,
+  data: unknown,
   conversationId: string,
   conversationType: string | undefined,
   userId: string,
   deps: HandleDeps,
 ): Promise<void> {
-  if (verb !== REFRESH_ACTION) {
-    await send(UNKNOWN_INVOKE_ACTION_REPLY);
+  if (verb === REFRESH_ACTION) {
+    let replies: Reply[];
+    try {
+      // Same per-conversation serialization as handleActivity, and for the same reason: the
+      // Refresh button and a concurrent text message must not race on the same binding slot.
+      replies = await runExclusive(conversationId, () =>
+        handleRefresh({ conversationId, conversationType, userId }, deps));
+    } catch (err) {
+      // handleRefresh already converts expected failures into pt-BR replies; reaching here means
+      // an unexpected bug. The user gets an apology, the detail goes to the server log.
+      console.error('handleRefresh falhou:', err);
+      replies = [{ kind: 'text', text: UNEXPECTED_ERROR_REPLY }];
+    }
+
+    await sendReplies(send, replies);
     return;
   }
 
-  let replies: Reply[];
-  try {
-    // Same per-conversation serialization as handleActivity, and for the same reason: the
-    // Refresh button and a concurrent text message must not race on the same binding slot.
-    replies = await runExclusive(conversationId, () =>
-      handleRefresh({ conversationId, conversationType, userId }, deps));
-  } catch (err) {
-    // handleRefresh already converts expected failures into pt-BR replies; reaching here means
-    // an unexpected bug. The user gets an apology, the detail goes to the server log.
-    console.error('handleRefresh falhou:', err);
-    replies = [{ kind: 'text', text: UNEXPECTED_ERROR_REPLY }];
+  if (verb === SELECT_ACTION) {
+    let replies: Reply[];
+    try {
+      replies = await runExclusive(conversationId, () =>
+        handleSelect({ conversationId, conversationType, userId }, data as { system?: string; id?: string }, deps));
+    } catch (err) {
+      console.error('handleSelect falhou:', err);
+      replies = [{ kind: 'text', text: UNEXPECTED_ERROR_REPLY }];
+    }
+
+    await sendReplies(send, replies);
+    return;
   }
 
-  await sendReplies(send, replies);
+  await send(UNKNOWN_INVOKE_ACTION_REPLY);
 }
 
 /**
@@ -243,14 +259,17 @@ export function createTeamsApp(deps: HandleDeps, authMode: AuthMode): App {
   // to this route name regardless of the pressed button's `verb` -- this is not the brief's
   // unverified guess, it is what the package actually does.
   app.on(CARD_ACTION_ROUTE, async ({ send, activity }) => {
-    // The invoke's verb lives at value.action.verb (AdaptiveCardInvokeValue.action.verb per
-    // @microsoft/teams.api) -- this route previously never read it at all (review finding:
+    // The invoke's verb and data live at value.action.verb and value.action.data (AdaptiveCardInvokeValue.action
+    // per @microsoft/teams.api) -- this route previously never read the verb at all (review finding:
     // Minor 5), so any Action.Execute silently ran Refresh regardless of which button sent it.
-    const verb = (activity as { value?: { action?: { verb?: string } } }).value?.action?.verb;
+    const action = (activity as { value?: { action?: { verb?: string; data?: unknown } } }).value?.action;
+    const verb = action?.verb;
+    const data = action?.data;
 
     await handleCardAction(
       send,
       verb,
+      data,
       activity.conversation.id,
       activity.conversation.conversationType as string,
       activity.from?.id ?? '',
