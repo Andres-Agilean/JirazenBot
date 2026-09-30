@@ -127,6 +127,8 @@ describe('parseFollowup', () => {
     ['quantos bloqueados?', { kind: 'counts', status: 'bloqueados' }],
     ['Quantas concluídas?', { kind: 'counts', status: 'concluidas' }],
     ['quantos reprovados', { kind: 'counts', status: 'reprovados' }],
+    ['  quantos   bloqueados ? ', { kind: 'counts', status: 'bloqueados' }],
+    ['todos  os   de jira', { kind: 'expand', section: 'jira' }],
   ])('matches %s', (text, expected) => {
     expect(parseFollowup(text)).toEqual(expected);
   });
@@ -141,6 +143,7 @@ describe('parseFollowup', () => {
     'e todos os de jira têm responsável?',
     'quantos bloqueados abertos',
     'qual o status?',
+    'quantos  casos   de teste passaram?',
     '',
   ])('does not intercept %s', (text) => {
     expect(parseFollowup(text)).toBeNull();
@@ -167,6 +170,17 @@ describe('renderCounts', () => {
       .toBe('**Acme — 1 bloqueados (de 4 atividades abertas)**');
     expect(renderCounts('Acme', a, 'concluidos').split('\n')[0])
       .toBe('**Acme — 2 concluidos (de 4 atividades abertas)**');
+  });
+  it('capped: abertos stays a lower bound, markers say they count fetched cards only', () => {
+    const many = Array.from({ length: CARD_FETCH_CAP }, (_, i) => jira(`QZ-${i}`, { status: i < 3 ? 'Bloqueado' : 'Done' }));
+    const c = computeAggregates(many, 40, NOW);
+    expect(renderCounts('Acme', c, 'abertos').split('\n')[0])
+      .toBe(`**Acme — ${CARD_FETCH_CAP}+ abertos (mostrando as ${CARD_FETCH_CAP} mais recentes)**`);
+    expect(renderCounts('Acme', c, 'bloqueados').split('\n')[0])
+      .toBe(`**Acme — 3 bloqueados entre as ${CARD_FETCH_CAP} mais recentes**`);
+  });
+  it('uncapped abertos is exact', () => {
+    expect(renderCounts('Acme', a, 'abertos').split('\n')[0]).toBe('**Acme — 4 abertos**');
   });
   it('exposes the status-word mapping', () => {
     expect(STATUS_FILTER_MARKERS.bloqueados).toContain('bloqueado');

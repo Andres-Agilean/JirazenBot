@@ -132,7 +132,7 @@ const COUNTS_RE = new RegExp(`^quant(?:os|as)(?: (${Object.keys(STATUS_FILTER_MA
  * pass through untouched.
  */
 export function parseFollowup(text: string): Followup | null {
-  const t = normalizeText(text).trim().replace(/[?!.]+$/, '').trim();
+  const t = normalizeText(text).replace(/\s+/g, ' ').trim().replace(/[?!.]+$/, '').trim();
   const section = EXPAND_SECTION_RE.exec(t);
   if (section) return { kind: 'expand', section: EXPAND_SECTIONS[section[1] as keyof typeof EXPAND_SECTIONS] };
   if (EXPAND_ALL_RE.test(t)) return { kind: 'expand', section: 'all' };
@@ -146,12 +146,18 @@ export function renderCounts(name: string, a: PortfolioAggregates, status?: stri
   const markers = status ? STATUS_FILTER_MARKERS[status] : undefined;
   let lead = `${name} — ${totalLine(a)}`;
   if (status && markers) {
-    const sum = markers.length === 0
-      ? a.total
-      : a.byStatus
+    if (markers.length === 0) {
+      // Every listed activity is open: exact when uncapped, a lower bound (same frame as the total) when capped.
+      lead = a.capped ? `${name} — ${countPhrase(a).replace(' atividades abertas', ` ${status}`)}` : `${name} — ${a.total} ${status}`;
+    } else {
+      const sum = a.byStatus
         .filter((s) => markers.some((m) => normalizeText(s.status).includes(m)))
         .reduce((n, s) => n + s.count, 0);
-    lead = `${name} — ${sum} ${status} (de ${countPhrase(a)})`;
+      // Counted over fetched cards only, so a capped total says so instead of implying a global count.
+      lead = a.capped
+        ? `${name} — ${sum} ${status} entre as ${CARD_FETCH_CAP} mais recentes`
+        : `${name} — ${sum} ${status} (de ${countPhrase(a)})`;
+    }
   }
   return [`**${lead}**`, statusLine(a), assigneeLine(a)].join('\n');
 }
