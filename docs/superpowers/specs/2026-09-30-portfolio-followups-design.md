@@ -155,6 +155,19 @@ Users hop contexts rapidly — company A → project B → follow-up on B → co
    come from the same aggregates, so the never-count guarantee holds; Claude keeps everything
    that doesn't match these patterns, now over the sectioned stats block.
 
+4. **Bare-name status questions (owner edge case, screenshot 09:50).** "qual o status da
+   dalle?" reached NOTHING_BOUND: the detector demanded an entity word (empresa/obra/…) or a
+   plural subject, and "da dalle" has neither. New whole-message-anchored loose shapes in
+   `detectPortfolioQuery`, mode `rundown`:
+   - `qual (é|e|eh)? (o|a) (status|andamento|situação) (atual)? d[aeo](s)? <nome>`
+   - `como (está|estão|anda|andam) (o|a|os|as)? <nome>`
+   Guards: the existing STOP_NAMES check; the tail must not be reference-shaped (a Jira key,
+   `chamado N`, `#N`, a bare number, or a URL) so card questions keep their current path; the
+   existing anchored patterns win first (they can classify `candidates`). These shapes fire only
+   where the detector already runs (never with text a bound card owns), so the §3 safety
+   argument is unchanged — worst case is one failed search where help text stood. They also
+   serve §3a switching: "qual o status da norte?" mid-conversation switches the portfolio.
+
 ## 5a. Selection tightening (consequence of §5, controller-ruled)
 
 Once free-form text over a portfolio reaches Claude, substring-based typed selection would steal
