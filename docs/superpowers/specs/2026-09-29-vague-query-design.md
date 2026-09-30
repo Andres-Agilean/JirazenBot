@@ -166,3 +166,7 @@ persisting candidate sets beyond the binding store's lifetime.
    jiraLink/zendeskLink helpers (renderers gain cfg). Overflow moves INTO each section: a
    per-section "e mais N: <links>" line naming that section's hidden items (global display cap
    unchanged; the stale line stays card-global). The plain-text fallback mirrors all of it.
+7. **Round 5 (owner, 2026-09-30):** the display cap becomes PER SECTION (5 lines each, so a
+   two-section card is bounded at 10) — no section can starve the other; each section keeps its
+   own "e mais N" line. The "parado há mais tempo" line is also computed and rendered per
+   section, at that section's foot. The text fallback mirrors both.
