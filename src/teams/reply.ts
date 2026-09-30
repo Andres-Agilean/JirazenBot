@@ -21,7 +21,7 @@ export function zendeskLink(ticketId: string, cfg: Config): string {
 }
 
 /** The bundle's collection time as HH:mm in Brazil local time. Shared with the card header. */
-export function collectedAt(bundle: CardBundle): string {
+export function collectedAt(bundle: Pick<CardBundle, 'fetchedAt'>): string {
   return TIME_FORMAT.format(new Date(bundle.fetchedAt));
 }
 
