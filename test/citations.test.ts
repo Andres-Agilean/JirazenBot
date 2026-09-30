@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { CardBundle } from '@/bundle/types.js';
-import { compressCitations } from '@/teams/citations.js';
+import { compressCitations, stylePortfolioAnswer } from '@/teams/citations.js';
+import type { CardCandidate } from '@/teams/search.js';
+import { testConfig } from './helpers.js';
 
 describe('compressCitations', () => {
   it('shortens a jira comment citation', () => {
@@ -146,5 +148,66 @@ describe('compressCitations', () => {
     it('leaves them unchanged with a bundle whose ids collide', () => {
       expect(compressCitations(text, collidingBundle)).toBe(text);
     });
+  });
+});
+
+// Spec §14: the Claude-over-portfolio answer is styled like the deterministic cards.
+describe('stylePortfolioAnswer (spec §14)', () => {
+  const cand = (key: string, status: string, assignee?: string): CardCandidate => ({
+    ref: { system: 'jira', issueKey: key, explicit: true },
+    label: key, summary: 's', status, updatedAt: '2026-09-20T10:00:00.000Z', ...(assignee ? { assignee } : {}),
+  });
+  const set = {
+    candidates: [
+      cand('QZ-306', 'Done', 'Ana Souza'),
+      cand('QZ-308', 'Em Teste', 'João Silva'),
+      cand('QZ-400', 'Pronto (fase 2)', 'Ana (dev)'),
+    ],
+  };
+  const J = (k: string) => `[${k}](https://your-tenant.atlassian.net/browse/${k})`;
+  const Z = (id: string) => `[chamado ${id}](https://your-subdomain.zendesk.com/agent/tickets/${id})`;
+  const style = (t: string) => stylePortfolioAnswer(t, set, testConfig);
+
+  it('linkifies jira and zendesk citations as bold links', () => {
+    expect(style('veja [QZ-308] e [chamado 17063].')).toBe(`veja **${J('QZ-308')}** e **${Z('17063')}**.`);
+  });
+
+  it('a citation inside an existing bold span is linkified without nesting bold', () => {
+    const out = style('**Destaque: [QZ-308] parado**');
+    expect(out).toBe(`**Destaque: ${J('QZ-308')} parado**`);
+    expect(out).not.toContain('****');
+  });
+
+  it('leaves non-candidate brackets and existing links alone', () => {
+    expect(style('[foo X] e [outro] e [QZ-1](http://x)')).toBe('[foo X] e [outro] e [QZ-1](http://x)');
+  });
+
+  it('bolds statuses and assignees from the set outside bold spans, never inside link text', () => {
+    expect(style('[QZ-306] Done com Ana Souza')).toBe(`**${J('QZ-306')}** **Done** com **Ana Souza**`);
+  });
+
+  it('leaves a known string inside an existing bold span alone', () => {
+    expect(style('**Done** e Done')).toBe('**Done** e **Done**');
+  });
+
+  it('respects word boundaries', () => {
+    expect(style('Undone e Doner')).toBe('Undone e Doner');
+  });
+
+  it('escapes regex metacharacters in statuses and assignees', () => {
+    expect(style('Pronto (fase 2) por Ana (dev).')).toBe('**Pronto (fase 2)** por **Ana (dev)**.');
+  });
+
+  it('prefers the longest known string', () => {
+    const s = { candidates: [cand('A-1', 'Em', 'x'), cand('A-2', 'Em Teste')] };
+    expect(stylePortfolioAnswer('Em Teste', s, testConfig)).toBe('**Em Teste**');
+  });
+
+  it('runs the [estatísticas] strip first', () => {
+    expect(style('são 5 [estatísticas].')).toBe('são 5.');
+  });
+
+  it('uses only the stored set: no set vocabulary means no bolding', () => {
+    expect(stylePortfolioAnswer('Done e Em Teste', { candidates: [] }, testConfig)).toBe('Done e Em Teste');
   });
 });

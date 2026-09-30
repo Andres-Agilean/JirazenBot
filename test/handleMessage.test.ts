@@ -1357,6 +1357,19 @@ describe('busca de portfólio', () => {
       expect(body).not.toContain('comentário jira');
     });
 
+    it('spec §14: the card body and fallback are styled (bold link, bold status); history keeps the raw answer', async () => {
+      const { deps } = portfolioDeps();
+      await handleMessage(dm('buscar norte'), deps);
+      const raw = 'O [AGL-11] está Em Teste.';
+      deps.answerPortfolioFn = async () => ({ text: raw, model: 'm', usage });
+      const reply = (await handleMessage(dm('e o telhado?'), deps))[0];
+      if (reply.kind !== 'card') throw new Error('unreachable');
+      const link = '**[AGL-11](https://your-tenant.atlassian.net/browse/AGL-11)**';
+      expect(reply.fallbackText).toContain(`O ${link} está **Em Teste**.`);
+      expect(JSON.stringify(reply.card)).toContain(`O ${link} está **Em Teste**.`);
+      expect((await deps.candidates.get(shared))!.history.at(-1)).toEqual({ role: 'assistant', text: raw });
+    });
+
     it('"todos os de zendesk" and "mostra tudo" expand; the OTHER section stays capped', async () => {
       const jira = Array.from({ length: SECTION_LINE_CAP + 2 }, (_, i) => jiraCard(`AGL-${100 + i}`, `J${i}`));
       const zen = Array.from({ length: SECTION_LINE_CAP + 2 }, (_, i): CardCandidate => ({

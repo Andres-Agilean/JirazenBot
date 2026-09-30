@@ -9,7 +9,7 @@ import { DEFAULT_SUMMARY_QUESTION, MAX_HISTORY_TURNS } from '@/claude/prompt.js'
 import { splitReferenceAndQuestion, isWholeMessageReference } from '../../scripts/splitReference.js';
 import { isBundleStale, type Binding, type BindingStore, type Slot } from './bindings.js';
 import { buildAnswerCard } from './cards.js';
-import { compressCitations } from './citations.js';
+import { compressCitations, stylePortfolioAnswer } from './citations.js';
 import { matchCandidate, type CandidateSet, type CandidateStore } from './candidates.js';
 import {
   computeAggregates, parseFollowup, portfolioVocabulary, renderCounts, renderPortfolio, type Followup,
@@ -504,7 +504,7 @@ async function askPortfolio(
     await deps.candidates.set(sharedSlot, { ...live, history });
   }
 
-  const displayText = compressCitations(result.text);
+  const displayText = stylePortfolioAnswer(result.text, set, deps.cfg);
   const fallbackText = `${displayText}\n\n${portfolioFooter(set.name, set.collectedAtMs)}`;
   try {
     return { kind: 'card', card: buildPortfolioAnswerCard(set.name, displayText, set.collectedAtMs), fallbackText };

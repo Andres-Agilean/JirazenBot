@@ -1,5 +1,8 @@
 import type { CardBundle } from '@/bundle/types.js';
+import type { Config } from '@/config.js';
 import { formatDayMonthTime } from '@/text/datetime.js';
+import type { CandidateSet } from './candidates.js';
+import { jiraLink, zendeskLink } from './reply.js';
 
 /**
  * Display-time citation compression for Teams replies.
@@ -67,3 +70,55 @@ const LEADING_PUNCTUATION = /(^|\n)([ \t]*(?:\*{1,2}[ \t]*)?)[:;,][ \t]+/g;
 const STATS_LABEL_SOURCE = '\\[estat[íi]sticas\\]';
 const STATS_PHRASE = new RegExp(`,?[ \\t]*\\b(?:conforme|segundo)[ \\t]+(?:o[ \\t]+bloco[ \\t]+)?${STATS_LABEL_SOURCE}`, 'gi');
 const STATS_LABEL = new RegExp(`([ \\t]*)${STATS_LABEL_SOURCE}([ \\t]*)([.,;:!?]?)`, 'gi');
+
+/** An existing `**bold**` span, or a markdown link: pieces the styling pass must not modify. */
+const BOLD_SPAN = /(\*\*[\s\S]+?\*\*)/;
+const PROTECTED_SPAN = /(\*\*[\s\S]*?\*\*|\[[^\]]*\]\([^)]*\))/;
+/** A bracketed candidate label: a Jira key or `chamado N` (the shapes `CardCandidate.label` takes). */
+const CANDIDATE_CITATION = /\[([A-Z][A-Z0-9]*-\d+|chamado \d+)\](?!\()/g;
+const CHAMADO_PREFIX = 'chamado ';
+/** Letters and digits: a known string only matches where it is not glued to a longer word. */
+const WORD_CHAR = '[\\p{L}\\p{N}_]';
+
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** `[QZ-308]` -> `[QZ-308](jira url)`, `[chamado 17063]` -> `[chamado 17063](zendesk url)`; `wrap` adds the bold. */
+function linkifyCitations(text: string, cfg: Config, wrap: (link: string) => string): string {
+  return text.replace(CANDIDATE_CITATION, (_match, label: string) => {
+    const url = label.startsWith(CHAMADO_PREFIX)
+      ? zendeskLink(label.slice(CHAMADO_PREFIX.length), cfg)
+      : jiraLink(label, cfg);
+    return wrap(`[${label}](${url})`);
+  });
+}
+
+/** A regex matching any of the set's statuses and assignee names verbatim (longest first), or null when it has none. */
+function knownStringsPattern(candidates: CandidateSet['candidates']): RegExp | null {
+  const known = new Set(candidates.flatMap((c) => [c.status, c.assignee ?? '']).filter((s) => s.trim() !== ''));
+  if (known.size === 0) return null;
+  const alternatives = [...known].sort((a, b) => b.length - a.length).map(escapeRegExp).join('|');
+  return new RegExp(`(?<!${WORD_CHAR})(?:${alternatives})(?!${WORD_CHAR})`, 'gu');
+}
+
+/** Applies `fn` to the pieces of `text` that `separator` (one capture group) does NOT capture. */
+const mapOutside = (text: string, separator: RegExp, fn: (piece: string) => string): string =>
+  text.split(separator).map((piece, i) => (i % 2 === 1 ? piece : fn(piece))).join('');
+
+/**
+ * Display-time styling of a Claude-over-portfolio answer, so prose reads like the deterministic
+ * cards (spec §14): the `[estatísticas]` strip first (shared with `compressCitations`), candidate
+ * citations as bold links, then every status and assignee of the stored set in bold. Existing bold
+ * spans and link text are never modified, so bold never nests. History keeps the raw text.
+ */
+export function stylePortfolioAnswer(text: string, set: Pick<CandidateSet, 'candidates'>, cfg: Config): string {
+  const known = knownStringsPattern(set.candidates);
+  return compressCitations(text)
+    .split(BOLD_SPAN)
+    .map((piece, i) => {
+      // Inside a bold span a citation becomes a plain link (it inherits the outer bold).
+      if (i % 2 === 1) return linkifyCitations(piece, cfg, (link) => link);
+      const linked = linkifyCitations(piece, cfg, (link) => `**${link}**`);
+      return known ? mapOutside(linked, PROTECTED_SPAN, (part) => part.replace(known, '**$&**')) : linked;
+    })
+    .join('');
+}
