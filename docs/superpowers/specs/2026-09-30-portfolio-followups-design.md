@@ -165,8 +165,13 @@ Users hop contexts rapidly — company A → project B → follow-up on B → co
    `chamado N`, `#N`, a bare number, or a URL) so card questions keep their current path; the
    existing anchored patterns win first (they can classify `candidates`). These shapes fire only
    where the detector already runs (never with text a bound card owns), so the §3 safety
-   argument is unchanged — worst case is one failed search where help text stood. They also
-   serve §3a switching: "qual o status da norte?" mid-conversation switches the portfolio.
+   argument is unchanged — worst case is one failed search where help text stood.
+   **Final-review amendment (2026-09-30):** the loose shapes fire ONLY when no portfolio
+   context is stored. With one stored, phrases like "como estão os bloqueados?" are follow-ups
+   §3a guarantees stay on the current context, and letting a loose shape search would replace
+   the context with a junk set (last-search-wins + history reset). Mid-conversation switching
+   remains available through the anchored shapes ("empresa norte", plural anchors) and `buscar`;
+   the loose shapes serve the cold-start state the owner's screenshot showed.
 
 ## 5a. Selection tightening (consequence of §5, controller-ruled)
 
