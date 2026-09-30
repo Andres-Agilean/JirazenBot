@@ -1,3 +1,4 @@
+import { CARD_FETCH_CAP } from '@/fetch/zendesk.js';
 import { CACHE_CONTROL, MAX_HISTORY_TURNS } from './prompt.js';
 import type { Turn } from './types.js';
 
@@ -10,7 +11,7 @@ Regras de fundamentação:
 - Ao afirmar algo sobre uma atividade específica, cite o rótulo exato dela entre colchetes — [QZ-306], [chamado 17063].
 - O contexto tem UMA LINHA por atividade — não há descrições, comentários nem histórico. Se a pergunta pede detalhes que não estão na linha, diga isso e aponte o card: "abra [QZ-306] para os detalhes — pergunte por ele aqui".
 - Nunca invente datas, responsáveis, prazos ou causas. Não aproxime.
-- Se o total estiver marcado como "25+", diga que a lista mostra as mais recentes e pode haver mais.
+- Se o total estiver marcado como "${CARD_FETCH_CAP}+", diga que a lista mostra as mais recentes e pode haver mais.
 
 Formato:
 - Responda sempre em português do Brasil (pt-BR).

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAX_HISTORY_TURNS } from '@/claude/prompt.js';
 import { PORTFOLIO_SYSTEM_PROMPT, buildPortfolioMessages } from '@/claude/portfolioPrompt.js';
 import type { Turn } from '@/claude/types.js';
+import { CARD_FETCH_CAP } from '@/fetch/zendesk.js';
 
 const RENDERED = '[estatísticas]\ntotal: 3\n[atividades]\nQZ-306 | Em Teste';
 
@@ -12,7 +13,7 @@ describe('PORTFOLIO_SYSTEM_PROMPT', () => {
     expect(PORTFOLIO_SYSTEM_PROMPT).toContain('NUNCA calcule');
     expect(PORTFOLIO_SYSTEM_PROMPT).toContain('[QZ-306]');
     expect(PORTFOLIO_SYSTEM_PROMPT).toContain('[chamado 17063]');
-    expect(PORTFOLIO_SYSTEM_PROMPT).toContain('"25+"');
+    expect(PORTFOLIO_SYSTEM_PROMPT).toContain(`"${CARD_FETCH_CAP}+"`);
     expect(PORTFOLIO_SYSTEM_PROMPT).toMatch(/pt-BR/);
   });
 
