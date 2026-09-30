@@ -94,6 +94,37 @@ describe('detectPortfolioQuery', () => {
   });
 });
 
+describe('detectPortfolioQuery loose bare-name shapes (spec §10.4)', () => {
+  it.each([
+    ['qual o status da dalle?', 'dalle'],
+    ['qual é o status da Dalle?', 'Dalle'],
+    ['qual a situação do Jardins de Potengi?', 'Jardins de Potengi'],
+    ['qual o andamento da norte construtora?', 'norte construtora'],
+    ['como está a dalle?', 'dalle'],
+    ['como anda a Dalle?', 'Dalle'],
+    ['como estão os Jardins de Potengi', 'Jardins de Potengi'],
+  ])('detects %s as a rundown', (text, name) => {
+    expect(detectPortfolioQuery(text)).toEqual({ name, mode: 'rundown' });
+  });
+
+  it.each([
+    'qual o status?',
+    'qual o status do QZ-252?',
+    'qual o status do chamado 16467?',
+    'qual o status do #16467?',
+    'qual o status do 16467?',
+    'qual o status do https://x.zendesk.com/agent/tickets/1?',
+    'como está atrasada a obra?',
+    'me diga qual o status da dalle',
+  ])('returns null for %s', (text) => {
+    expect(detectPortfolioQuery(text)).toBeNull();
+  });
+
+  it('anchored patterns still win over the loose shapes', () => {
+    expect(detectPortfolioQuery('qual o status da empresa dalle?')).toEqual({ name: 'dalle', mode: 'rundown' });
+  });
+});
+
 describe('parseBuscar', () => {
   it('extracts the name from "buscar <nome>"', () => {
     expect(parseBuscar('buscar Norte Construtora')).toBe('Norte Construtora');

@@ -26,7 +26,25 @@ const PLURAL_KIND = /\b(?:cards|atividades|chamados|tickets|pendencias|demandas)
 
 const NAME_AFTER_PLURAL = new RegExp(`${PLURAL_KIND.source}\\s+(.+)$`);
 const NAME_AFTER_KIND =new RegExp(`${KIND.source}\\s+(.+)$`);
-const BUSCAR_PATTERN = new RegExp(`^${BUSCAR_COMMAND}\\s+(.+)$`);
+
+/**
+ * Whole-message bare-name shapes, matched on folded text (spec §10.4): "qual o status da X",
+ * "como está a X". Group 1 is always the name tail.
+ */
+const LOOSE_SHAPES: readonly RegExp[] = [
+  /^qual\s+(?:(?:e|eh)\s+)?(?:o|a)\s+(?:status|andamento|situacao)\s+(?:atual\s+)?d[aeo]s?\s+(.+)$/,
+  /^como\s+(?:esta|estao|anda|andam)\s+(?:(?:o|a|os|as)\s+)?(.+)$/,
+];
+/** Normalized tails that point at one specific card, so the loose shapes must leave them alone. */
+const REFERENCE_SHAPED: readonly RegExp[] = [
+  /^[a-z][a-z0-9]*-\d+$/, // Jira key
+  /^chamado\s+\d+$/,
+  /^#\d+$/,
+  /^\d+$/,
+  /http/,
+];
+
+const BUSCAR_PATTERN =new RegExp(`^${BUSCAR_COMMAND}\\s+(.+)$`);
 
 /**
  * `text` (NFC, so composed accents are one code unit) with its normalized twin plus, for every
@@ -65,18 +83,33 @@ export function detectPortfolioQuery(text: string): PortfolioQuery | null {
 
   // Singular anchors win: "os cards da obra X" is about the obra.
   const singular = NAME_AFTER_KIND.exec(fold.folded);
-  const m = singular ?? NAME_AFTER_PLURAL.exec(fold.folded);
+  const anchored = singular ?? NAME_AFTER_PLURAL.exec(fold.folded);
+  // The loose bare-name shapes run only when no anchored pattern found anything (spec §10.4).
+  const loose = anchored ? null : firstMatch(LOOSE_SHAPES, fold.folded);
+  const m = anchored ?? loose;
   if (!m) return null;
   const tail = m[1];
-  const nameStart = m.index + m[0].length - tail.length + CONNECTIVE.exec(tail)![0].length;
+  const connectiveLength = anchored ? CONNECTIVE.exec(tail)![0].length : 0;
+  const nameStart = m.index + m[0].length - tail.length + connectiveLength;
   const name = nameFrom(fold, nameStart);
   if (name === '') return null;
 
   // Reject if the name starts with a stop word (e.g., "atrasou muito" → reject).
-  const firstWord = normalizeText(name).split(/\s+/)[0];
+  const normalizedName = normalizeText(name);
+  const firstWord = normalizedName.split(/\s+/)[0];
   if (STOP_NAMES.has(firstWord)) return null;
+  // A loose shape must not swallow a question about one specific card.
+  if (loose && REFERENCE_SHAPED.some((shape) => shape.test(normalizedName))) return null;
 
   return { name, mode: singular && CARD_SHAPE.test(fold.folded) ? 'candidates' : 'rundown' };
+}
+
+function firstMatch(patterns: readonly RegExp[], text: string): RegExpExecArray | null {
+  for (const pattern of patterns) {
+    const m = pattern.exec(text);
+    if (m) return m;
+  }
+  return null;
 }
 
 /** `buscar <nome>` → the name as typed; anything else → null. */
