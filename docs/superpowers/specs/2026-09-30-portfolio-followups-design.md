@@ -258,6 +258,25 @@ Three connected findings from the live session:
   (`[QZ-306]`, `[chamado 17063]`) keep passing through unharmed. Prompt and eval untouched:
   the model keeps emitting the label (mustCite matches raw output); only display changes.
 
+## 14. Addendum — Claude portfolio answers styled like the cards (owner, 2026-09-30)
+
+The Claude-over-portfolio answer rendered as flat prose next to the styled deterministic cards:
+citations unlinked, statuses uncolored, names not standing out. Display-time styling pass
+(`stylePortfolioAnswer(text, set, cfg)`), applied to the card body and fallback; history keeps
+the RAW model text (existing invariant):
+
+1. The `[estatísticas]` strip (§13) runs first.
+2. **Citations become bold links**, matching the rundown convention: `[QZ-308]` →
+   `**[QZ-308](jira url)**`; `[chamado 17063]` → `**[chamado 17063](zendesk url)**`. Only
+   labels matching the candidate label shapes (Jira key / `chamado N`) are linkified — the URL
+   is derived from the label itself via the existing link helpers.
+3. **Known strings from the stored set are bolded**: every distinct status verbatim and every
+   assignee full name (the prompt mandates verbatim quoting, so exact match is reliable).
+   Applied only OUTSIDE existing `**` spans — never nest bold. Word-boundary, escaped for regex.
+4. **Inline color is out of scope by platform constraint**: a TextBlock is one markdown run and
+   Teams markdown has no color. Color remains the deterministic cards' job; the styled bold/link
+   pass is the parity ceiling for prose.
+
 ## 12. Addendum — help-text rendering fixes (owner screenshots, 2026-09-30)
 
 `buscar <nome>` rendered as literal `&lt;nome&gt;` in Teams, and the **Comandos** lines collapse
