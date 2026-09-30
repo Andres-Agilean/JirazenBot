@@ -80,9 +80,6 @@ export const SEARCH_NONE = (name: string) =>
 
 export const SEARCH_UNAVAILABLE = 'Não consegui buscar agora. Tente novamente em instantes.';
 
-export const SELECTION_AMBIGUOUS =
-  'Mais de um card corresponde — seja mais específico ou toque no botão do card desejado.';
-
 /** A select button whose payload is malformed (should not happen; never a silent drop). */
 export const SELECTION_INVALID = 'Não reconheci a seleção. Envie a chave do card (ex.: QZ-252).';
 
@@ -360,7 +357,14 @@ async function offerCandidates(
   sharedSlot: Slot,
   deps: HandleDeps,
 ): Promise<Reply> {
-  await deps.candidates.set(sharedSlot, { name, candidates: cards, createdAt: deps.now() });
+  await deps.candidates.set(sharedSlot, {
+    name,
+    candidates: cards,
+    createdAt: deps.now(),
+    total,
+    collectedAtMs: deps.now(),
+    history: [],
+  });
   const rundown = renderRundown(name, cards, total, deps.now(), deps.cfg);
   const card = mode === 'rundown'
     ? buildRundownCard(name, cards, total, deps.now(), deps.cfg)
@@ -441,14 +445,12 @@ export async function handleMessage(
     return [await ask(bound.binding, question, targetSlot, surface, deps)];
   }
 
-  // 3b. Typed selection from a listed candidate set. Only a real match acts; no match falls
-  // through untouched so a bound conversation's question still reaches the card. With a card
-  // bound, only an exact label selects (a loose match would hijack ordinary questions such as
-  // "sim"), and an unclear match is a question, never SELECTION_AMBIGUOUS.
+  // 3b. Typed selection from a listed candidate set. Only an exact label match acts; no match
+  // falls through to Q&A or the bound card (spec §5a). Exact-label-only prevents hijacking
+  // ordinary questions ("sim", "obra norte").
   const candidateSet = await deps.candidates.get(sharedSlot);
   if (candidateSet) {
-    const picked = matchCandidate(text, candidateSet, { exactOnly: existing !== undefined });
-    if (picked === 'ambiguous') return [{ kind: 'text', text: SELECTION_AMBIGUOUS }];
+    const picked = matchCandidate(text, candidateSet);
     if (picked) {
       return [await selectCard(picked.ref, sharedSlot, personalSlot, surface, deps)];
     }

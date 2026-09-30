@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   handleMessage, handleRefresh, handleSelect, JIRA_UNAVAILABLE, NOT_SPLIT, NO_THREAD_TO_REJOIN, NOTHING_BOUND,
-  SEARCH_NONE, SEARCH_UNAVAILABLE, SELECTION_AMBIGUOUS, SELECTION_INVALID, HELP_TEXT,
+  SEARCH_NONE, SEARCH_UNAVAILABLE, SELECTION_INVALID, HELP_TEXT,
   type HandleDeps, type Incoming,
 } from '@/teams/handleMessage.js';
 import { InMemoryCandidateStore } from '@/teams/candidates.js';
@@ -779,22 +779,24 @@ describe('busca de portfólio', () => {
     expect((await deps.candidates.get(shared))?.candidates).toHaveLength(2);
   });
 
-  it('typed selection binds, clears the set and answers the summary', async () => {
+  it('exact label selection binds, clears the set and answers the summary (spec §5a)', async () => {
     const { deps, loaded, answered } = withSearch(cardsOutcome(two));
     await handleMessage(dm('buscar norte'), deps);
-    const replies = await handleMessage(dm('reforma'), deps);
+    const replies = await handleMessage(dm('AGL-11'), deps);
     expect(loaded).toEqual([{ system: 'jira', issueKey: 'AGL-11', explicit: true }]);
     expect(answered).toHaveLength(1);
     expect(textOf(replies[0])).toContain('resposta para:');
     expect(await deps.candidates.get(shared)).toBeUndefined();
   });
 
-  it('ambiguous typed selection replies SELECTION_AMBIGUOUS', async () => {
-    const { deps, loaded } = withSearch(cardsOutcome([jiraCard('AGL-11', 'Obra norte fase 1'), jiraCard('AGL-12', 'Obra norte fase 2')]));
+  it('substring text falls through; portfolio queries trigger search (spec §5a)', async () => {
+    const { deps, searched } = withSearch(cardsOutcome([jiraCard('AGL-11', 'Obra norte fase 1'), jiraCard('AGL-12', 'Obra norte fase 2')]));
     await handleMessage(dm('buscar norte'), deps);
     const replies = await handleMessage(dm('obra norte'), deps);
-    expect(textOf(replies[0])).toBe(SELECTION_AMBIGUOUS);
-    expect(loaded).toHaveLength(0);
+    // "obra norte" is a portfolio query (contains "obra" KIND), so it triggers search("norte") again
+    expect(searched).toContain('norte');
+    // Returns the rundown (since it matches the portfolio query pattern)
+    expect(textOf(replies[0])).toContain('Obra norte fase 1');
   });
 
   it('non-matching text with a set stored falls through to the bound card question', async () => {
@@ -962,14 +964,15 @@ describe('busca de portfólio', () => {
       expect(loaded).toEqual([{ system: 'jira', issueKey: 'QZ-252', explicit: true }]);
     });
 
-    it('an ambiguous substring falls through instead of replying SELECTION_AMBIGUOUS', async () => {
+    it('substring falls through to the bound card question (spec §5a)', async () => {
       const amb = [jiraCard('AGL-11', 'Obra norte fase 1'), jiraCard('AGL-12', 'Obra norte fase 2')];
       const { deps, answered } = withSearch(cardsOutcome(amb));
       await handleMessage(dm('QZ-252'), deps);
       await handleMessage(dm('buscar norte'), deps);
       const replies = await handleMessage(dm('obra norte'), deps);
+      // "obra norte" is not an exact label, so it falls through to be a question about the bound card
       expect(answered.at(-1)).toBe('obra norte');
-      expect(textOf(replies[0])).not.toBe(SELECTION_AMBIGUOUS);
+      expect(textOf(replies[0])).toContain('resposta para: obra norte');
     });
 
     it('a bare number that is a substring of a key stays a question', async () => {
@@ -989,11 +992,15 @@ describe('busca de portfólio', () => {
       expect(loaded.at(-1)).toEqual({ system: 'jira', issueKey: 'agl-12', explicit: true });
     });
 
-    it('with nothing bound, substring selection and SELECTION_AMBIGUOUS are unchanged', async () => {
-      const amb = [jiraCard('AGL-11', 'Obra norte fase 1'), jiraCard('AGL-12', 'Obra norte fase 2')];
-      const { deps } = withSearch(cardsOutcome(amb));
+    it('unbound substring no longer triggers selection; falls through (spec §5a)', async () => {
+      // List: AGL-11 with summary containing "Pintura", AGL-12 with different summary
+      const list = [jiraCard('AGL-11', 'Pintura do prédio'), jiraCard('AGL-12', 'Outro projeto')];
+      const { deps } = withSearch(cardsOutcome(list));
       await handleMessage(dm('buscar norte'), deps);
-      expect(textOf((await handleMessage(dm('obra norte'), deps))[0])).toBe(SELECTION_AMBIGUOUS);
+      // "pintura" is a substring of the summary but not an exact label match
+      // It's also not a portfolio query pattern, so it falls through to NOTHING_BOUND
+      const replies = await handleMessage(dm('pintura'), deps);
+      expect(textOf(replies[0])).toBe(NOTHING_BOUND);
     });
   });
 
