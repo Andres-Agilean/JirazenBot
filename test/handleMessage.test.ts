@@ -783,14 +783,14 @@ describe('busca de portfólio', () => {
     expect((await deps.candidates.get(shared))?.candidates).toHaveLength(2);
   });
 
-  it('exact label selection binds, clears the set and answers the summary (spec §5a)', async () => {
+  it('exact label selection binds, KEEPS the set (spec §2 "NOT cleared by a card bind") and answers the summary (spec §5a)', async () => {
     const { deps, loaded, answered } = withSearch(cardsOutcome(two));
     await handleMessage(dm('buscar norte'), deps);
     const replies = await handleMessage(dm('AGL-11'), deps);
     expect(loaded).toEqual([{ system: 'jira', issueKey: 'AGL-11', explicit: true }]);
     expect(answered).toHaveLength(1);
     expect(textOf(replies[0])).toContain('resposta para:');
-    expect(await deps.candidates.get(shared)).toBeUndefined();
+    expect((await deps.candidates.get(shared))?.candidates).toHaveLength(2);
   });
 
   it('substring text falls through; portfolio queries trigger search (spec §5a)', async () => {
@@ -812,12 +812,12 @@ describe('busca de portfólio', () => {
     expect(answered.at(-1)).toBe('qual o status atual?');
   });
 
-  it('a successful reference rebind clears a stale candidate set', async () => {
+  it('a successful reference rebind KEEPS the portfolio set (spec §2 "NOT cleared by a card bind")', async () => {
     const { deps } = withSearch(cardsOutcome(two));
     await handleMessage(dm('buscar norte'), deps);
     expect(await deps.candidates.get(shared)).toBeDefined();
     await handleMessage(dm('QZ-252'), deps);
-    expect(await deps.candidates.get(shared)).toBeUndefined();
+    expect((await deps.candidates.get(shared))?.candidates).toHaveLength(2);
   });
 
   it('a failed rebind keeps the candidate set', async () => {
@@ -878,12 +878,12 @@ describe('busca de portfólio', () => {
     expect(await deps.store.get(shared)).toBeDefined();
   });
 
-  it('handleSelect builds a zendesk ref and clears the set', async () => {
+  it('handleSelect builds a zendesk ref and KEEPS the set (spec §2 "NOT cleared by a card bind")', async () => {
     const { deps, loaded } = withSearch(cardsOutcome(two));
     await handleMessage(dm('buscar norte'), deps);
     await handleSelect(req, { system: 'zendesk', id: '16467' }, deps);
     expect(loaded).toEqual([{ system: 'zendesk', ticketId: '16467', explicit: true }]);
-    expect(await deps.candidates.get(shared)).toBeUndefined();
+    expect((await deps.candidates.get(shared))?.candidates).toHaveLength(2);
   });
 
   it('handleSelect with a garbage payload replies pt-BR and never throws', async () => {
@@ -1108,6 +1108,50 @@ describe('busca de portfólio', () => {
         await handleMessage(dm('como estao as atividades da dalle?'), deps);
         expect(searched).toEqual(['norte', 'dalle']);
         expect(calls).toHaveLength(0);
+      });
+    });
+
+    describe('portfolio and bound card coexist (spec §2/§3/§8)', () => {
+      it('with a set AND a card bound, free-form text goes to the bound card', async () => {
+        const { deps, answered, calls } = portfolioDeps();
+        await handleMessage(dm('buscar norte'), deps);
+        await handleMessage(dm('QZ-252'), deps); // bind AFTER the set: the set must survive
+        const replies = await handleMessage(dm('quem é o responsável?'), deps);
+        expect(answered.at(-1)).toBe('quem é o responsável?');
+        expect(textOf(replies[0])).toContain('resposta para: quem é o responsável?');
+        expect(calls).toHaveLength(0);
+      });
+
+      it('"quantos abertos?" still answers from the portfolio after a bind', async () => {
+        const { deps, answered, calls } = portfolioDeps();
+        await handleMessage(dm('buscar norte'), deps);
+        await handleMessage(dm('QZ-252'), deps);
+        const asked = answered.length;
+        const replies = await handleMessage(dm('quantos abertos?'), deps);
+        expect(textOf(replies[0])).toContain('2 abertos');
+        expect(answered).toHaveLength(asked);
+        expect(calls).toHaveLength(0);
+      });
+
+      it('"todos os de jira" renders the expand card after a bind', async () => {
+        const { deps, answered } = portfolioDeps();
+        await handleMessage(dm('buscar norte'), deps);
+        await handleMessage(dm('QZ-252'), deps);
+        const asked = answered.length;
+        const replies = await handleMessage(dm('todos os de jira'), deps);
+        expect(replies[0].kind).toBe('card');
+        expect(textOf(replies[0])).toContain('AGL-11');
+        expect(answered).toHaveLength(asked);
+      });
+
+      it('typed EXACT labels still rebind with a set stored and a card bound', async () => {
+        const { deps, loaded } = portfolioDeps();
+        await handleMessage(dm('QZ-252'), deps);
+        await handleMessage(dm('buscar norte'), deps);
+        await handleMessage(dm('AGL-12'), deps);
+        expect(loaded.at(-1)).toEqual({ system: 'jira', issueKey: 'AGL-12', explicit: true });
+        expect(((await deps.store.get(shared))?.ref as { issueKey: string }).issueKey).toBe('AGL-12');
+        expect(await deps.candidates.get(shared)).toBeDefined();
       });
     });
 

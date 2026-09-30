@@ -299,8 +299,8 @@ async function resolveSlots(
 
 /**
  * Binds a picked/searched card to the room's shared slot and answers the default summary. The
- * candidate set and the sender's personal split are cleared only once the bind SUCCEEDED, so a
- * failed load leaves the list on screen usable (same rule as the whole-message rebind above).
+ * sender's personal split is cleared only once the bind SUCCEEDED. The candidate set is kept
+ * (spec §2: the portfolio context and a bound card coexist).
  */
 async function selectCard(
   ref: CardRef,
@@ -312,7 +312,6 @@ async function selectCard(
   const bound = await bind(ref, sharedSlot, surface, deps);
   if ('error' in bound) return { kind: 'text', text: bound.error };
   await deps.store.delete(personalSlot);
-  await deps.candidates.delete(sharedSlot);
   return ask(bound.binding, DEFAULT_SUMMARY_QUESTION, sharedSlot, surface, deps);
 }
 
@@ -513,8 +512,7 @@ export async function handleMessage(
     // leaves the sender's next question answered against the room's card instead
     // (review finding: Important 1).
     if (wholeMessage) await deps.store.delete(personalSlot);
-    // A successful rebind makes any listed candidates stale; they must not intercept later text.
-    await deps.candidates.delete(sharedSlot);
+    // The portfolio context is NOT cleared by a card bind (spec §2): the two coexist.
     const question = split?.question ?? DEFAULT_SUMMARY_QUESTION;
     return [await ask(bound.binding, question, targetSlot, surface, deps)];
   }
