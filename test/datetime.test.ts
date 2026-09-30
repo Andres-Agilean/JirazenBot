@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDate, formatDateTime } from '@/text/datetime.js';
+import { formatDate, formatDateTime, formatDayMonthTime } from '@/text/datetime.js';
 
 describe('formatDateTime', () => {
   it('converts a UTC instant to Brazil local time', () => {
@@ -39,5 +39,20 @@ describe('formatDate', () => {
 
   it('returns unparseable input unchanged', () => {
     expect(formatDate('sem data')).toBe('sem data');
+  });
+});
+
+describe('formatDayMonthTime', () => {
+  it('renders DD/MM HH:mm in Brazil local time', () => {
+    expect(formatDayMonthTime('2026-08-11T17:34:00Z')).toBe('11/08 14:34');
+  });
+
+  it('crosses midnight backwards for a UTC instant early in the next day', () => {
+    expect(formatDayMonthTime('2026-08-12T01:30:00Z')).toBe('11/08 22:30');
+  });
+
+  it('returns unparseable input unchanged', () => {
+    expect(formatDayMonthTime('nao-e-data')).toBe('nao-e-data');
+    expect(formatDayMonthTime('')).toBe('');
   });
 });

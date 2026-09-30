@@ -24,6 +24,14 @@ const DATE_FORMAT = new Intl.DateTimeFormat('pt-BR', {
   timeZone: DISPLAY_TIMEZONE,
 });
 
+const DAY_MONTH_TIME_FORMAT = new Intl.DateTimeFormat('pt-BR', {
+  day: '2-digit',
+  month: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: DISPLAY_TIMEZONE,
+});
+
 /** True for a date-only value like Jira's `duedate` ("2026-08-14"), which has no time to shift. */
 function isDateOnly(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -49,6 +57,16 @@ export function formatDateTime(value: string): string {
   // reads better inline in a bundle field or a card subtitle. The locale is pinned above, so
   // this is not guessing at some other locale's separator.
   return DATE_TIME_FORMAT.format(parsed).replace(', ', ' ');
+}
+
+/**
+ * Compact `DD/MM HH:mm` in Brazil local time (e.g. `11/08 14:34`), for citation labels where the
+ * year is noise. Returns the input unchanged when it cannot be parsed.
+ */
+export function formatDayMonthTime(value: string): string {
+  const parsed = new Date(value);
+  if (value === '' || Number.isNaN(parsed.getTime())) return value;
+  return DAY_MONTH_TIME_FORMAT.format(parsed).replace(', ', ' ');
 }
 
 /** Date without the time, in Brazil local time. Used where a time would be noise. */

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { CardBundle } from '@/bundle/types.js';
 import { compressCitations } from '@/teams/citations.js';
 
 describe('compressCitations', () => {
@@ -25,6 +26,44 @@ describe('compressCitations', () => {
     expect(
       compressCitations('Falhou [comentário jira 11] e o cliente confirmou [comentário zendesk 40123456789] [campo Status].'),
     ).toBe('Falhou [jira 11] e o cliente confirmou [zendesk …6789] [Status].');
+  });
+
+  describe('with a bundle', () => {
+    const bundle = {
+      fetchedAt: '2026-08-14T17:32:00.000Z',
+      surface: 'dm',
+      jira: {
+        issueId: '1', issueKey: 'QZ-1', fields: {}, statusHistory: [],
+        comments: [{ id: '41713', author: 'a', createdAt: '2026-08-11T17:34:00Z', body: 'x' }],
+      },
+      zendesk: {
+        ticketId: '9', subject: 's', status: 'open', priority: null, createdAt: '', updatedAt: '',
+        internalNotesOmitted: false,
+        comments: [{ id: 40123456789, author: 'b', isPublic: false, createdAt: '2026-08-14T14:52:00Z', body: 'y' }],
+      },
+      resolution: { via: 'direct_only', ambiguous: false },
+      truncationNotes: [],
+    } as CardBundle;
+
+    it('renders a known jira comment as its timestamp', () => {
+      expect(compressCitations('[comentário jira 41713]', bundle)).toBe('[jira 11/08 14:34]');
+    });
+
+    it('renders a known zendesk comment (numeric id) as its timestamp', () => {
+      expect(compressCitations('[comentário zendesk 40123456789]', bundle)).toBe('[zendesk 14/08 11:52]');
+    });
+
+    it('falls back to the id forms for ids not in the bundle', () => {
+      expect(compressCitations('[comentário jira 99999] [comentário zendesk 40999999999]', bundle)).toBe(
+        '[jira 99999] [zendesk …9999]',
+      );
+    });
+
+    it('is idempotent with timestamps', () => {
+      const once = compressCitations('[comentário jira 41713] [comentário zendesk 40123456789] [campo Status]', bundle);
+      expect(once).toBe('[jira 11/08 14:34] [zendesk 14/08 11:52] [Status]');
+      expect(compressCitations(once, bundle)).toBe(once);
+    });
   });
 
   it('is idempotent', () => {

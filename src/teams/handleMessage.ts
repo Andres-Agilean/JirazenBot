@@ -186,7 +186,7 @@ async function ask(
 
   // Citations are compressed here, at the single display seam, for card body and fallback alike;
   // history above keeps the model's raw text.
-  const displayText = compressCitations(result.text);
+  const displayText = compressCitations(result.text, binding.bundle);
   const text = withFooter(displayText, binding, deps.cfg);
   // The personal marker exists so a channel/group-chat reader can see an answer is off the
   // thread's card (spec §4/§5). In a DM there is no thread and no other reader, so a personal
