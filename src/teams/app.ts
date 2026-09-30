@@ -137,14 +137,37 @@ export const UNKNOWN_INVOKE_ACTION_REPLY =
   + 'e a seleção de card dos resultados de busca.';
 
 /**
+ * Executes a card-action handler with per-conversation serialization and never-silent error handling.
+ * Shared by Refresh and Select invoke handlers to avoid duplicating the try/catch + runExclusive +
+ * sendReplies pattern.
+ */
+async function runCardReplies(
+  send: SendFn,
+  conversationId: string,
+  fn: () => Promise<Reply[]>,
+): Promise<void> {
+  let replies: Reply[];
+  try {
+    // Per-conversation serialization: button presses and concurrent text messages must not race
+    // on the same binding slot (review findings: Important 1 & 2).
+    replies = await runExclusive(conversationId, fn);
+  } catch (err) {
+    // The handler already converts expected failures into pt-BR replies; reaching here means
+    // an unexpected bug. The user gets an apology, the detail goes to the server log.
+    console.error('Erro inesperado no card-action:', err);
+    replies = [{ kind: 'text', text: UNEXPECTED_ERROR_REPLY }];
+  }
+
+  await sendReplies(send, replies);
+}
+
+/**
  * The testable core of the Refresh and Select invoke handlers (spec §6): mirrors handleActivity's
- * never-goes-silent guarantee (spec §8) for the button path. Without this, an unexpected
- * failure inside handleRefresh or handleSelect (e.g. the store rejecting) would leave the invoke callback
- * rejecting -- nothing sent, no apology, and the user pressing a button into silence.
+ * never-goes-silent guarantee (spec §8) for the button path. Routes on the verb extracted from the
+ * invoke activity; the verb check itself is covered by this file's offline tests rather than living
+ * un-testably inside the SDK callback (review finding: Minor 5).
  *
- * `verb` and `data` are read off the invoke activity by the caller (createTeamsApp) and routed here so the
- * verb check itself is covered by this file's offline tests rather than living un-testably inside
- * the SDK callback (review finding: Minor 5).
+ * `data` carries the action payload (e.g. the selected card's system and id); handleSelect validates it.
  */
 export async function handleCardAction(
   send: SendFn,
@@ -156,34 +179,14 @@ export async function handleCardAction(
   deps: HandleDeps,
 ): Promise<void> {
   if (verb === REFRESH_ACTION) {
-    let replies: Reply[];
-    try {
-      // Same per-conversation serialization as handleActivity, and for the same reason: the
-      // Refresh button and a concurrent text message must not race on the same binding slot.
-      replies = await runExclusive(conversationId, () =>
-        handleRefresh({ conversationId, conversationType, userId }, deps));
-    } catch (err) {
-      // handleRefresh already converts expected failures into pt-BR replies; reaching here means
-      // an unexpected bug. The user gets an apology, the detail goes to the server log.
-      console.error('handleRefresh falhou:', err);
-      replies = [{ kind: 'text', text: UNEXPECTED_ERROR_REPLY }];
-    }
-
-    await sendReplies(send, replies);
+    await runCardReplies(send, conversationId, () =>
+      handleRefresh({ conversationId, conversationType, userId }, deps));
     return;
   }
 
   if (verb === SELECT_ACTION) {
-    let replies: Reply[];
-    try {
-      replies = await runExclusive(conversationId, () =>
-        handleSelect({ conversationId, conversationType, userId }, data as { system?: string; id?: string }, deps));
-    } catch (err) {
-      console.error('handleSelect falhou:', err);
-      replies = [{ kind: 'text', text: UNEXPECTED_ERROR_REPLY }];
-    }
-
-    await sendReplies(send, replies);
+    await runCardReplies(send, conversationId, () =>
+      handleSelect({ conversationId, conversationType, userId }, data, deps));
     return;
   }
 
@@ -254,10 +257,10 @@ export function createTeamsApp(deps: HandleDeps, authMode: AuthMode): App {
     );
   });
 
-  // The Refresh button on an answer card (spec §6). CARD_ACTION_ROUTE is confirmed against the
-  // installed SDK (@microsoft/teams.apps 2.0.15): router.js dispatches ANY Action.Execute invoke
-  // to this route name regardless of the pressed button's `verb` -- this is not the brief's
-  // unverified guess, it is what the package actually does.
+  // Card action buttons (spec §6): Refresh button on answer cards and select buttons on candidate
+  // cards. CARD_ACTION_ROUTE is confirmed against the installed SDK (@microsoft/teams.apps 2.0.15):
+  // router.js dispatches ANY Action.Execute invoke to this route name regardless of the pressed
+  // button's `verb` -- this is not the brief's unverified guess, it is what the package actually does.
   app.on(CARD_ACTION_ROUTE, async ({ send, activity }) => {
     // The invoke's verb and data live at value.action.verb and value.action.data (AdaptiveCardInvokeValue.action
     // per @microsoft/teams.api) -- this route previously never read the verb at all (review finding:

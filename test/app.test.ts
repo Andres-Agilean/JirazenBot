@@ -277,8 +277,12 @@ describe('handleCardAction: routes on the invoke verb (spec §7, review finding:
       issueKey: 'AGL-900',
       explicit: true,
     });
-    // Should send a reply (either text or card)
-    expect(sent.length).toBeGreaterThan(0);
+    // Should send a reply (either text or card), not an error message
+    expect(sent).toHaveLength(1);
+    const reply = sent[0];
+    const isCard = typeof reply === 'object' && reply !== null && 'attachments' in reply;
+    const isNonErrorText = typeof reply === 'string' && !reply.includes('deu errado');
+    expect(isCard || isNonErrorText).toBe(true);
   });
 
   it('replies with SELECTION_INVALID when SELECT_ACTION has garbage payload', async () => {
@@ -289,6 +293,34 @@ describe('handleCardAction: routes on the invoke verb (spec §7, review finding:
       async (a) => { sent.push(a); return undefined; },
       SELECT_ACTION,
       { system: 'invalid', id: '' },
+      'c', 'personal', 'u', deps,
+    );
+
+    expect(sent).toEqual([SELECTION_INVALID]);
+  });
+
+  it('replies with SELECTION_INVALID when SELECT_ACTION payload is undefined', async () => {
+    const sent: unknown[] = [];
+    const deps = makeDeps();
+
+    await handleCardAction(
+      async (a) => { sent.push(a); return undefined; },
+      SELECT_ACTION,
+      undefined,
+      'c', 'personal', 'u', deps,
+    );
+
+    expect(sent).toEqual([SELECTION_INVALID]);
+  });
+
+  it('replies with SELECTION_INVALID when SELECT_ACTION payload is null', async () => {
+    const sent: unknown[] = [];
+    const deps = makeDeps();
+
+    await handleCardAction(
+      async (a) => { sent.push(a); return undefined; },
+      SELECT_ACTION,
+      null,
       'c', 'personal', 'u', deps,
     );
 

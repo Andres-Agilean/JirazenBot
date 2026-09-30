@@ -464,10 +464,14 @@ export async function handleMessage(
  */
 export async function handleSelect(
   incoming: RefreshRequest,
-  data: { system?: string; id?: string },
+  data: unknown,
   deps: HandleDeps,
 ): Promise<Reply[]> {
-  const { system, id } = data;
+  // Guard against undefined, null, or non-object payloads (should not happen, never a silent drop).
+  if (typeof data !== 'object' || data === null) {
+    return [{ kind: 'text', text: SELECTION_INVALID }];
+  }
+  const { system, id } = data as { system?: string; id?: string };
   if ((system !== 'jira' && system !== 'zendesk') || typeof id !== 'string' || id.trim() === '') {
     return [{ kind: 'text', text: SELECTION_INVALID }];
   }
