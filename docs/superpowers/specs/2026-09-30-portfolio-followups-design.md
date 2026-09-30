@@ -128,3 +128,11 @@ Users hop contexts rapidly — company A → project B → follow-up on B → co
   makes back-and-forth switches free, and beyond it the §6a budget (≤3 GETs) keeps them cheap.
   No multi-context store — sequential replacement covers the flow.
 - Bound-card precedence is unaffected: all of this lives in the no-card-bound path.
+
+## 5a. Selection tightening (consequence of §5, controller-ruled)
+
+Once free-form text over a portfolio reaches Claude, substring-based typed selection would steal
+questions ("o que está bloqueado?" matching a summary). Typed selection therefore becomes
+exact-label-only in ALL states (the vague-query behavior where nothing consumed unbound text no
+longer exists); ambiguity never blocks — unmatched text falls through to Q&A or the bound card.
+Every candidate stays reachable: buttons, exact labels, and Jira/chamado keys.
