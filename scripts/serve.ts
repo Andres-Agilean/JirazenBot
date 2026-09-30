@@ -29,7 +29,8 @@ try {
 
 const client = createAnthropicClient(cfg);
 
-// Shared read-only clients, built once and reused by both bundle loading and search paths.
+// Shared read-only clients, built once and reused by both loadCardBundleWithClients and
+// searchCache.run paths (CLAUDE.md rule 6).
 const jira = new JiraClient(cfg);
 const zendesk = new ZendeskClient(cfg);
 

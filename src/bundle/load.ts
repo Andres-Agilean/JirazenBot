@@ -24,22 +24,29 @@ export function buildResolver(cfg: Config, jira: JiraClient): Resolver {
  * reuse it for follow-up questions via buildMessages() (src/claude/prompt.ts), rather than
  * calling this again per message. Its `fetched_at` is baked into the cached prompt prefix, so a
  * fresh call per turn changes that prefix, busts the prompt cache, and re-triggers a full
- * Jira+Zendesk refetch on every question (spec §4).
+ * Jira+Zendesk refetch on every question (CLAUDE.md rule 6 / Phase 3 spec §4).
  */
 export function loadCardBundle(
   ref: CardRef,
   cfg: Config,
   surface: Surface,
 ): Promise<AssembleResult> {
-  const jira = new JiraClient(cfg);
-  const zendesk = new ZendeskClient(cfg);
-  const resolver = buildResolver(cfg, jira);
-  return assembleBundle(ref, { jira, zendesk, resolver }, surface, undefined, cfg.bundleTokenBudget);
+  return loadCardBundleWithClients(
+    ref,
+    cfg,
+    surface,
+    new JiraClient(cfg),
+    new ZendeskClient(cfg),
+  );
 }
 
 /**
  * Variant of loadCardBundle that accepts pre-constructed clients for callers that need to share
- * them (e.g., serve.ts sharing clients between loadCardBundle and searchPortfolio).
+ * them (e.g., serve.ts sharing clients between bundle loading and searchPortfolio).
+ *
+ * Same contract as loadCardBundle: assemble once per binding/conversation and reuse across
+ * turns — `fetched_at` is baked into the cached prompt prefix, so re-assembling per message
+ * busts the prompt cache and refetches both tenants (CLAUDE.md rule 6 / Phase 3 spec §4).
  */
 export function loadCardBundleWithClients(
   ref: CardRef,
